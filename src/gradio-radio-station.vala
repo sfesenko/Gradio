@@ -39,6 +39,7 @@ namespace Gradio{
 		private Thumbnail _thumbnail;
 		private string _primary_text;
 		private string _secondary_text;
+		private string _stream_uri;
 
 		public string title {
 			get{return _title;}
@@ -210,7 +211,7 @@ namespace Gradio{
 			_title = radio_station_data.get_string_member("name");
 			_homepage = radio_station_data.get_string_member("homepage");
 			_language = radio_station_data.get_string_member("language");
-			_id = radio_station_data.get_string_member("id");
+			_id = radio_station_data.get_string_member("stationuuid");
 			_icon_address = radio_station_data.get_string_member("favicon");
 			_country = radio_station_data.get_string_member("country");
 			_tags = radio_station_data.get_string_member("tags");
@@ -220,49 +221,15 @@ namespace Gradio{
 			_bitrate = radio_station_data.get_string_member("bitrate");
 			_clickcount = radio_station_data.get_string_member("clickcount");
 			_clicktimestamp = radio_station_data.get_string_member("clicktimestamp");
+			_stream_uri = radio_station_data.get_string_member ("url_resolved");
 
-			if(radio_station_data.get_string_member("lastcheckok") == "1")
-				_is_broken = false;
-			else
-				_is_broken = true;
+			_is_broken = radio_station_data.get_int_member ("lastcheckok") == 0;
 		}
 
 		// Returns the playable url for the station
 		public async string get_stream_address (){
-			SourceFunc callback = get_stream_address.callback;
-			string url = "";
-
-			string data = "";
-
-			Util.get_string_from_uri.begin(RadioBrowser.radio_station_stream_url + _id, (obj, res) => {
-				string result = Util.get_string_from_uri.end(res);
-
-				if(result != null)
-					data = result;
-				Idle.add((owned) callback);
-			});
-
-			yield;
-
-			try{
-				Json.Parser parser = new Json.Parser ();
-
-				parser.load_from_data (data);
-				var root = parser.get_root ();
-				if(root != null){
-					var radio_station_data = root.get_object ();
-					if(radio_station_data.get_string_member("ok") ==  "true"){
-						url = radio_station_data.get_string_member("url");
-					}
-				}
-
-			}catch(GLib.Error e){
-				warning(e.message);
-			}
-
-			return url;
+			return _stream_uri;
 		}
-
 
 		public bool vote (){
 			Json.Parser parser = new Json.Parser ();

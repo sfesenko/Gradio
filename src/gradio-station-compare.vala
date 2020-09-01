@@ -41,10 +41,13 @@ namespace Gradio{
 			}
 
 			switch(App.settings.station_sorting){
-				case Compare.VOTES: {
-					int avotes = int.parse(stationA.votes);
-					int bvotes = int.parse(stationB.votes);
-
+				case Compare.VOTES: {			
+					int avotes = 0;
+					int bvotes = 0;
+					if (stationA.votes != null && stationB.votes != null) {
+						int.try_parse(stationA.votes, out avotes);
+						int.try_parse(stationB.votes, out bvotes);
+					}
 					if(avotes > bvotes) result = 1;
 					if(avotes == bvotes) result = 0;
 					if(avotes < bvotes) result = -1;

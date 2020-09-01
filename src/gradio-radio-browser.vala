@@ -14,10 +14,9 @@
  * along with Gradio.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-namespace Gradio{
+namespace Gradio.RadioBrowser {
 
-	public class RadioBrowser{
-        private const string radio_browser = "https://www.radio-browser.info/webservice/json";
+        private const string radio_browser = "https://de1.api.radio-browser.info/json";
 
 		public const string radio_stations_by_name = radio_browser + "/stations/byname/";
 		public const string radio_stations_by_codec = radio_browser + "/stations/bycodec/";
@@ -28,8 +27,7 @@ namespace Gradio{
 		public const string radio_stations_by_id = radio_browser + "/stations/byid/";
 
 		public const string radio_station_vote = radio_browser + "/vote/";
-		public const string radio_station_stream_url = "https://www.radio-browser.info/webservice/v2/json/url/";
-                public const string radio_station_search = radio_browser + "/stations/search";
+		public const string radio_station_search = radio_browser + "/stations/search";
 		public const string radio_station_languages = radio_browser + "/languages";
 		public const string radio_station_countries = radio_browser + "/countries";
 		public const string radio_station_codecs = radio_browser + "/codecs";
@@ -47,7 +45,4 @@ namespace Gradio{
 		public static string most_clicks(int count){
 			return radio_browser + "/stations/topclick/" + count.to_string();
 		}
-	}
-
-
 }

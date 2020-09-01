@@ -55,7 +55,7 @@ namespace Gradio{
 			filter_table.insert("name", searchterm);
 			filter_table.insert("order", "votes");
 			filter_table.insert("reverse", "true");
-			yield station_provider.get_stations("http://www.radio-browser.info/webservice/json/stations/search", filter_table);
+			yield station_provider.get_stations(RadioBrowser.radio_stations_by_name, filter_table);
 
 			string[] results = {};
 			for(int i = 0; i < station_model.get_n_items(); i++){

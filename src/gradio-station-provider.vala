@@ -35,10 +35,7 @@ namespace Gradio{
 		public async void get_stations (string address, HashTable<string,string> filter_table){
 			// clear old search model
 			model.clear();
-
-			Soup.Message message = null;
-
-			message = Soup.Form.request_new_from_hash("POST", address, filter_table);
+			var message = Soup.Form.request_new_from_hash("GET", address, filter_table);
 
 			soup_session.queue_message (message, (session, msg) => {
 		        	get_stations.callback ();
