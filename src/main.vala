@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Sergii Fesenko
 
-using App;
+using Gradio;
 
 int main (string[] args) {
     GLib.Intl.bindtextdomain (GETTEXT_PACKAGE, LOCALEDIR);
@@ -9,14 +9,14 @@ int main (string[] args) {
     GLib.Intl.textdomain (GETTEXT_PACKAGE);
 
     var app = new Gtk.Application (
-        "com.example.half_elmish_template",
+        "de.haeckerfelix.gradio",
         ApplicationFlags.DEFAULT_FLAGS
     );
 
-    var program = new Elmish.ElmishProgram<App.Message, AppModel, CounterView> (
-        new AppModel (),
+    var program = new Elmish.ElmishProgram<Gradio.Message, Gradio.AppModel, Gradio.MainView> (
+        new Gradio.AppModel (),
         (dispatch, model) => {
-            var view = new CounterView (app);
+            var view = new Gradio.MainView (app);
             view.build_ui (dispatch, model);
             view.present ();
             return view;
@@ -25,8 +25,16 @@ int main (string[] args) {
         (msg, model, view) => view.update (msg, model)
     );
 
+    var quit_action = new GLib.SimpleAction ("quit", null);
+    quit_action.activate.connect ((parameter) => app.quit ());
+    app.add_action (quit_action);
+
+    bool started = false;
     app.activate.connect (() => {
-        program.start ();
+        if (!started) {
+            started = true;
+            program.start ();
+        }
     });
 
     return app.run (args);

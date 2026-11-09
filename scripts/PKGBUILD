@@ -7,14 +7,14 @@
 # A guard in prepare() refuses to run when $srcdir would land inside the
 # source tree (e.g. `makepkg -p scripts/PKGBUILD` from the repo root).
 
-pkgname=half-elmish-template
-pkgver=0.1.0
+pkgname=gradio-gtk4
+pkgver=8.0.0
 pkgrel=1
-pkgdesc="Vala GTK4 half-elmish application template (counter demo)"
+pkgdesc="GTK4/elmish rewrite of the Gradio internet radio player"
 arch=('x86_64')
-url="https://github.com/sfesenko/gtk4-elmish-template"
-license=('MIT')
-depends=('gtk4' 'glib2')
+url="https://github.com/haecker-felix/Gradio"
+license=('GPL-3.0-or-later')
+depends=('gtk4' 'glib2' 'libsoup3' 'json-glib' 'gst-plugins-base' 'gst-plugins-good' 'sqlite')
 makedepends=('meson' 'ninja' 'vala' 'gettext')
 source=()
 sha256sums=()
@@ -23,8 +23,8 @@ sha256sums=()
 # (including uncommitted changes) via tar copy to $srcdir/$pkgname so makepkg -C only wipes the copy.
 prepare() {
     local source_dir
-    if [[ -n "${TEMPLATE_SOURCE_DIR:-}" ]]; then
-        source_dir="$TEMPLATE_SOURCE_DIR"
+    if [[ -n "${GRADIO_SOURCE_DIR:-}" ]]; then
+        source_dir="$GRADIO_SOURCE_DIR"
     elif [[ -n "${PKGBUILD_DIR:-}" ]]; then
         source_dir="$PKGBUILD_DIR/.."
     elif [[ -n "${startdir:-}" ]]; then
@@ -59,6 +59,7 @@ prepare() {
     tar -C "$source_dir" \
         --exclude-vcs \
         --exclude='./builddir' \
+        --exclude='./build-*' \
         --exclude='./scripts/dist' \
         --exclude='./scripts/pkg' \
         --exclude='./scripts/src' \

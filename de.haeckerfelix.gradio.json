@@ -1,13 +1,17 @@
 {
-    "app-id": "com.example.half_elmish_template",
+    "app-id": "de.haeckerfelix.gradio",
     "runtime": "org.gnome.Platform",
     "runtime-version": "48",
     "sdk": "org.gnome.Sdk",
-    "command": "half-elmish-template",
+    "command": "gradio",
     "finish-args": [
         "--share=ipc",
+        "--share=network",
         "--socket=wayland",
-        "--socket=fallback-x11"
+        "--socket=fallback-x11",
+        "--socket=pulseaudio",
+        "--device=dri",
+        "--own-name=org.mpris.MediaPlayer2.gradio"
     ],
     "cleanup": [
         "/include",
@@ -23,7 +27,7 @@
     ],
     "modules": [
         {
-            "name": "half-elmish-template",
+            "name": "gradio",
             "builddir": true,
             "buildsystem": "meson",
             "sources": [

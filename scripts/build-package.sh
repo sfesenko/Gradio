@@ -19,5 +19,5 @@ mkdir -p "$dist_dir"
 cp "$script_dir/PKGBUILD" "$dist_dir/"
 
 cd "$dist_dir"
-export TEMPLATE_SOURCE_DIR="$repo_root"
+export GRADIO_SOURCE_DIR="$repo_root"
 exec makepkg "$@"

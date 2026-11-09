@@ -1,1 +1,1 @@
-i18n.gettext('half-elmish-template', preset: 'glib')
+i18n.gettext('gradio', preset: 'glib')

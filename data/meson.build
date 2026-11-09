@@ -1,6 +1,6 @@
 desktop_file = i18n.merge_file(
-  input: 'com.example.half_elmish_template.desktop.in',
-  output: 'com.example.half_elmish_template.desktop',
+  input: 'de.haeckerfelix.gradio.desktop.in',
+  output: 'de.haeckerfelix.gradio.desktop',
   type: 'desktop',
   po_dir: '../po',
   install: true,
@@ -15,8 +15,9 @@ if desktop_utils.found()
 endif
 
 appstream_file = i18n.merge_file(
-  input: 'com.example.half_elmish_template.appdata.xml.in',
-  output: 'com.example.half_elmish_template.appdata.xml',
+  input: 'de.haeckerfelix.gradio.appdata.xml.in',
+  output: 'de.haeckerfelix.gradio.appdata.xml',
+  type: 'xml',
   po_dir: '../po',
   install: true,
   install_dir: join_paths(get_option('datadir'), 'metainfo')
@@ -28,5 +29,23 @@ if appstream_util.found()
     args: ['validate', '--nonet', appstream_file]
   )
 endif
+
+install_data('de.haeckerfelix.gradio.gschema.xml',
+  install_dir: join_paths(get_option('datadir'), 'glib-2.0', 'schemas')
+)
+
+install_data('de.haeckerfelix.gradio.search-provider.ini',
+  install_dir: join_paths(get_option('datadir'), 'gnome-shell', 'search-providers')
+)
+
+dbusconf = configuration_data()
+dbusconf.set('bindir', join_paths(get_option('prefix'), get_option('bindir')))
+configure_file(
+  input: 'de.haeckerfelix.gradio.service.in',
+  output: 'de.haeckerfelix.gradio.service',
+  configuration: dbusconf,
+  install: true,
+  install_dir: join_paths(get_option('datadir'), 'dbus-1', 'services'),
+)
 
 subdir('icons')

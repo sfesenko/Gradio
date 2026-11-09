@@ -1,5 +1,5 @@
-project('half-elmish-template', ['c', 'vala'],
-          version: '0.1.0',
+project('gradio', ['c', 'vala'],
+          version: '8.0.0',
     meson_version: '>= 0.59.0',
   default_options: [ 'warning_level=2',
                      'werror=false',
@@ -23,6 +23,7 @@ subdir('po')
 gnome.post_install(
   gtk_update_icon_cache: true,
   update_desktop_database: true,
+  glib_compile_schemas: true,
 )
 
 
@@ -34,7 +35,7 @@ lib_core_sources = [
   'src/app-update.vala',
 ]
 
-lib_core = static_library('half-elmish-core',
+lib_core = static_library('gradio-core',
   lib_core_sources,
   dependencies: [ dependency('gio-2.0', version: '>= 2.76') ],
 )

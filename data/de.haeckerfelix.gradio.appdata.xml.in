@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop">
+  <id>de.haeckerfelix.gradio.desktop</id>
+  <name>Gradio</name>
+  <summary>Find and listen to internet radio stations</summary>
+  <translation type="gettext">gradio</translation>
+  <developer_name>Felix Häcker</developer_name>
+  <update_contact>haeckerfelix@gnome.org</update_contact>
+  <metadata_license>CC0</metadata_license>
+  <project_license>GPL-3.0+</project_license>
+  <content_rating type="oars-1.1">
+    <content_attribute id="social-info">mild</content_attribute>
+  </content_rating>
+
+  <description>
+    <p>
+      With Gradio you can browse, search and of course play radio stations. All
+      this is simple and uncomplicated.
+    </p>
+  </description>
+
+  <screenshots>
+    <screenshot type="default" height="568" width="818">
+      <image>https://raw.githubusercontent.com/haecker-felix/gradio-appdata/master/screenshot_1.png</image>
+    </screenshot>
+    <screenshot height="568" width="818">
+      <image>https://raw.githubusercontent.com/haecker-felix/gradio-appdata/master/screenshot_2.png</image>
+    </screenshot>
+    <screenshot height="568" width="818">
+      <image>https://raw.githubusercontent.com/haecker-felix/gradio-appdata/master/screenshot_3.png</image>
+    </screenshot>
+    <screenshot height="568" width="818">
+      <image>https://raw.githubusercontent.com/haecker-felix/gradio-appdata/master/screenshot_4.png</image>
+    </screenshot>
+  </screenshots>
+
+  <url type="homepage">https://github.com/haecker-felix/Gradio</url>
+  <url type="bugtracker">https://github.com/haecker-felix/Gradio/issues</url>
+  <url type="donation">https://de.liberapay.com/haecker-felix</url>
+
+  <kudos>
+    <kudo>AppMenu</kudo>
+    <kudo>HiDpiIcon</kudo>
+    <kudo>ModernToolkit</kudo>
+    <kudo>Notifications</kudo>
+    <kudo>SearchProvider</kudo>
+  </kudos>
+
+  <releases>
+    <release version="7.3" date="2019-09-11">
+      <description>
+        <p>This will probably be the last version of Gradio. It includes updated translations and small improvements.</p>
+      </description>
+    </release>
+    <release version="7.2" date="2018-11-03">
+      <description>
+        <p>Updated translations, minor user interface improvements.</p>
+      </description>
+    </release>
+    <release version="7.1" date="2018-01-20">
+      <description>
+        <p>Some discover design tweaks, improved tags support, improved filter popover, updated translations, improved m3u export.</p>
+      </description>
+    </release>
+    <release version="7.0" date="2017-12-15">
+      <description>
+        <p>The "Discover" section is back! Merged "Add" and "Search" page. New unified library view. Library can now be exported as M3U playlist. And much more..!</p>
+      </description>
+    </release>
+    <release version="6.0" date="2017-09-10">
+      <description>
+        <p>Group your stations into collections, Everything is now sortable, Extended search page, Stations can be created and edited, New details sidebar, New selection system.</p>
+      </description>
+    </release>
+    <release version="5.0.0" date="2016-12-24">
+      <description>
+        <p>New grid/list view, new right click menu, background playback, redesigned discover page.</p>
+      </description>
+    </release>
+    <release version="4.0.1" date="2016-07-29">
+    </release>
+    <release version="4.0.0" date="2016-07-28">
+      <description>
+        <p>New volume control, show connection information, new sort options.</p>
+      </description>
+    </release>
+    <release version="3.0.1" date="2016-06-30">
+    </release>
+    <release version="3.0.0" date="2016-06-28">
+      <description>
+        <p>MPRIS Support, vote for stations, search for stations.</p>
+      </description>
+    </release>
+  </releases>
+
+</component>
