@@ -1,0 +1,83 @@
+# Builds from the LIVE work tree — uncommitted and untracked files are
+# included. Run via ./scripts/build-package.sh (recommended) or from this
+# directory with `makepkg`.
+#
+# Safety: makepkg -C wipes $srcdir/$pkgdir, which only ever contain a
+# throwaway COPY of the tree — the developer's checkout is never touched.
+# A guard in prepare() refuses to run when $srcdir would land inside the
+# source tree (e.g. `makepkg -p scripts/PKGBUILD` from the repo root).
+
+pkgname=half-elmish-template
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Vala GTK4 half-elmish application template (counter demo)"
+arch=('x86_64')
+url="https://github.com/sfesenko/gtk4-elmish-template"
+license=('MIT')
+depends=('gtk4' 'glib2')
+makedepends=('meson' 'ninja' 'vala' 'gettext')
+source=()
+sha256sums=()
+
+# prepare() populates $srcdir because source=() is empty — we build from the live work tree
+# (including uncommitted changes) via tar copy to $srcdir/$pkgname so makepkg -C only wipes the copy.
+prepare() {
+    local source_dir
+    if [[ -n "${TEMPLATE_SOURCE_DIR:-}" ]]; then
+        source_dir="$TEMPLATE_SOURCE_DIR"
+    elif [[ -n "${PKGBUILD_DIR:-}" ]]; then
+        source_dir="$PKGBUILD_DIR/.."
+    elif [[ -n "${startdir:-}" ]]; then
+        # Fallback when PKGBUILD_DIR is not set (direct makepkg run)
+        # startdir is the directory containing the PKGBUILD (scripts/ or scripts/dist/)
+        if [[ "$(basename "$startdir")" == "dist" ]]; then
+            source_dir="$startdir/../.."
+        else
+            source_dir="$startdir/.."
+        fi
+    else
+        source_dir="$(dirname "${BASH_SOURCE[0]:-.}")/.."
+    fi
+    source_dir="$(realpath "$source_dir")"
+
+    # The one genuinely dangerous layout: $srcdir overlapping real sources
+    # (e.g. a PKGBUILD copied into the repo root makes $srcdir == <repo>/src),
+    # where `makepkg -C` would wipe them. Refuse if that ever happens;
+    # scripts/ (or the wrapper) is safe because its $srcdir is generated and
+    # excluded from the copy.
+    if [[ "$(realpath "$startdir")" == "$source_dir" ]] \
+       || [[ -n "$(find "$srcdir" -maxdepth 1 -name '*.vala' 2>/dev/null)" ]]; then
+        error "Refusing to build: \$srcdir ($srcdir) contains real sources,"
+        error "which makepkg -C would wipe."
+        error "Run makepkg from scripts/ or use scripts/build-package.sh."
+        return 1
+    fi
+
+    # Fresh copy of the work tree (excludes VCS dirs and build artifacts).
+    rm -rf "$srcdir/$pkgname"
+    mkdir -p "$srcdir/$pkgname"
+    tar -C "$source_dir" \
+        --exclude-vcs \
+        --exclude='./builddir' \
+        --exclude='./scripts/dist' \
+        --exclude='./scripts/pkg' \
+        --exclude='./scripts/src' \
+        -cf - . \
+        | tar -C "$srcdir/$pkgname" -xf -
+}
+
+build() {
+    cd "$srcdir/$pkgname"
+    meson setup builddir --prefix=/usr --buildtype=release
+    meson compile -C builddir
+}
+
+check() {
+    cd "$srcdir/$pkgname"
+    meson test -C builddir
+}
+
+package() {
+    cd "$srcdir/$pkgname"
+    DESTDIR="$pkgdir" meson install -C builddir
+}

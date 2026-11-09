@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Elmish Counter
+Comment=A Vala GTK4 half-elmish template app
+Exec=half-elmish-template
+Icon=com.example.half_elmish_template
+Terminal=false
+Type=Application
+Categories=GTK;Utility;
+StartupNotify=true

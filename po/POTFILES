@@ -1,0 +1,4 @@
+data/com.example.half_elmish_template.desktop.in
+data/com.example.half_elmish_template.appdata.xml.in
+src/main.vala
+src/app-view.vala

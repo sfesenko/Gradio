@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.example.half_elmish_template</id>
+  <name>Elmish Counter</name>
+  <summary>A Vala GTK4 half-elmish template app</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <description>
+    <p>Reference app for the half-elmish architecture on GTK4 + Vala: an elmish-style
+    message/update loop with an imperative view.</p>
+    <p>Demonstrates: a pure testable updateModel, an imperative updateView, commands
+    (Cmd) for asynchronous side effects that dispatch results back, subscriptions
+    (Sub), and a GTK-free core library that runs under plain glib tests.</p>
+  </description>
+  <launchable type="desktop-id">com.example.half_elmish_template.desktop</launchable>
+  <developer_name>Sergii Fesenko</developer_name>
+  <content_rating type="oars-1.1"/>
+</component>
