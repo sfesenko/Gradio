@@ -6,6 +6,11 @@ public enum Gradio.ViewMode {
     ADD_STATION
 }
 
+public enum Gradio.DiscoverMode {
+    POPULAR,
+    NEW
+}
+
 public enum Gradio.MessageKind {
     SET_VIEW,
     SEARCH_REQUESTED,
@@ -51,7 +56,13 @@ public enum Gradio.MessageKind {
     SET_RESUME_PLAYBACK,
     RESTORE_LAST_STATION,
     REQUEST_FILTER_OPTIONS,
-    FILTER_OPTIONS_LOADED
+    FILTER_OPTIONS_LOADED,
+    DISCOVER_SERVER,
+    SERVER_DISCOVERED,
+    SERVER_DISCOVERY_FAILED,
+    REQUEST_DISCOVER,
+    DISCOVER_RESULTS,
+    DISCOVER_FAILED
 }
 
 public abstract class Gradio.Message {
@@ -422,6 +433,59 @@ public class Gradio.FilterOptionsLoadedMessage : Gradio.Message {
     public override MessageKind kind { get { return MessageKind.FILTER_OPTIONS_LOADED; } }
 }
 
+public class Gradio.RequestDiscoverMessage : Gradio.Message {
+    public override MessageKind kind { get { return MessageKind.REQUEST_DISCOVER; } }
+}
+
+public class Gradio.DiscoverServerMessage : Gradio.Message {
+    public override MessageKind kind { get { return MessageKind.DISCOVER_SERVER; } }
+}
+
+public class Gradio.ServerDiscoveredMessage : Gradio.Message {
+    public string api_base;
+
+    public ServerDiscoveredMessage (string api_base) { this.api_base = api_base; }
+
+    public override MessageKind kind { get { return MessageKind.SERVER_DISCOVERED; } }
+}
+
+public class Gradio.ServerDiscoveryFailedMessage : Gradio.Message {
+    public string message;
+
+    public ServerDiscoveryFailedMessage (string message) { this.message = message; }
+
+    public override MessageKind kind { get { return MessageKind.SERVER_DISCOVERY_FAILED; } }
+}
+
+public class Gradio.DiscoverResultsMessage : Gradio.Message {
+    public DiscoverMode mode;
+    public GLib.GenericArray<RadioStation> stations;
+    public uint generation;
+
+    public DiscoverResultsMessage (DiscoverMode mode,
+            GLib.GenericArray<RadioStation> stations, uint generation) {
+        this.mode = mode;
+        this.stations = stations;
+        this.generation = generation;
+    }
+
+    public override MessageKind kind { get { return MessageKind.DISCOVER_RESULTS; } }
+}
+
+public class Gradio.DiscoverFailedMessage : Gradio.Message {
+    public DiscoverMode mode;
+    public string message;
+    public uint generation;
+
+    public DiscoverFailedMessage (DiscoverMode mode, string message, uint generation) {
+        this.mode = mode;
+        this.message = message;
+        this.generation = generation;
+    }
+
+    public override MessageKind kind { get { return MessageKind.DISCOVER_FAILED; } }
+}
+
 public class Gradio.AppModel {
     public ViewMode view = ViewMode.LIBRARY;
     public AppConfig config;
@@ -446,6 +510,16 @@ public class Gradio.AppModel {
     public string[] filter_countries = {};
     public string[] filter_languages = {};
     public string[] filter_tags = {};
+    public bool server_ready = false;
+    public string? server_error = null;
+    public GLib.GenericArray<RadioStation> discover_popular =
+        new GLib.GenericArray<RadioStation> ();
+    public GLib.GenericArray<RadioStation> discover_new =
+        new GLib.GenericArray<RadioStation> ();
+    public bool discover_loading = false;
+    public string? discover_error = null;
+    public uint discover_generation = 0;
+    public int discover_pending = 0;
 
     public AppModel (AppConfig config) {
         this.config = config;
@@ -463,8 +537,15 @@ public class Gradio.AppModel {
         return path;
     }
 
-    public string[] filter_options (SearchFilterKind field) {
-        switch (field) {
+    public bool discover_has_results () {
+        return discover_popular.length > 0 || discover_new.length > 0;
+    }
+
+    public bool discover_should_show_error () {
+        return discover_error != null && !discover_has_results ();
+    }
+
+    public string[] filter_options (SearchFilterKind field) {        switch (field) {
             case SearchFilterKind.COUNTRY:
                 return filter_countries;
             case SearchFilterKind.LANGUAGE:

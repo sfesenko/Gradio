@@ -14,6 +14,10 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
     private Gtk.SearchEntry search_entry;
     private Gtk.Stack add_stack;
     private Gtk.ListBox search_list_box;
+    private Gtk.ListBox discover_popular_list;
+    private Gtk.ListBox discover_new_list;
+    private Gtk.Label discover_empty_label;
+    private Gtk.Label discover_error_label;
     private Gtk.Spinner spinner;
     private Gtk.Label search_error_label;
     private Gtk.DropDown country_dropdown;
@@ -33,6 +37,7 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
     private Gradio.AppModel app_model;
     private string library_signature = "";
     private string search_signature = "";
+    private string discover_signature = "";
 
     public MainView (Gtk.Application app) {
         Object (application: app);
@@ -387,6 +392,57 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
         };
         add_stack.add_named (scroll, "results");
 
+        var discover_content = new Gtk.Box (Gtk.Orientation.VERTICAL, 6) {
+            margin_top = 6,
+            margin_bottom = 12,
+            margin_start = 12,
+            margin_end = 12
+        };
+        var popular_label = new Gtk.Label (_("Popular near you")) {
+            halign = Gtk.Align.START
+        };
+        popular_label.add_css_class ("title-4");
+        discover_content.append (popular_label);
+        discover_popular_list = new Gtk.ListBox () {
+            selection_mode = Gtk.SelectionMode.NONE,
+            show_separators = true
+        };
+        discover_content.append (discover_popular_list);
+
+        var new_label = new Gtk.Label (_("New stations")) {
+            halign = Gtk.Align.START,
+            margin_top = 12
+        };
+        new_label.add_css_class ("title-4");
+        discover_content.append (new_label);
+        discover_new_list = new Gtk.ListBox () {
+            selection_mode = Gtk.SelectionMode.NONE,
+            show_separators = true
+        };
+        discover_content.append (discover_new_list);
+
+        discover_empty_label = new Gtk.Label (_("No stations found.")) {
+            halign = Gtk.Align.CENTER,
+            margin_top = 12
+        };
+        discover_empty_label.add_css_class ("dim-label");
+        discover_content.append (discover_empty_label);
+
+        discover_error_label = new Gtk.Label ("") {
+            halign = Gtk.Align.CENTER,
+            wrap = true,
+            margin_top = 12
+        };
+        discover_error_label.add_css_class ("dim-label");
+        discover_content.append (discover_error_label);
+
+        var discover_scroll = new Gtk.ScrolledWindow () {
+            child = discover_content,
+            vexpand = true,
+            hscrollbar_policy = Gtk.PolicyType.NEVER
+        };
+        add_stack.add_named (discover_scroll, "discover");
+
         var empty = new Gtk.Label (_("No stations found.")) {
             halign = Gtk.Align.CENTER,
             valign = Gtk.Align.CENTER
@@ -734,6 +790,44 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
         bool empty = library.length == 0;
         library_stack.set_visible_child_name (empty ? "empty" : "list");
 
+        string discover_sig = "P|" + rows_signature (model.discover_popular,
+            model.config.show_technical_info, model.config.icon_size) + "N|" +
+            rows_signature (model.discover_new, model.config.show_technical_info,
+                model.config.icon_size);
+        if (discover_sig != discover_signature) {
+            discover_signature = discover_sig;
+            discover_popular_list.remove_all ();
+            for (uint i = 0; i < model.discover_popular.length; i++) {
+                var station = model.discover_popular.get (i);
+                discover_popular_list.append (new Gradio.StationRow (station, false,
+                    model.config.show_technical_info, false, false, false,
+                    model.favicon_for (station), model.config.icon_size, dispatch));
+            }
+            discover_new_list.remove_all ();
+            for (uint i = 0; i < model.discover_new.length; i++) {
+                var station = model.discover_new.get (i);
+                discover_new_list.append (new Gradio.StationRow (station, false,
+                    model.config.show_technical_info, false, false, false,
+                    model.favicon_for (station), model.config.icon_size, dispatch));
+            }
+        }
+        for (uint i = 0; i < model.discover_popular.length; i++) {
+            var station = model.discover_popular.get (i);
+            var row = discover_popular_list.get_row_at_index ((int) i) as Gradio.StationRow;
+            if (row == null)
+                continue;
+            row.set_favicon (model.favicon_for (station));
+            row.set_state (false, false, model.config.contains_station (station.id));
+        }
+        for (uint i = 0; i < model.discover_new.length; i++) {
+            var station = model.discover_new.get (i);
+            var row = discover_new_list.get_row_at_index ((int) i) as Gradio.StationRow;
+            if (row == null)
+                continue;
+            row.set_favicon (model.favicon_for (station));
+            row.set_state (false, false, model.config.contains_station (station.id));
+        }
+
         var results = StationSort.sort_search (model.search_results, model.config.search_sort);
         string result_sig = rows_signature (results, model.config.show_technical_info,
             model.config.icon_size);
@@ -756,7 +850,26 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
             row.set_state (false, false, model.config.contains_station (station.id));
         }
 
-        if (model.searching) {
+        bool discover_mode = adding && model.search_query == "" &&
+            !model.search_active && model.config.search_filters.is_empty ();
+        if (discover_mode) {
+            if (model.discover_loading) {
+                spinner.spinning = true;
+                add_stack.set_visible_child_name ("loading");
+            } else {
+                spinner.spinning = false;
+                if (model.discover_should_show_error ()) {
+                    search_error_label.label = model.discover_error;
+                    add_stack.set_visible_child_name ("error");
+                } else {
+                    discover_empty_label.visible =
+                        model.discover_popular.length == 0 && model.discover_new.length == 0;
+                    discover_error_label.label = model.discover_error ?? "";
+                    discover_error_label.visible = model.discover_error != null;
+                    add_stack.set_visible_child_name ("discover");
+                }
+            }
+        } else if (model.searching) {
             spinner.spinning = true;
             add_stack.set_visible_child_name ("loading");
         } else {

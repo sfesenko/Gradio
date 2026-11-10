@@ -160,11 +160,11 @@ namespace Gradio {
         public override Elmish.Cmd<Message>? load_filter_options () {
             return new Elmish.Cmd<Message> ((dispatch) => {
                 load_filter_names_async.begin (SearchFilterKind.COUNTRY,
-                    RadioBrowser.countries_endpoint);
+                    RadioBrowser.countries_path);
                 load_filter_names_async.begin (SearchFilterKind.LANGUAGE,
-                    RadioBrowser.languages_endpoint);
+                    RadioBrowser.languages_path);
                 load_filter_names_async.begin (SearchFilterKind.TAG,
-                    RadioBrowser.tags_endpoint);
+                    RadioBrowser.tags_path);
             });
         }
 
@@ -175,6 +175,61 @@ namespace Gradio {
             return new Elmish.Cmd<Message> ((dispatch) => {
                 refresh_library_async.begin (ids);
             });
+        }
+
+        public override Elmish.Cmd<Message>? discover_server () {
+            return new Elmish.Cmd<Message> ((dispatch) => {
+                discover_server_async.begin ();
+            });
+        }
+
+        public override Elmish.Cmd<Message>? discover (uint generation) {
+            return new Elmish.Cmd<Message> ((dispatch) => {
+                discover_mode_async.begin (DiscoverMode.POPULAR, generation);
+                discover_mode_async.begin (DiscoverMode.NEW, generation);
+            });
+        }
+
+        public override Elmish.Cmd<Message>? report_click (string station_id) {
+            return new Elmish.Cmd<Message> ((dispatch) => {
+                report_click_async.begin (station_id);
+            });
+        }
+
+        private async void report_click_async (string station_id) {
+            try {
+                yield RadioBrowser.report_click_async (session, station_id);
+            } catch (GLib.Error e) {
+                // Click reporting is fire-and-forget; playback already runs.
+            }
+        }
+
+        private async void discover_mode_async (DiscoverMode mode, uint generation) {
+            var target = dispatch;
+            try {
+                int limit = mode == DiscoverMode.POPULAR
+                    ? RadioBrowser.DISCOVER_POPULAR_LIMIT
+                    : RadioBrowser.DISCOVER_NEW_LIMIT;
+                var stations = yield RadioBrowser.discover_async (session, mode,
+                    Locale.region_code (), limit);
+                if (target != null)
+                    target (new DiscoverResultsMessage (mode, stations, generation));
+            } catch (GLib.Error e) {
+                if (target != null)
+                    target (new DiscoverFailedMessage (mode, e.message, generation));
+            }
+        }
+
+        private async void discover_server_async () {
+            var target = dispatch;
+            try {
+                string? discovered_base = yield RadioBrowser.discover_server_async (session);
+                if (target != null && discovered_base != null)
+                    target (new ServerDiscoveredMessage (discovered_base));
+            } catch (GLib.Error e) {
+                if (target != null)
+                    target (new ServerDiscoveryFailedMessage (e.message));
+            }
         }
 
         private async void refresh_library_async (GLib.GenericArray<string> ids) {
@@ -465,7 +520,7 @@ namespace Gradio {
         private async void load_filter_names_async (SearchFilterKind field, string endpoint) {
             var target = dispatch;
             try {
-                var names = yield RadioBrowser.load_names_async (session, endpoint);
+                var names = yield RadioBrowser.filter_names_async (session, endpoint);
                 if (target != null)
                     target (new FilterOptionsLoadedMessage (field, names));
             } catch (GLib.Error e) {

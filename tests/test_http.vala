@@ -21,6 +21,10 @@ class HttpFixture : GLib.Object {
             msg.set_status (404, "Not Found");
             msg.set_response ("text/plain", Soup.MemoryUse.COPY, "no".data);
         });
+        server.add_handler ("/broken", (srv, msg, path, query) => {
+            msg.set_status (503, "Service Unavailable");
+            msg.set_response ("text/plain", Soup.MemoryUse.COPY, "down".data);
+        });
         server.add_handler ("/hang", (srv, msg, path, query) => {
             srv.pause_message (msg);
         });
@@ -77,6 +81,25 @@ class HttpFixture : GLib.Object {
 
         assert (error != null);
         assert (error.message.contains ("404"));
+        assert (!Gradio.Http.should_failover (error));
+    }
+
+    public void test_get_server_error () {
+        GLib.Error? error = null;
+
+        fetch.begin ("/broken", (obj, res) => {
+            try {
+                fetch.end (res);
+            } catch (GLib.Error e) {
+                error = e;
+            }
+            loop.quit ();
+        });
+        loop.run ();
+
+        assert (error != null);
+        assert (error.message.contains ("503"));
+        assert (Gradio.Http.should_failover (error));
     }
 
     public void test_url_with_query () {
@@ -201,6 +224,7 @@ int main (string[] args) {
 
     Test.add_func ("/http/get_ok", () => run_fixture ((fixture) => fixture.test_get_ok ()));
     Test.add_func ("/http/get_missing", () => run_fixture ((fixture) => fixture.test_get_missing ()));
+    Test.add_func ("/http/get_server_error", () => run_fixture ((fixture) => fixture.test_get_server_error ()));
     Test.add_func ("/http/url_with_query", () => run_fixture ((fixture) => fixture.test_url_with_query ()));
     Test.add_func ("/http/url_validation", () => run_fixture ((fixture) => fixture.test_url_validation ()));
     Test.add_func ("/http/invalid_url_fetch", () => run_fixture ((fixture) => fixture.test_invalid_url_fetch ()));

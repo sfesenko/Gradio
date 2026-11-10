@@ -40,6 +40,7 @@ lib_core_sources = [
   'src/model/search-filters.vala',
   'src/model/station-validation.vala',
   'src/model/station-transfer.vala',
+  'src/model/locale.vala',
   'src/backend/http.vala',
   'src/backend/radio-browser.vala',
   'src/backend/player.vala',

@@ -11,12 +11,39 @@ namespace Gradio {
 
     public class RadioBrowser {
         public const string radio_browser = "https://de1.api.radio-browser.info/json";
-        public const string radio_station_search = radio_browser + "/stations/search";
-        public const string countries_endpoint = radio_browser + "/countries";
-        public const string languages_endpoint = radio_browser + "/languages";
-        public const string tags_endpoint = radio_browser + "/tags";
+        public static string? api_base = null;
+        public static string[]? server_candidates = null;
 
-        public static string search_url (string query, int limit = 50, SearchFilters? filters = null) {
+        public const string search_path = "/stations/search";
+        public const string countries_path = "/countries";
+        public const string languages_path = "/languages";
+        public const string tags_path = "/tags";
+
+        public const string radio_station_search = radio_browser + search_path;
+        public const string countries_endpoint = radio_browser + countries_path;
+        public const string languages_endpoint = radio_browser + languages_path;
+        public const string tags_endpoint = radio_browser + tags_path;
+
+        public const int DISCOVER_POPULAR_LIMIT = 100;
+        public const int DISCOVER_NEW_LIMIT = 18;
+
+        public static string api_url (string path) {
+            string normalized = path.strip ();
+            if (normalized.has_prefix ("http://") || normalized.has_prefix ("https://"))
+                return normalized;
+
+            string prefix = api_base;
+            if (prefix == null || prefix == "")
+                prefix = radio_browser;
+            while (prefix.has_suffix ("/"))
+                prefix = prefix.substring (0, prefix.length - 1);
+            while (normalized.has_prefix ("/"))
+                normalized = normalized.substring (1);
+            return prefix + "/" + normalized;
+        }
+
+        public static GLib.HashTable<string,string> search_params (string query, int limit,
+                SearchFilters? filters = null) {
             var params = new GLib.HashTable<string,string> (str_hash, str_equal);
             params.insert ("name", query);
             params.insert ("limit", limit.to_string ());
@@ -33,7 +60,12 @@ namespace Gradio {
                 if (filters.tag != "")
                     params.insert ("tagList", filters.tag);
             }
-            return Http.url_with_query (radio_station_search, params);
+            return params;
+        }
+
+        public static string search_url (string query, int limit = 50, SearchFilters? filters = null) {
+            return Http.url_with_query (api_url (search_path),
+                search_params (query, limit, filters));
         }
 
         public static GLib.GenericArray<RadioStation> parse_stations (string json) throws GLib.Error {
@@ -73,6 +105,14 @@ namespace Gradio {
             return Http.url_with_query (endpoint, params);
         }
 
+        private static GLib.HashTable<string, string> filter_list_params () {
+            var params = new GLib.HashTable<string, string> (str_hash, str_equal);
+            params.insert ("hidebroken", "true");
+            params.insert ("order", "stationcount");
+            params.insert ("reverse", "true");
+            return params;
+        }
+
         public static string[] parse_names (string json) throws GLib.Error {
             var parser = new Json.Parser ();
             parser.load_from_data (json);
@@ -104,14 +144,21 @@ namespace Gradio {
             return parse_names (contents);
         }
 
+        public static async string[] filter_names_async (Soup.Session session, string path,
+            GLib.Cancellable? cancellable = null) throws GLib.Error {
+            string contents = yield api_get_async (session, path, filter_list_params (),
+                cancellable);
+            return parse_names (contents);
+        }
+
         public static string station_by_uuid_url (string uuid) {
-            return radio_browser + "/stations/byuuid/" + GLib.Uri.escape_string (uuid);
+            return api_url ("/stations/byuuid/" + GLib.Uri.escape_string (uuid));
         }
 
         public static async RadioStation? station_by_uuid_async (Soup.Session session,
             string uuid, GLib.Cancellable? cancellable = null) throws GLib.Error {
-            string contents = yield Http.get_string_async (session,
-                station_by_uuid_url (uuid), cancellable);
+            string contents = yield api_get_async (session,
+                "/stations/byuuid/" + GLib.Uri.escape_string (uuid), null, cancellable);
             var stations = parse_stations (contents);
             if (stations.length == 0)
                 return null;
@@ -119,7 +166,7 @@ namespace Gradio {
         }
 
         public static string stations_by_uuid_url () {
-            return radio_browser + "/stations/byuuid";
+            return api_url ("/stations/byuuid");
         }
 
         public static string stations_by_uuid_body (string[] ids) {
@@ -140,21 +187,49 @@ namespace Gradio {
         public static async GLib.GenericArray<RadioStation> stations_by_uuid_async (
                 Soup.Session session, string[] ids, GLib.Cancellable? cancellable = null)
                 throws GLib.Error {
-            string contents = yield Http.post_string_async (session, stations_by_uuid_url (),
-                stations_by_uuid_body (ids), "application/json", cancellable);
+            string contents = yield api_post_async (session, "/stations/byuuid",
+                stations_by_uuid_body (ids), cancellable);
+            return parse_stations (contents);
+        }
+
+        public static GLib.HashTable<string,string> discover_params (DiscoverMode mode,
+                string region, int limit) {
+            var params = new GLib.HashTable<string,string> (str_hash, str_equal);
+            params.insert ("countrycode", region);
+            params.insert ("limit", limit.to_string ());
+            if (mode == DiscoverMode.POPULAR) {
+                params.insert ("order", "votes");
+                params.insert ("reverse", "true");
+                params.insert ("hidebroken", "true");
+            } else {
+                params.insert ("order", "random");
+            }
+            return params;
+        }
+
+        public static string discover_url (DiscoverMode mode, string region, int limit) {
+            return Http.url_with_query (api_url (search_path),
+                discover_params (mode, region, limit));
+        }
+
+        public static async GLib.GenericArray<RadioStation> discover_async (Soup.Session session,
+            DiscoverMode mode, string region, int limit,
+            GLib.Cancellable? cancellable = null) throws GLib.Error {
+            string contents = yield api_get_async (session, search_path,
+                discover_params (mode, region, limit), cancellable);
             return parse_stations (contents);
         }
 
         public static async GLib.GenericArray<RadioStation> search_async (Soup.Session session,
             string query, int limit = 50, SearchFilters? filters = null,
             GLib.Cancellable? cancellable = null) throws GLib.Error {
-            string contents = yield Http.get_string_async (session,
-                search_url (query, limit, filters), cancellable);
+            string contents = yield api_get_async (session, search_path,
+                search_params (query, limit, filters), cancellable);
             return parse_stations (contents);
         }
 
         public static string vote_url (string uuid) {
-            return radio_browser + "/vote/" + GLib.Uri.escape_string (uuid);
+            return api_url ("/vote/" + GLib.Uri.escape_string (uuid));
         }
 
         // The server either answers {"ok": true, ...} or returns the changed
@@ -201,8 +276,141 @@ namespace Gradio {
 
         public static async VoteResult vote_async (Soup.Session session, string uuid,
             GLib.Cancellable? cancellable = null) throws GLib.Error {
-            string contents = yield Http.get_string_async (session, vote_url (uuid), cancellable);
+            string contents = yield api_get_async (session,
+                "/vote/" + GLib.Uri.escape_string (uuid), null, cancellable);
             return parse_vote_response (contents);
+        }
+
+        public static string click_url (string uuid) {
+            return api_url ("/url/" + GLib.Uri.escape_string (uuid));
+        }
+
+        public static async string report_click_async (Soup.Session session, string uuid,
+            GLib.Cancellable? cancellable = null) throws GLib.Error {
+            return yield api_get_async (session,
+                "/url/" + GLib.Uri.escape_string (uuid), null, cancellable);
+        }
+
+        public static string server_base_for_host (string hostname) throws GLib.Error {
+            string host = hostname.strip ();
+            if (host == "")
+                throw new GLib.FileError.FAILED ("empty hostname");
+            return "https://" + host + "/json";
+        }
+
+        public static string[] ordered_candidates (string[] hostnames) {
+            var seen = new GLib.HashTable<string, bool> (str_hash, str_equal);
+            string[] result = {};
+            foreach (string raw in hostnames) {
+                string host = raw.strip ();
+                if (host == "" || seen.contains (host))
+                    continue;
+                seen.set (host, true);
+                result += host;
+            }
+            return result;
+        }
+
+        public static string? next_candidate (string current, string[] candidates) {
+            for (uint i = 0; i < candidates.length; i++) {
+                if (candidates[i] != current)
+                    continue;
+                if (i + 1 < candidates.length)
+                    return candidates[i + 1];
+                return null;
+            }
+            if (candidates.length > 0)
+                return candidates[0];
+            return null;
+        }
+
+        public static async string? discover_server_async (Soup.Session session,
+            GLib.Cancellable? cancellable = null) throws GLib.Error {
+            var resolver = GLib.Resolver.get_default ();
+            var resolved = yield resolver.lookup_by_name_async (
+                "all.api.radio-browser.info", cancellable);
+
+            var addresses = new GLib.GenericArray<GLib.InetAddress> ();
+            foreach (unowned GLib.InetAddress address in resolved)
+                addresses.add (address);
+            for (uint i = addresses.length; i > 1; i--) {
+                uint j = (uint) GLib.Random.int_range (0, (int) i);
+                var swap = addresses.get (i - 1);
+                addresses.set (i - 1, addresses.get (j));
+                addresses.set (j, swap);
+            }
+
+            string[] hosts = {};
+            foreach (var address in addresses) {
+                try {
+                    string host = yield resolver.lookup_by_address_async (address, cancellable);
+                    if (host != "")
+                        hosts += host;
+                } catch (GLib.Error e) {
+                    // One address without a reverse name must not stop discovery.
+                }
+            }
+
+            string[] candidates = ordered_candidates (hosts);
+            string[] healthy = {};
+            foreach (string host in candidates) {
+                string server_base;
+                try {
+                    server_base = server_base_for_host (host);
+                    yield Http.get_string_async (session, server_base + "/stats", cancellable);
+                    healthy += server_base;
+                } catch (GLib.Error e) {
+                    // Skip unhealthy servers; another candidate may answer.
+                }
+            }
+
+            if (healthy.length == 0)
+                throw new HttpError.REQUEST_FAILED ("No radio-browser server available");
+
+            server_candidates = healthy;
+            api_base = healthy[0];
+            return api_base;
+        }
+
+        public static bool failover () {
+            string current = api_base;
+            if (current == null || current == "")
+                current = radio_browser;
+            string[]? known = server_candidates;
+            if (known == null)
+                return false;
+            string? next = next_candidate (current, known);
+            if (next == null)
+                return false;
+            api_base = next;
+            return true;
+        }
+
+        private static async string api_get_async (Soup.Session session, string path,
+                GLib.HashTable<string,string>? query,
+                GLib.Cancellable? cancellable) throws GLib.Error {
+            try {
+                return yield Http.get_string_async (session,
+                    Http.url_with_query (api_url (path), query), cancellable);
+            } catch (GLib.Error first) {
+                if (!Http.should_failover (first) || !failover ())
+                    throw first;
+                return yield Http.get_string_async (session,
+                    Http.url_with_query (api_url (path), query), cancellable);
+            }
+        }
+
+        private static async string api_post_async (Soup.Session session, string path,
+                string body, GLib.Cancellable? cancellable) throws GLib.Error {
+            try {
+                return yield Http.post_string_async (session, api_url (path), body,
+                    "application/json", cancellable);
+            } catch (GLib.Error first) {
+                if (!Http.should_failover (first) || !failover ())
+                    throw first;
+                return yield Http.post_string_async (session, api_url (path), body,
+                    "application/json", cancellable);
+            }
         }
     }
 }

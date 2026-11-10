@@ -5,10 +5,26 @@ using Soup;
 namespace Gradio {
 
     public errordomain HttpError {
-        REQUEST_FAILED
+        REQUEST_FAILED,
+        SERVER_UNAVAILABLE
     }
 
     public class Http {
+        public static bool should_failover (GLib.Error error) {
+            if (error.domain == GLib.Quark.from_string ("gradio-http-error-quark"))
+                return error.code == HttpError.SERVER_UNAVAILABLE;
+            if (error.domain == GLib.Quark.from_string ("g-io-error-quark") &&
+                    error.code == GLib.IOError.CANCELLED)
+                return false;
+            return true;
+        }
+
+        private static GLib.Error status_error (int status, string url) {
+            if (status >= 500 || status == 408 || status == 429)
+                return new HttpError.SERVER_UNAVAILABLE ("HTTP %d for %s", status, url);
+            return new HttpError.REQUEST_FAILED ("HTTP %d for %s", status, url);
+        }
+
         public static string normalize_url (string url) {
             return url.strip ();
         }
@@ -72,8 +88,7 @@ namespace Gradio {
 
             int status = (int) message.get_status ();
             if (status < 200 || status >= 300)
-                throw new HttpError.REQUEST_FAILED ("HTTP %d for %s", status,
-                    message.get_uri ().to_string ());
+                throw status_error (status, message.get_uri ().to_string ());
 
             return bytes;
         }
@@ -98,8 +113,7 @@ namespace Gradio {
 
             int status = (int) message.get_status ();
             if (status < 200 || status >= 300)
-                throw new HttpError.REQUEST_FAILED ("HTTP %d for %s", status,
-                    message.get_uri ().to_string ());
+                throw status_error (status, message.get_uri ().to_string ());
 
             return bytes_to_string (bytes);
         }

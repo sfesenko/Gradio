@@ -188,8 +188,25 @@ void test_import_dispatches_stations () {
     cleanup_dir (dir);
 }
 
-void test_notify_without_application_is_noop () {
+void test_report_click_failure_is_silent () {
     string dir = make_tmp_dir ();
+    var config = new Gradio.AppConfig (GLib.Path.build_filename (dir, "config.json"));
+    var runtime = new Gradio.AppRuntime (config);
+    Gradio.Message? last = null;
+    runtime.attach ((msg) => { last = msg; });
+
+    Gradio.RadioBrowser.api_base = "not a url";
+    var cmd = runtime.report_click ("u1");
+    assert (cmd != null);
+    Elmish.Cmd.exec<Gradio.Message> ((msg) => { last = msg; }, cmd);
+    wait_for_save ();
+
+    assert (last == null);
+    Gradio.RadioBrowser.api_base = Gradio.RadioBrowser.radio_browser;
+    cleanup_dir (dir);
+}
+
+void test_notify_without_application_is_noop () {    string dir = make_tmp_dir ();
     var config = new Gradio.AppConfig (GLib.Path.build_filename (dir, "config.json"));
     var runtime = new Gradio.AppRuntime (config);
     runtime.attach ((msg) => {});
@@ -238,6 +255,7 @@ int main (string[] args) {
     Test.add_func ("/app-runtime/export_playlist_writes_m3u", test_export_playlist_writes_m3u);
     Test.add_func ("/app-runtime/import_dispatches_stations", test_import_dispatches_stations);
     Test.add_func ("/app-runtime/notify_without_app", test_notify_without_application_is_noop);
+    Test.add_func ("/app-runtime/report_click_failure_silent", test_report_click_failure_is_silent);
 
     return Test.run ();
 }

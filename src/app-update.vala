@@ -16,8 +16,18 @@ private RadioStation? find_station (Gradio.AppModel model, string id) {
     return null;
 }
 
-private GLib.GenericArray<RadioStation> stations_for_favicons (Gradio.AppModel model) {
-    var result = new GLib.GenericArray<RadioStation> ();
+private Elmish.Cmd<Gradio.Message>? begin_discover (Gradio.AppModel model,
+        Gradio.Commands commands) {
+    model.discover_generation++;
+    model.discover_pending = 2;
+    model.discover_loading = true;
+    model.discover_error = null;
+    model.discover_popular = new GLib.GenericArray<RadioStation> ();
+    model.discover_new = new GLib.GenericArray<RadioStation> ();
+    return commands.discover (model.discover_generation);
+}
+
+private GLib.GenericArray<RadioStation> stations_for_favicons (Gradio.AppModel model) {    var result = new GLib.GenericArray<RadioStation> ();
     var seen = new GLib.HashTable<string, bool> (str_hash, str_equal);
 
     for (uint i = 0; i < model.config.stations.length; i++) {
@@ -29,6 +39,20 @@ private GLib.GenericArray<RadioStation> stations_for_favicons (Gradio.AppModel m
     }
     for (uint i = 0; i < model.search_results.length; i++) {
         var station = model.search_results.get (i);
+        if (seen.contains (station.id))
+            continue;
+        seen.set (station.id, true);
+        result.add (station);
+    }
+    for (uint i = 0; i < model.discover_popular.length; i++) {
+        var station = model.discover_popular.get (i);
+        if (seen.contains (station.id))
+            continue;
+        seen.set (station.id, true);
+        result.add (station);
+    }
+    for (uint i = 0; i < model.discover_new.length; i++) {
+        var station = model.discover_new.get (i);
         if (seen.contains (station.id))
             continue;
         seen.set (station.id, true);
@@ -54,6 +78,13 @@ public Elmish.Cmd<Gradio.Message>? updateModel (Gradio.Message msg, Gradio.AppMo
                     model.search_results = new GLib.GenericArray<RadioStation> ();
                     model.search_error = null;
                     model.searching = false;
+                    model.details_visible = false;
+                    if (!model.config.search_filters.is_empty ()) {
+                        model.search_active = true;
+                        model.searching = true;
+                        return commands.search ("", model.search_generation);
+                    }
+                    return begin_discover (model, commands);
                 }
             }
             model.details_visible = false;
@@ -71,6 +102,10 @@ public Elmish.Cmd<Gradio.Message>? updateModel (Gradio.Message msg, Gradio.AppMo
                 model.search_results = new GLib.GenericArray<RadioStation> ();
                 model.search_error = null;
                 model.searching = false;
+                if (model.discover_popular.length == 0 &&
+                        model.discover_new.length == 0 &&
+                        !model.discover_loading)
+                    return begin_discover (model, commands);
                 break;
             }
             model.search_generation++;
@@ -431,7 +466,11 @@ public Elmish.Cmd<Gradio.Message>? updateModel (Gradio.Message msg, Gradio.AppMo
             model.stream_title = "";
             model.stream_bitrate = 0;
             model.status_message = _("Connecting…");
-            return Commands.chain (commands.save_config (), commands.play (play.station));
+            var report = play.station.is_local
+                ? null
+                : commands.report_click (play.station.id);
+            return Commands.chain (commands.save_config (),
+                Commands.chain (commands.play (play.station), report));
 
         case MessageKind.TOGGLE_PLAY:
             if (model.current_station == null)
@@ -618,7 +657,12 @@ public Elmish.Cmd<Gradio.Message>? updateModel (Gradio.Message msg, Gradio.AppMo
                 model.search_results = new GLib.GenericArray<RadioStation> ();
                 model.search_error = null;
                 model.searching = false;
-                return commands.save_config ();
+                var save = commands.save_config ();
+                if (model.discover_popular.length == 0 &&
+                        model.discover_new.length == 0 &&
+                        !model.discover_loading)
+                    return Commands.chain (save, begin_discover (model, commands));
+                return save;
             }
             model.search_generation++;
             model.searching = true;
@@ -626,6 +670,64 @@ public Elmish.Cmd<Gradio.Message>? updateModel (Gradio.Message msg, Gradio.AppMo
             model.search_active = true;
             return Commands.chain (commands.save_config (),
                 commands.search (model.search_query, model.search_generation));
+
+        case MessageKind.REQUEST_DISCOVER:
+            return begin_discover (model, commands);
+
+        case MessageKind.DISCOVER_RESULTS:
+            var discover_results = msg as DiscoverResultsMessage;
+            if (discover_results == null ||
+                    discover_results.generation != model.discover_generation)
+                break;
+            if (discover_results.mode == DiscoverMode.POPULAR)
+                model.discover_popular = discover_results.stations;
+            else
+                model.discover_new = discover_results.stations;
+            if (model.discover_pending > 0)
+                model.discover_pending--;
+            model.discover_loading = model.discover_pending > 0;
+            return commands.load_favicons (discover_results.stations);
+
+        case MessageKind.DISCOVER_FAILED:
+            var discover_failed = msg as DiscoverFailedMessage;
+            if (discover_failed == null ||
+                    discover_failed.generation != model.discover_generation)
+                break;
+            model.discover_error = discover_failed.message;
+            if (model.discover_pending > 0)
+                model.discover_pending--;
+            model.discover_loading = model.discover_pending > 0;
+            break;
+
+        case MessageKind.DISCOVER_SERVER:
+            model.server_ready = false;
+            model.server_error = null;
+            return commands.discover_server ();
+
+        case MessageKind.SERVER_DISCOVERED:
+            var discovered = msg as ServerDiscoveredMessage;
+            if (discovered == null)
+                break;
+            model.server_ready = true;
+            model.server_error = null;
+            if (model.search_active && (model.search_error != null || model.searching)) {
+                model.search_generation++;
+                model.searching = true;
+                model.search_error = null;
+                return commands.search (model.search_query, model.search_generation);
+            }
+            if (model.view == ViewMode.ADD_STATION && !model.search_active)
+                return begin_discover (model, commands);
+            break;
+
+        case MessageKind.SERVER_DISCOVERY_FAILED:
+            var discovery_error = msg as ServerDiscoveryFailedMessage;
+            if (discovery_error == null)
+                break;
+            model.server_ready = false;
+            model.server_error = discovery_error.message;
+            model.status_message = _("Using the default radio-browser server");
+            break;
 
         default:
             break;

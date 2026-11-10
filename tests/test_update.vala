@@ -24,6 +24,11 @@ class RecordingCommands : Gradio.Commands {
     public int filter_option_calls = 0;
     public int refresh_calls = 0;
     public int last_refresh_count = 0;
+    public int discover_server_calls = 0;
+    public int discover_calls = 0;
+    public uint last_discover_generation = 0;
+    public int report_click_calls = 0;
+    public string last_report_click_id = "";
     public string last_vote_id = "";
     public string last_notification = "";
     public string last_query = "";
@@ -118,6 +123,23 @@ class RecordingCommands : Gradio.Commands {
         last_refresh_count = (int) stations.length;
         return dummy ();
     }
+
+    public override Elmish.Cmd<Gradio.Message>? discover_server () {
+        discover_server_calls++;
+        return dummy ();
+    }
+
+    public override Elmish.Cmd<Gradio.Message>? discover (uint generation) {
+        discover_calls++;
+        last_discover_generation = generation;
+        return dummy ();
+    }
+
+    public override Elmish.Cmd<Gradio.Message>? report_click (string station_id) {
+        report_click_calls++;
+        last_report_click_id = station_id;
+        return dummy ();
+    }
 }
 
 AppModel make_model () {
@@ -173,11 +195,26 @@ void test_search_requested_empty () {
     model.searching = true;
 
     var cmd = updateModel (new SearchRequestedMessage ("   "), model, commands);
-    assert (cmd == null);
+    assert (cmd != null);
     assert (model.search_results.length == 0);
     assert (model.searching == false);
     assert (model.search_active == false);
     assert (commands.search_calls == 0);
+    assert (commands.discover_calls == 1);
+    assert (commands.last_discover_generation == model.discover_generation);
+    assert (model.discover_loading);
+    assert (model.discover_pending == 2);
+}
+
+void test_search_requested_empty_keeps_loaded_discover () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    model.discover_popular.add (make_station ("u1"));
+
+    var cmd = updateModel (new SearchRequestedMessage (""), model, commands);
+    assert (cmd == null);
+    assert (commands.discover_calls == 0);
+    assert (model.discover_popular.length == 1);
 }
 
 void test_search_requested_blank_with_filter_browses () {
@@ -550,6 +587,32 @@ void test_play_station () {
     assert (commands.play_calls == 1);
     assert (model.config.last_station_id == "u1");
     assert (commands.save_calls == 1);
+}
+
+void test_play_remote_reports_click () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    var station = make_station ("u1");
+
+    var cmd = updateModel (new PlayStationMessage (station), model, commands);
+    assert (cmd != null);
+    assert (model.playing);
+    assert (commands.play_calls == 1);
+    assert (commands.report_click_calls == 1);
+    assert (commands.last_report_click_id == "u1");
+}
+
+void test_play_local_does_not_report_click () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    var station = make_station ("local-u1");
+    station.is_local = true;
+
+    var cmd = updateModel (new PlayStationMessage (station), model, commands);
+    assert (cmd != null);
+    assert (model.playing);
+    assert (commands.play_calls == 1);
+    assert (commands.report_click_calls == 0);
 }
 
 void test_restore_last_station_plays_when_enabled () {
@@ -1263,6 +1326,274 @@ void test_vote_local_station_is_rejected () {
     assert (model.votes_pending.size () == 0);
 }
 
+void test_discover_server_request () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    model.server_ready = true;
+    model.server_error = "old";
+
+    var cmd = updateModel (new DiscoverServerMessage (), model, commands);
+    assert (cmd != null);
+    assert (!model.server_ready);
+    assert (model.server_error == null);
+    assert (commands.discover_server_calls == 1);
+}
+
+void test_server_discovered () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    model.server_error = "old";
+
+    updateModel (new ServerDiscoveredMessage ("https://radio.test/json"), model, commands);
+    assert (model.server_ready);
+    assert (model.server_error == null);
+}
+
+void test_server_discovery_failed () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    model.server_ready = true;
+
+    updateModel (new ServerDiscoveryFailedMessage ("offline"), model, commands);
+    assert (!model.server_ready);
+    assert (model.server_error == "offline");
+    assert (model.status_message != "" && model.status_message != "old");
+}
+
+void test_request_discover () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    model.discover_popular.add (make_station ("old"));
+    model.discover_error = "old";
+
+    var cmd = updateModel (new RequestDiscoverMessage (), model, commands);
+    assert (cmd != null);
+    assert (commands.discover_calls == 1);
+    assert (commands.last_discover_generation == model.discover_generation);
+    assert (model.discover_popular.length == 0);
+    assert (model.discover_new.length == 0);
+    assert (model.discover_loading);
+    assert (model.discover_pending == 2);
+    assert (model.discover_error == null);
+}
+
+void test_discover_results_popular () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    model.discover_generation = 5;
+    model.discover_pending = 2;
+    model.discover_loading = true;
+    var stations = new GLib.GenericArray<RadioStation> ();
+    stations.add (make_station ("u1"));
+
+    var cmd = updateModel (new DiscoverResultsMessage (
+        DiscoverMode.POPULAR, stations, 5), model, commands);
+    assert (cmd != null);
+    assert (model.discover_popular.length == 1);
+    assert (model.discover_new.length == 0);
+    assert (model.discover_pending == 1);
+    assert (model.discover_loading);
+    assert (commands.favicon_calls == 1);
+}
+
+void test_discover_results_new () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    model.discover_generation = 5;
+    model.discover_pending = 1;
+    model.discover_loading = true;
+    var stations = new GLib.GenericArray<RadioStation> ();
+    stations.add (make_station ("u2"));
+
+    var cmd = updateModel (new DiscoverResultsMessage (
+        DiscoverMode.NEW, stations, 5), model, commands);
+    assert (cmd != null);
+    assert (model.discover_popular.length == 0);
+    assert (model.discover_new.length == 1);
+    assert (model.discover_pending == 0);
+    assert (!model.discover_loading);
+}
+
+void test_discover_results_stale_generation () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    model.discover_generation = 5;
+    model.discover_pending = 2;
+    model.discover_loading = true;
+    var stations = new GLib.GenericArray<RadioStation> ();
+    stations.add (make_station ("u1"));
+
+    updateModel (new DiscoverResultsMessage (
+        DiscoverMode.POPULAR, stations, 4), model, commands);
+    assert (model.discover_popular.length == 0);
+    assert (model.discover_pending == 2);
+    assert (model.discover_loading);
+    assert (commands.favicon_calls == 0);
+}
+
+void test_discover_failure () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    model.discover_generation = 5;
+    model.discover_pending = 2;
+    model.discover_loading = true;
+
+    updateModel (new DiscoverFailedMessage (DiscoverMode.POPULAR, "down", 5), model, commands);
+    assert (model.discover_error == "down");
+    assert (model.discover_pending == 1);
+    assert (model.discover_loading);
+
+    updateModel (new DiscoverFailedMessage (DiscoverMode.NEW, "down too", 5), model, commands);
+    assert (model.discover_pending == 0);
+    assert (!model.discover_loading);
+}
+
+void test_discover_failure_stale_generation () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    model.discover_generation = 5;
+    model.discover_pending = 2;
+    model.discover_loading = true;
+
+    updateModel (new DiscoverFailedMessage (DiscoverMode.POPULAR, "late", 4), model, commands);
+    assert (model.discover_error == null);
+    assert (model.discover_pending == 2);
+    assert (model.discover_loading);
+}
+
+void test_discover_partial_failure_keeps_results () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    model.discover_generation = 5;
+    model.discover_pending = 2;
+    model.discover_loading = true;
+
+    updateModel (new DiscoverFailedMessage (DiscoverMode.POPULAR, "down", 5), model, commands);
+    var stations = new GLib.GenericArray<RadioStation> ();
+    stations.add (make_station ("u1"));
+    updateModel (new DiscoverResultsMessage (DiscoverMode.NEW, stations, 5), model, commands);
+
+    assert (model.discover_error == "down");
+    assert (model.discover_has_results ());
+    assert (!model.discover_should_show_error ());
+    assert (!model.discover_loading);
+}
+
+void test_discover_show_error_when_empty () {
+    var model = make_model ();
+    model.discover_error = "down";
+    assert (!model.discover_has_results ());
+    assert (model.discover_should_show_error ());
+}
+
+void test_server_discovered_retries_failed_search () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    model.search_active = true;
+    model.search_query = "jazz";
+    model.search_error = "offline";
+    model.search_generation = 3;
+
+    var cmd = updateModel (new ServerDiscoveredMessage ("https://radio.test/json"),
+        model, commands);
+    assert (cmd != null);
+    assert (commands.search_calls == 1);
+    assert (commands.last_query == "jazz");
+    assert (model.search_generation == 4);
+    assert (model.searching);
+    assert (model.search_error == null);
+}
+
+void test_server_discovered_retries_discover () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    model.view = ViewMode.ADD_STATION;
+    model.discover_error = "offline";
+
+    var cmd = updateModel (new ServerDiscoveredMessage ("https://radio.test/json"),
+        model, commands);
+    assert (cmd != null);
+    assert (commands.discover_calls == 1);
+    assert (model.discover_loading);
+    assert (model.discover_pending == 2);
+}
+
+void test_server_discovered_restarts_pending_discover () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    model.view = ViewMode.ADD_STATION;
+    model.discover_loading = true;
+    model.discover_pending = 2;
+    model.discover_generation = 7;
+
+    var cmd = updateModel (new ServerDiscoveredMessage ("https://radio.test/json"),
+        model, commands);
+    assert (cmd != null);
+    assert (commands.discover_calls == 1);
+    assert (model.discover_generation == 8);
+    assert (model.discover_loading);
+    assert (model.discover_pending == 2);
+}
+
+void test_server_discovered_restarts_pending_search () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    model.search_active = true;
+    model.search_query = "jazz";
+    model.searching = true;
+    model.search_generation = 3;
+
+    var cmd = updateModel (new ServerDiscoveredMessage ("https://radio.test/json"),
+        model, commands);
+    assert (cmd != null);
+    assert (commands.search_calls == 1);
+    assert (model.search_generation == 4);
+    assert (model.searching);
+}
+
+void test_set_view_add_requests_discover_when_filters_empty () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+
+    var cmd = updateModel (new SetViewMessage (ViewMode.ADD_STATION), model, commands);
+    assert (cmd != null);
+    assert (model.view == ViewMode.ADD_STATION);
+    assert (commands.discover_calls == 1);
+    assert (commands.search_calls == 0);
+    assert (model.discover_loading);
+    assert (model.discover_pending == 2);
+}
+
+void test_set_view_add_searches_when_filters_present () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    model.config.search_filters.country = "Ukraine";
+
+    var cmd = updateModel (new SetViewMessage (ViewMode.ADD_STATION), model, commands);
+    assert (cmd != null);
+    assert (commands.discover_calls == 0);
+    assert (commands.search_calls == 1);
+    assert (commands.last_query == "");
+    assert (model.search_active);
+    assert (model.searching);
+}
+
+void test_clearing_filters_requests_discover_when_empty () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    model.config.search_filters.country = "Ukraine";
+    model.search_active = true;
+
+    var cmd = updateModel (new SetSearchFilterMessage (SearchFilterKind.COUNTRY, ""),
+        model, commands);
+    assert (cmd != null);
+    assert (commands.save_calls == 1);
+    assert (commands.search_calls == 0);
+    assert (commands.discover_calls == 1);
+    assert (!model.search_active);
+    assert (model.discover_loading);
+}
+
 int main (string[] args) {
     Test.init (ref args);
 
@@ -1348,6 +1679,25 @@ int main (string[] args) {
     Test.add_func ("/update/add_local_station_trims", test_add_local_station_trims_fields);
     Test.add_func ("/update/add_remote_duplicate_local_url", test_add_remote_duplicate_url_of_local_is_rejected);
     Test.add_func ("/update/vote_local_rejected", test_vote_local_station_is_rejected);
+    Test.add_func ("/update/discover_server_request", test_discover_server_request);
+    Test.add_func ("/update/server_discovered", test_server_discovered);
+    Test.add_func ("/update/server_discovery_failed", test_server_discovery_failed);
+    Test.add_func ("/update/search_empty_keeps_discover", test_search_requested_empty_keeps_loaded_discover);
+    Test.add_func ("/update/request_discover", test_request_discover);
+    Test.add_func ("/update/discover_results_popular", test_discover_results_popular);
+    Test.add_func ("/update/discover_results_new", test_discover_results_new);
+    Test.add_func ("/update/discover_results_stale", test_discover_results_stale_generation);
+    Test.add_func ("/update/discover_failure", test_discover_failure);
+    Test.add_func ("/update/discover_failure_stale", test_discover_failure_stale_generation);
+    Test.add_func ("/update/discover_partial_failure", test_discover_partial_failure_keeps_results);
+    Test.add_func ("/update/discover_error_when_empty", test_discover_show_error_when_empty);
+    Test.add_func ("/update/server_discovered_retries_search", test_server_discovered_retries_failed_search);
+    Test.add_func ("/update/server_discovered_retries_discover", test_server_discovered_retries_discover);
+    Test.add_func ("/update/server_discovered_restarts_discover", test_server_discovered_restarts_pending_discover);
+    Test.add_func ("/update/server_discovered_restarts_search", test_server_discovered_restarts_pending_search);
+    Test.add_func ("/update/set_view_add_discover", test_set_view_add_requests_discover_when_filters_empty);
+    Test.add_func ("/update/set_view_add_search", test_set_view_add_searches_when_filters_present);
+    Test.add_func ("/update/clear_filters_discover", test_clearing_filters_requests_discover_when_empty);
 
     return Test.run ();
 }

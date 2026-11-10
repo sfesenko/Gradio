@@ -114,6 +114,7 @@ int main (string[] args) {
             program.start ();
             program.dispatch_message (new Gradio.RequestFaviconsMessage ());
             program.dispatch_message (new Gradio.RefreshLibraryMessage ());
+            program.dispatch_message (new Gradio.DiscoverServerMessage ());
             program.dispatch_message (new Gradio.RequestFilterOptionsMessage ());
             program.dispatch_message (new Gradio.RestoreLastStationMessage ());
         }
