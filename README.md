@@ -15,7 +15,8 @@ no shared git history with it; it is a deliberate rewrite.
 
 ## Build
 
-Requirements: `meson`, `ninja`, `vala`, `gtk4` (≥ 4.10), `gettext`.
+Requirements: `meson`, `ninja`, `vala`, `gtk4` (≥ 4.10), `libsoup-3.0`,
+`json-glib`, `gstreamer`, `gettext`.
 
 ```bash
 meson setup builddir
@@ -26,15 +27,21 @@ meson test -C builddir        # headless — no display needed
 
 ## Current state
 
-This is the scaffold milestone:
+Gradio is a usable single-list radio player:
 
-- Gradio app ID, desktop file, appstream metadata, icons and GSettings schema
-- GTK4 main window with Library, Discover, Collections and Settings pages
-- Model/messages for page navigation and play/pause state
-- Headless elmish and model tests
+- One library list; `+` opens a radio-browser name search
+- Add stays in search and marks results as added; Back returns to the list
+- GStreamer playback with play/stop, volume, and stream metadata
+- Slide-in station details with homepage, stream URL, and remove
+- Preferences for dark theme and technical information
+- JSON config at `~/.config/gradio/config.json` (`XDG_CONFIG_HOME` honored);
+  cache lives at `~/.cache/gradio/`
+- Headless core tests for the model, config, HTTP, search, player, and runtime
 
-The radio-browser backend, library persistence, playback, MPRIS and search
-provider are ported from the GTK3 branch in subsequent milestones.
+Gradio adds the parity extras: search filters, sorting, discover, station editing,
+import/export, MPRIS, the GNOME Shell search provider, notifications, codec
+installation, background/resume playback, and favicon caching. Collections,
+headerbar tabs, tray icon, and multi-select are dropped.
 
 ## Packaging
 

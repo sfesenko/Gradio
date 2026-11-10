@@ -1,19 +1,23 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2026 Sergii Fesenko
+// SPDX-License-Identifier: GPL-3.0-or-later
 
-// The imperative half of the loop: the view never owns state or decides
-// behavior. Widget signals become messages (dispatch); update() reflects the
-// model back onto widgets.
-//
-// Half-elmish: this is the ONLY place that deviates from full Elm — the view
-// is a mutable widget tree instead of a pure render function. Everything else
-// (model, messages, update) is full elmish.
 public class Gradio.MainView : Gtk.ApplicationWindow {
     private Elmish.Dispatch<Gradio.Message> dispatch;
     private Gtk.Stack stack;
-    private Gtk.ToggleButton play_button;
-    private Gtk.Label status_label;
-    private bool updating = false;
+    private Gtk.Stack library_stack;
+    private Gtk.ListBox list_box;
+    private Gtk.Button add_button;
+    private Gtk.Button back_button;
+    private Gtk.Label title_label;
+    private Gradio.PlayerBar player_bar;
+    private Gradio.DetailsPanel details_panel;
+    private Gtk.Revealer details_revealer;
+    private Gtk.SearchEntry search_entry;
+    private Gtk.Stack add_stack;
+    private Gtk.ListBox search_list_box;
+    private Gtk.Spinner spinner;
+    private Gtk.Label search_error_label;
+    private bool last_adding = false;
+    private Gradio.AppModel app_model;
 
     public MainView (Gtk.Application app) {
         Object (application: app);
@@ -27,156 +31,276 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
 
         var header = new Gtk.HeaderBar ();
 
-        stack = new Gtk.Stack () {
-            transition_type = Gtk.StackTransitionType.CROSSFADE,
-            hexpand = true,
-            vexpand = true
+        add_button = new Gtk.Button () {
+            icon_name = "list-add-symbolic",
+            tooltip_text = _("Add station")
         };
-        stack.add_titled (build_placeholder (_("Library"),
-                _("Your saved radio stations will appear here.")), "library", _("Library"));
-        stack.add_titled (build_placeholder (_("Discover"),
-                _("Search and browse internet radio stations.")), "search", _("Discover"));
-        stack.add_titled (build_placeholder (_("Collections"),
-                _("Group stations into collections.")), "collections", _("Collections"));
-        stack.add_titled (build_placeholder (_("Settings"),
-                _("Playback, appearance and library settings.")), "settings", _("Settings"));
+        add_button.clicked.connect (open_add_view);
+        header.pack_start (add_button);
 
-        var switcher = new Gtk.StackSwitcher () { stack = stack };
-        header.set_title_widget (switcher);
+        back_button = new Gtk.Button () {
+            icon_name = "go-previous-symbolic",
+            tooltip_text = _("Back to library"),
+            visible = false
+        };
+        back_button.clicked.connect (() => dispatch (new SetViewMessage (ViewMode.LIBRARY)));
+        header.pack_start (back_button);
+
+        title_label = new Gtk.Label (_("Gradio"));
+        title_label.add_css_class ("title-4");
+        header.set_title_widget (title_label);
 
         var menu_button = new Gtk.MenuButton () {
             icon_name = "open-menu-symbolic",
             tooltip_text = _("Menu")
         };
         var menu = new GLib.Menu ();
-        menu.append (_("Library"), "win.library");
-        menu.append (_("Discover"), "win.search");
-        menu.append (_("Collections"), "win.collections");
-        menu.append (_("Settings"), "win.settings");
+        menu.append (_("Preferences"), "win.preferences");
+        menu.append (_("About"), "app.about");
         menu.append (_("Quit"), "app.quit");
         menu_button.set_menu_model (menu);
         header.pack_end (menu_button);
 
         set_titlebar (header);
 
-        add_action (create_page_action ("library", PageMode.LIBRARY));
-        add_action (create_page_action ("search", PageMode.SEARCH));
-        add_action (create_page_action ("collections", PageMode.COLLECTIONS));
-        add_action (create_page_action ("settings", PageMode.SETTINGS));
+        var add_station_action = new GLib.SimpleAction ("add-station", null);
+        add_station_action.activate.connect (open_add_view);
+        add_action (add_station_action);
 
-        var bottom = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 12) {
-            margin_top = 8,
-            margin_bottom = 8,
-            margin_start = 12,
-            margin_end = 12
-        };
+        var library_action = new GLib.SimpleAction ("library", null);
+        library_action.activate.connect (() => dispatch (new SetViewMessage (ViewMode.LIBRARY)));
+        add_action (library_action);
 
-        play_button = new Gtk.ToggleButton () {
-            icon_name = "media-playback-start-symbolic",
-            tooltip_text = _("Play")
-        };
-        play_button.toggled.connect (() => {
-            if (!updating) {
-                dispatch (new TogglePlayMessage ());
-            }
-        });
-        bottom.append (play_button);
+        var preferences_action = new GLib.SimpleAction ("preferences", null);
+        preferences_action.activate.connect (open_preferences);
+        add_action (preferences_action);
 
-        status_label = new Gtk.Label (model.status_message) {
+        var toggle_action = new GLib.SimpleAction ("toggle-play", null);
+        toggle_action.activate.connect (() => dispatch (new TogglePlayMessage ()));
+        add_action (toggle_action);
+
+        var details_action = new GLib.SimpleAction ("details", null);
+        details_action.activate.connect (() => dispatch (new ShowDetailsMessage (null)));
+        add_action (details_action);
+
+        stack = new Gtk.Stack () {
+            transition_type = Gtk.StackTransitionType.CROSSFADE,
             hexpand = true,
-            halign = Gtk.Align.START
+            vexpand = true
         };
-        bottom.append (status_label);
+        stack.add_named (build_library_page (), "library");
+        stack.add_named (build_add_page (), "add");
+
+        player_bar = new Gradio.PlayerBar (dispatch);
 
         var root = new Gtk.Box (Gtk.Orientation.VERTICAL, 0);
         root.append (stack);
         root.append (new Gtk.Separator (Gtk.Orientation.HORIZONTAL));
-        root.append (bottom);
-
+        root.append (player_bar);
         set_child (root);
 
-        stack.notify["visible-child-name"].connect (() => {
-            if (updating) {
-                return;
-            }
-            var name = stack.get_visible_child_name ();
-            if (name == null) {
-                return;
-            }
-            switch (name) {
-                case "library":
-                    dispatch (new SetPageMessage (PageMode.LIBRARY));
-                    break;
-                case "search":
-                    dispatch (new SetPageMessage (PageMode.SEARCH));
-                    break;
-                case "collections":
-                    dispatch (new SetPageMessage (PageMode.COLLECTIONS));
-                    break;
-                case "settings":
-                    dispatch (new SetPageMessage (PageMode.SETTINGS));
-                    break;
-                default:
-                    break;
-            }
-        });
-
-        update (new SetPageMessage (model.page), model);
+        update (new Gradio.SetViewMessage (model.view), model);
     }
 
-    private GLib.SimpleAction create_page_action (string name, PageMode page) {
-        var action = new GLib.SimpleAction (name, null);
-        action.activate.connect ((parameter) => dispatch (new SetPageMessage (page)));
-        return action;
+    private Gtk.Widget build_library_page () {
+        library_stack = new Gtk.Stack () {
+            transition_type = Gtk.StackTransitionType.CROSSFADE,
+            hexpand = true
+        };
+
+        var empty = new Gtk.Box (Gtk.Orientation.VERTICAL, 8) {
+            halign = Gtk.Align.CENTER,
+            valign = Gtk.Align.CENTER
+        };
+        var icon = new Gtk.Image.from_icon_name ("application-rss+xml-symbolic") {
+            pixel_size = 128
+        };
+        var empty_title = new Gtk.Label (_("Your library is empty"));
+        empty_title.add_css_class ("title-2");
+        var empty_hint = new Gtk.Label (_("Press + to add a radio station"));
+        empty_hint.add_css_class ("dim-label");
+        var empty_add = new Gtk.Button.with_label (_("Add station")) {
+            halign = Gtk.Align.CENTER,
+            margin_top = 12
+        };
+        empty_add.clicked.connect (open_add_view);
+        empty.append (icon);
+        empty.append (empty_title);
+        empty.append (empty_hint);
+        empty.append (empty_add);
+        library_stack.add_named (empty, "empty");
+
+        list_box = new Gtk.ListBox () {
+            selection_mode = Gtk.SelectionMode.NONE,
+            show_separators = true
+        };
+        var scroll = new Gtk.ScrolledWindow () {
+            child = list_box,
+            vexpand = true,
+            hscrollbar_policy = Gtk.PolicyType.NEVER
+        };
+        library_stack.add_named (scroll, "list");
+
+        details_panel = new Gradio.DetailsPanel (dispatch);
+        details_revealer = new Gtk.Revealer () {
+            transition_type = Gtk.RevealerTransitionType.SLIDE_LEFT,
+            child = details_panel
+        };
+
+        var page = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 0);
+        page.append (library_stack);
+        page.append (new Gtk.Separator (Gtk.Orientation.VERTICAL));
+        page.append (details_revealer);
+        return page;
     }
 
-    private Gtk.Widget build_placeholder (string title, string subtitle) {
-        var box = new Gtk.Box (Gtk.Orientation.VERTICAL, 8) {
+    private Gtk.Widget build_add_page () {
+        var box = new Gtk.Box (Gtk.Orientation.VERTICAL, 8);
+
+        search_entry = new Gtk.SearchEntry () {
+            placeholder_text = _("Search for radio stations"),
+            search_delay = 300,
+            margin_top = 12,
+            margin_bottom = 12,
+            margin_start = 12,
+            margin_end = 12
+        };
+        search_entry.search_started.connect (() => dispatch (new SearchRequestedMessage (search_entry.text)));
+        search_entry.activate.connect (() => dispatch (new SearchRequestedMessage (search_entry.text)));
+        search_entry.stop_search.connect (() => dispatch (new SearchRequestedMessage ("")));
+        box.append (search_entry);
+
+        add_stack = new Gtk.Stack () {
+            transition_type = Gtk.StackTransitionType.CROSSFADE,
+            vexpand = true
+        };
+
+        var idle = new Gtk.Label (_("Search for radio stations by name.")) {
+            halign = Gtk.Align.CENTER,
+            valign = Gtk.Align.CENTER
+        };
+        idle.add_css_class ("dim-label");
+        add_stack.add_named (idle, "idle");
+
+        spinner = new Gtk.Spinner () {
+            halign = Gtk.Align.CENTER,
+            valign = Gtk.Align.CENTER
+        };
+        add_stack.add_named (spinner, "loading");
+
+        search_list_box = new Gtk.ListBox () {
+            selection_mode = Gtk.SelectionMode.NONE,
+            show_separators = true
+        };
+        var scroll = new Gtk.ScrolledWindow () {
+            child = search_list_box,
+            vexpand = true,
+            hscrollbar_policy = Gtk.PolicyType.NEVER
+        };
+        add_stack.add_named (scroll, "results");
+
+        var empty = new Gtk.Label (_("No stations found.")) {
+            halign = Gtk.Align.CENTER,
+            valign = Gtk.Align.CENTER
+        };
+        empty.add_css_class ("dim-label");
+        add_stack.add_named (empty, "empty");
+
+        search_error_label = new Gtk.Label ("") {
             halign = Gtk.Align.CENTER,
             valign = Gtk.Align.CENTER,
-            margin_top = 24,
-            margin_bottom = 24,
+            wrap = true,
             margin_start = 24,
             margin_end = 24
         };
+        search_error_label.add_css_class ("dim-label");
+        add_stack.add_named (search_error_label, "error");
 
-        var title_label = new Gtk.Label (title);
-        title_label.add_css_class ("title-1");
-
-        var subtitle_label = new Gtk.Label (subtitle);
-        subtitle_label.add_css_class ("dim-label");
-        subtitle_label.wrap = true;
-
-        box.append (title_label);
-        box.append (subtitle_label);
+        box.append (add_stack);
         return box;
     }
 
-    public void update (Gradio.Message msg, Gradio.AppModel model) {
-        updating = true;
+    private void open_add_view () {
+        dispatch (new SetViewMessage (ViewMode.ADD_STATION));
+        GLib.Idle.add (() => {
+            search_entry.grab_focus ();
+            return false;
+        });
+    }
 
-        switch (model.page) {
-            case PageMode.LIBRARY:
-                stack.set_visible_child_name ("library");
-                break;
-            case PageMode.SEARCH:
-                stack.set_visible_child_name ("search");
-                break;
-            case PageMode.COLLECTIONS:
-                stack.set_visible_child_name ("collections");
-                break;
-            case PageMode.SETTINGS:
-                stack.set_visible_child_name ("settings");
-                break;
+    private void open_preferences () {
+        var dialog = new Gradio.SettingsDialog (this, app_model, dispatch);
+        dialog.present ();
+    }
+
+    public void update (Gradio.Message msg, Gradio.AppModel model) {
+        app_model = model;
+
+        var settings = Gtk.Settings.get_default ();
+        if (settings != null) {
+            if (Gtk.get_minor_version () >= 20)
+                settings.gtk_interface_color_scheme = model.config.dark_theme
+                    ? Gtk.InterfaceColorScheme.DARK
+                    : Gtk.InterfaceColorScheme.DEFAULT;
+            else
+                settings.gtk_application_prefer_dark_theme = model.config.dark_theme;
         }
 
-        play_button.active = model.playing;
-        play_button.icon_name = model.playing
-            ? "media-playback-pause-symbolic"
-            : "media-playback-start-symbolic";
-        play_button.tooltip_text = model.playing ? _("Pause") : _("Play");
-        status_label.label = model.status_message;
+        bool adding = model.view == ViewMode.ADD_STATION;
+        stack.set_visible_child_name (adding ? "add" : "library");
+        add_button.visible = !adding;
+        back_button.visible = adding;
+        title_label.label = adding ? _("Add station") : _("Gradio");
 
-        updating = false;
+        if (adding && !last_adding) {
+            search_entry.text = "";
+            GLib.Idle.add (() => {
+                search_entry.grab_focus ();
+                return false;
+            });
+        }
+        last_adding = adding;
+
+        list_box.remove_all ();
+        for (uint i = 0; i < model.config.stations.length; i++) {
+            var station = model.config.stations.get (i);
+            bool is_current = model.current_station != null && model.current_station.id == station.id;
+            var row = new Gradio.StationRow (station, true, model.config.show_technical_info,
+                is_current, model.playing, false, dispatch);
+            list_box.append (row);
+        }
+
+        bool empty = model.config.stations.length == 0;
+        library_stack.set_visible_child_name (empty ? "empty" : "list");
+
+        search_list_box.remove_all ();
+        for (uint i = 0; i < model.search_results.length; i++) {
+            var station = model.search_results.get (i);
+            bool added = model.config.contains_station (station.id);
+            var row = new Gradio.StationRow (station, false, model.config.show_technical_info,
+                false, false, added, dispatch);
+            search_list_box.append (row);
+        }
+
+        if (model.searching) {
+            spinner.spinning = true;
+            add_stack.set_visible_child_name ("loading");
+        } else {
+            spinner.spinning = false;
+            if (model.search_error != null) {
+                search_error_label.label = model.search_error;
+                add_stack.set_visible_child_name ("error");
+            } else if (model.search_query == "") {
+                add_stack.set_visible_child_name ("idle");
+            } else if (model.search_results.length == 0) {
+                add_stack.set_visible_child_name ("empty");
+            } else {
+                add_stack.set_visible_child_name ("results");
+            }
+        }
+
+        details_revealer.reveal_child = model.details_visible;
+        details_panel.update (model.details_station, model);
+        player_bar.update (model);
     }
 }

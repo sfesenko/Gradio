@@ -20,10 +20,18 @@ Arch package: `./scripts/build-package.sh` (see README).
 - `src/elmish.vala` — generic half-elmish core (`ElmishProgram`, `Cmd`, `Sub`,
   `Dispatch`, `Cmd.map`). App-agnostic; treat as infrastructure.
 - `src/model/messages.vala` — message classes + `Gradio.AppModel`.
+- `src/model/radio-station.vala` — station data, JSON conversion, display text.
+- `src/model/app-config.vala` — settings + station library stored as JSON.
+- `src/commands.vala` — `Commands` factory (the injected IO boundary).
 - `src/app-update.vala` — `updateModel`, the pure update function.
-- `src/app-view.vala` — GTK4 views. The only place where widgets exist.
-- `src/main.vala` — wires the program: createView, updateModel, updateView,
-  init command, subscriptions.
+- `src/backend/` — libsoup HTTP, radio-browser search, GStreamer player.
+- `src/app-runtime.vala` — production `Commands`: async search, playback,
+  debounced config saves, player signal wiring.
+- `src/app-view.vala` — main window and headerbar; `src/view/` holds the
+  station row, details panel, player bar, and preferences dialog. Widgets
+  exist only in the view layer.
+- `src/main.vala` — wires the program: config load, AppRuntime, createView,
+  updateModel, updateView, actions and accelerators.
 - `tests/` — glib unit tests, no GTK.
 
 ## Rules (non-negotiable)

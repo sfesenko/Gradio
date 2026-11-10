@@ -76,6 +76,10 @@ executable(
   [
     'src/main.vala',
     'src/app-view.vala',
+    'src/view/station-row.vala',
+    'src/view/details-panel.vala',
+    'src/view/player-bar.vala',
+    'src/view/settings-dialog.vala',
     config_file,
   ],
   vala_args: [ '--target-glib=2.76' ],

@@ -36,12 +36,37 @@ Four pieces, four responsibilities:
 | `App.Message` + subclasses | `src/model/messages.vala` | yes | yes |
 | `AppModel` | `src/model/messages.vala` | yes | yes |
 | `updateModel` | `src/app-update.vala` | yes | yes |
-| `CounterView` (`build_ui` + `update`) | `src/app-view.vala` | no (widgets) | no |
+| `Commands` (command factory) | `src/commands.vala` | yes | yes |
+| `AppRuntime` (IO implementation) | `src/app-runtime.vala` | no (IO) | yes |
+| `RadioStation`, `AppConfig` | `src/model/` | yes | yes |
+| `Http`, `RadioBrowser`, `Player` | `src/backend/` | no (IO) | yes |
+| `MainView` and `src/view/` components | `src/app-view.vala`, `src/view/` | no (widgets) | no |
 | `ElmishProgram`, `Cmd`, `Sub` | `src/elmish.vala` | yes | yes |
 
-Everything except `src/app-view.vala` and `src/main.vala` is compiled into
-`lib_core` (see `meson.build`) — **no GTK in the core**, which is what makes
-`meson test` run headless.
+Everything except `src/app-view.vala`, `src/view/`, and `src/main.vala` is
+compiled into `lib_core` (see `meson.build`). The core has **no GTK imports**,
+which is what makes `meson test` run headless; backend tests link libsoup and
+GStreamer but still need no display.
+
+## Gradio state and IO
+
+`AppModel` holds the single list's view state: `view` (`LIBRARY` or
+`ADD_STATION`), the `AppConfig` (settings + stations), search results and
+generation, the current station, playback state and stream metadata, and the
+details panel selection. Messages are discriminated by `MessageKind`.
+
+`updateModel` is pure except for one injected dependency: a `Commands`
+factory. The factory returns `Cmd`s for search, play, stop, volume, and config
+saves. Tests inject a recording fake; production passes `AppRuntime`, which
+owns the `Soup.Session`, the GStreamer `Player`, and the debounced config
+writer (500 ms, atomic replace). Player signals and async search results are
+dispatched back through the long-lived dispatch captured by `attach`.
+
+Persistence is JSON, not SQLite: `AppConfig` reads and writes
+`$XDG_CONFIG_HOME/gradio/config.json` (default `~/.config/gradio/config.json`).
+`~/.local/share/gradio/gradio.db` from the GTK3 app is intentionally never
+read. Cache files belong under `$XDG_CACHE_HOME/gradio/` and are not used for
+the library.
 
 ## Messages: plain classes + enum discriminator
 
@@ -255,7 +280,13 @@ The core library (`src/elmish.vala`, `src/model/messages.vala`,
 `src/app-update.vala`) has zero GTK imports, so every test in `tests/` runs
 headless with plain glib assertions:
 
-- `test_update.vala` — model behavior for each message kind (5 tests)
+- `test_update.vala` — model behavior for each message kind (22 tests)
+- `test_app_config.vala` — JSON persistence, duplicates, invalid files
+- `test_radio_station.vala` — station JSON and display text
+- `test_http.vala` — URL validation, query building, GETs against a local server
+- `test_radio_browser.vala` — search URL and station parsing
+- `test_player.vala` — GStreamer volume and error handling
+- `test_app_runtime.vala` — debounced saves and save-failure dispatch
 - `test_elmish.vala` — the core itself: Cmd chains, dispatch-back, coalescing,
   subscriptions, thread marshalling, `Cmd.map` composition, plain-class
   messages in the generic core (12 tests)
@@ -273,3 +304,16 @@ Tests that need the main loop (coalescing, worker dispatch) pump it with
   `GMenu`/popovers), `Gtk.Dialog` (use `Gtk.FileDialog`/`Gtk.AlertDialog` or
   libadwaita).
 - `show_close_button` → `show_title_buttons` (GTK ≥ 4.10).
+
+## Memory checkpoint
+
+Measured on the target Wayland session, `VmHWM` after 3–4 seconds with a
+populated library (3 stations for GTK4, the GTK3 database's 2 stations for the
+baseline):
+
+- GTK3 baseline (`v7.3-gtk3-baseline`): 87,484 kB
+- GTK4 (`gtk4-elmish`): 89,716 kB (+2.5%)
+
+`smem` is not installed, so PSS could not be sampled; `VmRSS` matched
+`VmHWM` in both runs. The gap is not material, so the rewrite does not force
+`GSK_RENDERER=cairo`. Re-measure after the favicon cache and MPRIS land.

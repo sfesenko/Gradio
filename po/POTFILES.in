@@ -3,5 +3,10 @@ data/de.haeckerfelix.gradio.desktop.in
 data/de.haeckerfelix.gradio.appdata.xml.in
 src/main.vala
 src/app-view.vala
+src/view/details-panel.vala
+src/view/player-bar.vala
+src/view/settings-dialog.vala
+src/view/station-row.vala
+src/backend/player.vala
 src/app-update.vala
 src/model/messages.vala
