@@ -20,16 +20,6 @@ namespace Gradio {
                 margin_end = 12
             };
 
-            var dark_toggle = new Gtk.Switch () {
-                active = model.config.dark_theme,
-                valign = Gtk.Align.CENTER
-            };
-            dark_toggle.state_set.connect ((state) => {
-                dispatch (new SetDarkThemeMessage (state));
-                return false;
-            });
-            list.append (build_row (_("Prefer dark theme"), dark_toggle));
-
             var technical_toggle = new Gtk.Switch () {
                 active = model.config.show_technical_info,
                 valign = Gtk.Align.CENTER

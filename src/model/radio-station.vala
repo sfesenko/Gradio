@@ -8,6 +8,7 @@ namespace Gradio {
         public string id = "";
         public string name = "";
         public string url = "";
+        public string original_url = "";
         public string favicon = "";
         public string country = "";
         public string countrycode = "";
@@ -29,9 +30,12 @@ namespace Gradio {
             var station = new RadioStation ();
             station.id = id;
             station.name = name;
+            station.original_url = string_member (obj, "url");
             station.url = string_member (obj, "url_resolved");
             if (station.url == "")
-                station.url = string_member (obj, "url");
+                station.url = station.original_url;
+            if (station.original_url == "")
+                station.original_url = station.url;
             station.favicon = string_member (obj, "favicon");
             station.country = string_member (obj, "country");
             station.countrycode = string_member (obj, "countrycode");
@@ -50,7 +54,7 @@ namespace Gradio {
             var obj = new Json.Object ();
             obj.set_string_member ("stationuuid", id);
             obj.set_string_member ("name", name);
-            obj.set_string_member ("url", url);
+            obj.set_string_member ("url", original_url != "" ? original_url : url);
             obj.set_string_member ("url_resolved", url);
             obj.set_string_member ("favicon", favicon);
             obj.set_string_member ("country", country);
@@ -67,6 +71,18 @@ namespace Gradio {
             var node = new Json.Node (Json.NodeType.OBJECT);
             node.set_object (obj);
             return node;
+        }
+
+        public string[] stream_urls () {
+            if (url == "") {
+                string[] only = {};
+                if (original_url != "")
+                    only += original_url;
+                return only;
+            }
+            if (original_url == "" || original_url == url)
+                return { url };
+            return { original_url, url };
         }
 
         public string tech_info () {

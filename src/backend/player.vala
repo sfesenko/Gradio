@@ -11,6 +11,7 @@ namespace Gradio {
         private double _volume = 0.8;
         private RadioStation? current = null;
         private uint replay_id = 0;
+        private bool suppress_stop_state = false;
 
         public double volume {
             get { return _volume; }
@@ -26,13 +27,24 @@ namespace Gradio {
             cancel_replay ();
 
             if (!Http.is_valid_url (station.url)) {
+                suppress_stop_state = true;
+                stop ();
                 playback_error (_("Invalid stream URL"));
                 return;
             }
 
+            // Tear down the previous stream before switching URIs so two
+            // stations never play at once.
+            suppress_stop_state = true;
+            playbin.set_state (Gst.State.NULL);
+
             current = station;
             playbin.set ("uri", station.url);
-            playbin.set_state (Gst.State.PLAYING);
+            if (playbin.set_state (Gst.State.PLAYING) == Gst.StateChangeReturn.FAILURE) {
+                suppress_stop_state = true;
+                playback_error (_("Could not start playback"));
+                stop ();
+            }
         }
 
         public void stop () {
@@ -68,7 +80,15 @@ namespace Gradio {
                 case Gst.MessageType.STATE_CHANGED:
                     Gst.State old_state, new_state, pending;
                     msg.parse_state_changed (out old_state, out new_state, out pending);
-                    state_changed (new_state == Gst.State.PLAYING);
+                    if (new_state == Gst.State.PLAYING) {
+                        suppress_stop_state = false;
+                        state_changed (true);
+                    } else if (new_state == Gst.State.NULL) {
+                        if (suppress_stop_state)
+                            suppress_stop_state = false;
+                        else
+                            state_changed (false);
+                    }
                     break;
                 case Gst.MessageType.TAG:
                     Gst.TagList tags;
@@ -76,19 +96,21 @@ namespace Gradio {
                     string title;
                     if (!tags.get_string (Gst.Tags.TITLE, out title))
                         title = "";
-                    int bitrate;
-                    if (!tags.get_int (Gst.Tags.BITRATE, out bitrate))
+                    uint bitrate;
+                    if (!tags.get_uint (Gst.Tags.BITRATE, out bitrate))
                         bitrate = 0;
-                    metadata_changed (title, bitrate / 1000);
+                    metadata_changed (title, (int) (bitrate / 1000));
                     break;
                 case Gst.MessageType.ERROR:
                     GLib.Error error;
                     string debug;
                     msg.parse_error (out error, out debug);
+                    suppress_stop_state = true;
                     playback_error (error.message);
                     stop ();
                     break;
                 case Gst.MessageType.EOS:
+                    suppress_stop_state = true;
                     playback_error (_("End of stream"));
                     playbin.set_state (Gst.State.NULL);
                     schedule_replay ();
@@ -96,6 +118,7 @@ namespace Gradio {
                 case Gst.MessageType.ELEMENT:
                     unowned Gst.Structure structure = msg.get_structure ();
                     if (structure != null && structure.get_name () == "missing-plugin") {
+                        suppress_stop_state = true;
                         playback_error (_("A required codec is missing."));
                         stop ();
                     }

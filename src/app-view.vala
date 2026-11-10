@@ -18,6 +18,8 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
     private Gtk.Label search_error_label;
     private bool last_adding = false;
     private Gradio.AppModel app_model;
+    private string library_signature = "";
+    private string search_signature = "";
 
     public MainView (Gtk.Application app) {
         Object (application: app);
@@ -25,6 +27,12 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
 
     public void build_ui (Elmish.Dispatch<Gradio.Message> dispatch, Gradio.AppModel model) {
         this.dispatch = dispatch;
+
+        var css = new Gtk.CssProvider ();
+        string rules = ".current-station { background-color: alpha(@accent_bg_color, 0.25); }";
+        css.load_from_data (rules.data);
+        Gtk.StyleContext.add_provider_for_display (Gdk.Display.get_default (), css,
+            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION);
 
         set_title (_("Gradio"));
         set_default_size (900, 600);
@@ -142,9 +150,17 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
         library_stack.add_named (scroll, "list");
 
         details_panel = new Gradio.DetailsPanel (dispatch);
+        var details_scroll = new Gtk.ScrolledWindow () {
+            child = details_panel,
+            hscrollbar_policy = Gtk.PolicyType.NEVER,
+            width_request = 320,
+            propagate_natural_width = false,
+            hexpand = false,
+            vexpand = true
+        };
         details_revealer = new Gtk.Revealer () {
             transition_type = Gtk.RevealerTransitionType.SLIDE_LEFT,
-            child = details_panel
+            child = details_scroll
         };
 
         var page = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 0);
@@ -220,6 +236,18 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
         return box;
     }
 
+    private static string rows_signature (GLib.GenericArray<Gradio.RadioStation> stations,
+            bool show_technical_info) {
+        var builder = new GLib.StringBuilder ();
+        for (uint i = 0; i < stations.length; i++) {
+            var station = stations.get (i);
+            builder.append_printf ("%s|%s|%s|%s|%d|%s\n", station.id, station.name, station.country,
+                station.codec, station.bitrate, station.url);
+        }
+        builder.append (show_technical_info ? "tech" : "plain");
+        return builder.str;
+    }
+
     private void open_add_view () {
         dispatch (new SetViewMessage (ViewMode.ADD_STATION));
         GLib.Idle.add (() => {
@@ -236,16 +264,6 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
     public void update (Gradio.Message msg, Gradio.AppModel model) {
         app_model = model;
 
-        var settings = Gtk.Settings.get_default ();
-        if (settings != null) {
-            if (Gtk.get_minor_version () >= 20)
-                settings.gtk_interface_color_scheme = model.config.dark_theme
-                    ? Gtk.InterfaceColorScheme.DARK
-                    : Gtk.InterfaceColorScheme.DEFAULT;
-            else
-                settings.gtk_application_prefer_dark_theme = model.config.dark_theme;
-        }
-
         bool adding = model.view == ViewMode.ADD_STATION;
         stack.set_visible_child_name (adding ? "add" : "library");
         add_button.visible = !adding;
@@ -261,25 +279,46 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
         }
         last_adding = adding;
 
-        list_box.remove_all ();
+        string lib_sig = rows_signature (model.config.stations, model.config.show_technical_info);
+        if (lib_sig != library_signature) {
+            library_signature = lib_sig;
+            list_box.remove_all ();
+            for (uint i = 0; i < model.config.stations.length; i++) {
+                var station = model.config.stations.get (i);
+                var row = new Gradio.StationRow (station, true, model.config.show_technical_info,
+                    false, false, false, dispatch);
+                list_box.append (row);
+            }
+        }
         for (uint i = 0; i < model.config.stations.length; i++) {
             var station = model.config.stations.get (i);
+            var row = list_box.get_row_at_index ((int) i) as Gradio.StationRow;
+            if (row == null)
+                continue;
             bool is_current = model.current_station != null && model.current_station.id == station.id;
-            var row = new Gradio.StationRow (station, true, model.config.show_technical_info,
-                is_current, model.playing, false, dispatch);
-            list_box.append (row);
+            row.set_state (is_current, model.playing, false, model.stream_title);
         }
 
         bool empty = model.config.stations.length == 0;
         library_stack.set_visible_child_name (empty ? "empty" : "list");
 
-        search_list_box.remove_all ();
+        string result_sig = rows_signature (model.search_results, model.config.show_technical_info);
+        if (result_sig != search_signature) {
+            search_signature = result_sig;
+            search_list_box.remove_all ();
+            for (uint i = 0; i < model.search_results.length; i++) {
+                var station = model.search_results.get (i);
+                var row = new Gradio.StationRow (station, false, model.config.show_technical_info,
+                    false, false, false, dispatch);
+                search_list_box.append (row);
+            }
+        }
         for (uint i = 0; i < model.search_results.length; i++) {
             var station = model.search_results.get (i);
-            bool added = model.config.contains_station (station.id);
-            var row = new Gradio.StationRow (station, false, model.config.show_technical_info,
-                false, false, added, dispatch);
-            search_list_box.append (row);
+            var row = search_list_box.get_row_at_index ((int) i) as Gradio.StationRow;
+            if (row == null)
+                continue;
+            row.set_state (false, false, model.config.contains_station (station.id));
         }
 
         if (model.searching) {

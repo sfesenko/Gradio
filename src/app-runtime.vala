@@ -10,11 +10,17 @@ namespace Gradio {
         private Soup.Session session;
         private uint save_id = 0;
         private bool signals_connected = false;
+        private bool load_failed;
+        private bool dirty = false;
+        private bool backup_pending;
 
-        public AppRuntime (AppConfig config) {
+        public AppRuntime (AppConfig config, bool load_failed = false) {
             this.config = config;
+            this.load_failed = load_failed;
+            this.backup_pending = load_failed;
             session = new Soup.Session ();
             session.set_user_agent ("gradio-gtk4");
+            session.timeout = 10;
             player = new Player ();
         }
 
@@ -61,6 +67,7 @@ namespace Gradio {
 
         public override Elmish.Cmd<Message>? set_volume (double volume) {
             return new Elmish.Cmd<Message> ((dispatch) => {
+                dirty = true;
                 player.set_volume (volume);
                 schedule_save ();
             });
@@ -68,11 +75,24 @@ namespace Gradio {
 
         public override Elmish.Cmd<Message>? save_config () {
             return new Elmish.Cmd<Message> ((dispatch) => {
+                dirty = true;
                 schedule_save ();
             });
         }
 
         public void save_now () {
+            if (load_failed && !dirty)
+                return;
+
+            if (backup_pending) {
+                backup_pending = false;
+                if (GLib.FileUtils.test (config.path, GLib.FileTest.EXISTS)) {
+                    string backup = config.path + ".corrupt";
+                    GLib.FileUtils.remove (backup);
+                    GLib.FileUtils.rename (config.path, backup);
+                }
+            }
+
             try {
                 config.save ();
             } catch (GLib.Error e) {

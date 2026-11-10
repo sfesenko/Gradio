@@ -1,5 +1,4 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2026 Sergii Fesenko
+// SPDX-License-Identifier: GPL-3.0-or-later
 
 // AppConfig JSON persistence.
 
@@ -130,6 +129,28 @@ void test_skips_invalid_station_entries () {
     cleanup (dir);
 }
 
+void test_volume_clamped () {
+    string dir = make_tmp_dir ();
+    string path = write_file (dir, "config.json",
+        "{\"version\":1,\"settings\":{\"volume\":5.0}}");
+    assert (load_config (path).volume == 1.0);
+    GLib.FileUtils.set_contents (path, "{\"version\":1,\"settings\":{\"volume\":-1.0}}");
+    assert (load_config (path).volume == 0.0);
+    GLib.FileUtils.set_contents (path, "{\"version\":1,\"settings\":{\"volume\":\"NaN\"}}");
+    assert (load_config (path).volume == 0.8);
+    cleanup (dir);
+}
+
+void test_skips_station_without_id () {
+    string dir = make_tmp_dir ();
+    string path = write_file (dir, "config.json",
+        "{\"version\":1,\"stations\":[{\"name\":\"No Id\",\"url_resolved\":\"https://example.test/no-id\"}]}");
+
+    var config = load_config (path);
+    assert (config.stations.length == 0);
+    cleanup (dir);
+}
+
 int main (string[] args) {
     Test.init (ref args);
 
@@ -140,6 +161,8 @@ int main (string[] args) {
     Test.add_func ("/app-config/duplicate_station", test_duplicate_station);
     Test.add_func ("/app-config/remove_station", test_remove_station);
     Test.add_func ("/app-config/skips_invalid_station_entries", test_skips_invalid_station_entries);
+    Test.add_func ("/app-config/volume_clamped", test_volume_clamped);
+    Test.add_func ("/app-config/skips_station_without_id", test_skips_station_without_id);
 
     return Test.run ();
 }

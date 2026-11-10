@@ -10,6 +10,10 @@ namespace Gradio {
         private bool is_current;
         private bool playing;
         private bool already_added;
+        private bool show_technical_info;
+        private Gtk.Label secondary_label;
+        private Gtk.Button? add_button = null;
+        private Gtk.Button? play_button = null;
 
         public StationRow (RadioStation station, bool library_row, bool show_technical_info,
                 bool is_current, bool playing, bool already_added, Elmish.Dispatch<Message> dispatch) {
@@ -19,6 +23,7 @@ namespace Gradio {
             this.is_current = is_current;
             this.playing = playing;
             this.already_added = already_added;
+            this.show_technical_info = show_technical_info;
 
             var row = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 12) {
                 margin_top = 8,
@@ -41,28 +46,27 @@ namespace Gradio {
                 ellipsize = Pango.EllipsizeMode.END
             };
             title.add_css_class ("heading");
-            var secondary = new Gtk.Label (station.secondary_text (show_technical_info)) {
+            secondary_label = new Gtk.Label (station.secondary_text (show_technical_info)) {
                 halign = Gtk.Align.START,
                 ellipsize = Pango.EllipsizeMode.END
             };
-            secondary.add_css_class ("dim-label");
+            secondary_label.add_css_class ("dim-label");
             text.append (title);
-            text.append (secondary);
+            text.append (secondary_label);
             row.append (text);
 
             if (library_row) {
-                var menu = build_menu ();
-                row.append (menu);
+                row.append (build_actions ());
             } else {
-                var add = new Gtk.Button.with_label (already_added ? _("Added") : _("Add")) {
+                add_button = new Gtk.Button.with_label (already_added ? _("Added") : _("Add")) {
                     valign = Gtk.Align.CENTER
                 };
-                add.sensitive = !already_added;
-                add.clicked.connect (() => {
+                add_button.sensitive = !already_added;
+                add_button.clicked.connect (() => {
                     if (!already_added)
                         dispatch (new AddStationMessage (station));
                 });
-                row.append (add);
+                row.append (add_button);
             }
 
             set_child (row);
@@ -79,42 +83,62 @@ namespace Gradio {
             });
         }
 
-        private Gtk.MenuButton build_menu () {
-            var popover_box = new Gtk.Box (Gtk.Orientation.VERTICAL, 4) {
-                margin_top = 6,
-                margin_bottom = 6,
-                margin_start = 6,
-                margin_end = 6
-            };
+        public void set_state (bool is_current, bool playing, bool already_added, string stream_title = "") {
+            this.is_current = is_current;
+            this.playing = playing;
+            if (is_current && playing && stream_title != "")
+                secondary_label.label = stream_title;
+            else
+                secondary_label.label = station.secondary_text (show_technical_info);
+            if (is_current)
+                add_css_class ("current-station");
+            else
+                remove_css_class ("current-station");
+            if (play_button != null) {
+                bool current_playing = is_current && playing;
+                play_button.icon_name = current_playing
+                    ? "media-playback-stop-symbolic" : "media-playback-start-symbolic";
+                play_button.tooltip_text = current_playing ? _("Stop") : _("Play");
+            }
+            if (this.already_added != already_added && add_button != null) {
+                add_button.label = already_added ? _("Added") : _("Add");
+                add_button.sensitive = !already_added;
+            }
+            this.already_added = already_added;
+        }
 
-            var play = new Gtk.Button.with_label (_("Play")) {
-                halign = Gtk.Align.FILL
-            };
-            play.clicked.connect (() => dispatch (new PlayStationMessage (station)));
-            popover_box.append (play);
-
-            var details = new Gtk.Button.with_label (_("Details")) {
-                halign = Gtk.Align.FILL
-            };
-            details.clicked.connect (() => dispatch (new ShowDetailsMessage (station)));
-            popover_box.append (details);
-
-            var remove = new Gtk.Button.with_label (_("Remove from library")) {
-                halign = Gtk.Align.FILL
-            };
-            remove.clicked.connect (() => dispatch (new RemoveStationMessage (station.id)));
-            popover_box.append (remove);
-
-            var popover = new Gtk.Popover ();
-            popover.set_child (popover_box);
-
-            var menu = new Gtk.MenuButton () {
-                icon_name = "view-more-symbolic",
-                tooltip_text = _("Station menu"),
+        private Gtk.Box build_actions () {
+            var actions = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 6) {
                 valign = Gtk.Align.CENTER
             };
-            menu.set_popover (popover);
-            return menu;
+
+            play_button = new Gtk.Button () {
+                icon_name = "media-playback-start-symbolic",
+                tooltip_text = _("Play")
+            };
+            play_button.clicked.connect (() => {
+                if (is_current && playing)
+                    dispatch (new TogglePlayMessage ());
+                else
+                    dispatch (new PlayStationMessage (station));
+            });
+            actions.append (play_button);
+
+            var details = new Gtk.Button () {
+                icon_name = "dialog-information-symbolic",
+                tooltip_text = _("Details")
+            };
+            details.clicked.connect (() => dispatch (new ShowDetailsMessage (station)));
+            actions.append (details);
+
+            var remove = new Gtk.Button () {
+                icon_name = "user-trash-symbolic",
+                tooltip_text = _("Remove from library")
+            };
+            remove.clicked.connect (() => dispatch (new RemoveStationMessage (station.id)));
+            actions.append (remove);
+
+            return actions;
         }
     }
 }

@@ -1,5 +1,4 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2026 Sergii Fesenko
+// SPDX-License-Identifier: GPL-3.0-or-later
 
 using Soup;
 
@@ -49,9 +48,14 @@ void test_parse_skips_invalid () {
 
 void test_search_url_unicode () {
     string url = Gradio.RadioBrowser.search_url ("jazz ä", 10);
-    assert (!url.contains (" "));
-    assert (!url.contains ("ä"));
-    assert (url.contains ("jazz"));
+    string raw = url.substring (url.index_of ("?") + 1);
+    assert (!raw.contains (" "));
+    assert (!raw.contains ("ä"));
+    assert (raw.contains ("jazz"));
+    assert (raw.contains ("%C3%A4"));
+
+    var query = Soup.Form.decode (raw);
+    assert (query.lookup ("name") == "jazz ä");
 }
 
 int main (string[] args) {

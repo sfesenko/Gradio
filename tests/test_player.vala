@@ -1,5 +1,4 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2026 Sergii Fesenko
+// SPDX-License-Identifier: GPL-3.0-or-later
 
 void test_initial_state () {
     var player = new Gradio.Player ();

@@ -8,12 +8,16 @@ public Elmish.Cmd<Gradio.Message>? updateModel (Gradio.Message msg, Gradio.AppMo
             var set_view = msg as SetViewMessage;
             if (set_view == null)
                 break;
+            bool view_changed = set_view.view != model.view;
             model.view = set_view.view;
-            if (set_view.view == ViewMode.ADD_STATION) {
-                model.search_query = "";
-                model.search_results = new GLib.GenericArray<RadioStation> ();
-                model.search_error = null;
-                model.searching = false;
+            if (view_changed) {
+                model.search_generation++;
+                if (set_view.view == ViewMode.ADD_STATION) {
+                    model.search_query = "";
+                    model.search_results = new GLib.GenericArray<RadioStation> ();
+                    model.search_error = null;
+                    model.searching = false;
+                }
             }
             model.details_visible = false;
             break;
@@ -24,6 +28,7 @@ public Elmish.Cmd<Gradio.Message>? updateModel (Gradio.Message msg, Gradio.AppMo
                 break;
             string query = requested.query.strip ();
             if (query == "") {
+                model.search_generation++;
                 model.search_query = "";
                 model.search_results = new GLib.GenericArray<RadioStation> ();
                 model.search_error = null;
@@ -99,6 +104,7 @@ public Elmish.Cmd<Gradio.Message>? updateModel (Gradio.Message msg, Gradio.AppMo
                 break;
             model.current_station = play.station;
             model.playing = true;
+            model.playback_failed = false;
             model.stream_title = "";
             model.stream_bitrate = 0;
             model.status_message = _("Connecting…");
@@ -109,9 +115,13 @@ public Elmish.Cmd<Gradio.Message>? updateModel (Gradio.Message msg, Gradio.AppMo
                 break;
             model.playing = !model.playing;
             if (model.playing) {
+                model.playback_failed = false;
                 model.status_message = _("Connecting…");
                 return commands.play (model.current_station);
             }
+            model.playback_failed = false;
+            model.stream_title = "";
+            model.stream_bitrate = 0;
             model.status_message = _("Stopped");
             return commands.stop ();
 
@@ -120,7 +130,15 @@ public Elmish.Cmd<Gradio.Message>? updateModel (Gradio.Message msg, Gradio.AppMo
             if (state == null)
                 break;
             model.playing = state.playing;
-            model.status_message = state.playing ? _("Connected") : _("Stopped");
+            if (state.playing) {
+                model.playback_failed = false;
+                model.status_message = _("Connected");
+            } else {
+                model.stream_title = "";
+                model.stream_bitrate = 0;
+                if (!model.playback_failed)
+                    model.status_message = _("Stopped");
+            }
             break;
 
         case MessageKind.PLAYER_METADATA_CHANGED:
@@ -136,6 +154,9 @@ public Elmish.Cmd<Gradio.Message>? updateModel (Gradio.Message msg, Gradio.AppMo
             if (error == null)
                 break;
             model.playing = false;
+            model.playback_failed = true;
+            model.stream_title = "";
+            model.stream_bitrate = 0;
             model.status_message = error.message;
             break;
 
@@ -165,13 +186,6 @@ public Elmish.Cmd<Gradio.Message>? updateModel (Gradio.Message msg, Gradio.AppMo
             if (technical == null)
                 break;
             model.config.show_technical_info = technical.enabled;
-            return commands.save_config ();
-
-        case MessageKind.SET_DARK_THEME:
-            var theme = msg as SetDarkThemeMessage;
-            if (theme == null)
-                break;
-            model.config.dark_theme = theme.enabled;
             return commands.save_config ();
 
         case MessageKind.CONFIG_SAVE_FAILED:

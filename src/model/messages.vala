@@ -22,7 +22,6 @@ public enum Gradio.MessageKind {
     HIDE_DETAILS,
     SET_VOLUME,
     SET_SHOW_TECHNICAL_INFO,
-    SET_DARK_THEME,
     CONFIG_SAVE_FAILED
 }
 
@@ -128,12 +127,6 @@ public class Gradio.SetShowTechnicalInfoMessage : Gradio.Message {
     public override MessageKind kind { get { return MessageKind.SET_SHOW_TECHNICAL_INFO; } }
 }
 
-public class Gradio.SetDarkThemeMessage : Gradio.Message {
-    public bool enabled;
-    public SetDarkThemeMessage (bool enabled) { this.enabled = enabled; }
-    public override MessageKind kind { get { return MessageKind.SET_DARK_THEME; } }
-}
-
 public class Gradio.ConfigSaveFailedMessage : Gradio.Message {
     public string message;
     public ConfigSaveFailedMessage (string message) { this.message = message; }
@@ -150,6 +143,7 @@ public class Gradio.AppModel {
     public uint search_generation = 0;
     public RadioStation? current_station = null;
     public bool playing = false;
+    public bool playback_failed = false;
     public string stream_title = "";
     public int stream_bitrate = 0;
     public bool details_visible = false;

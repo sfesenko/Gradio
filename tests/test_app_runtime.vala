@@ -1,5 +1,4 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2026 Sergii Fesenko
+// SPDX-License-Identifier: GPL-3.0-or-later
 
 string make_tmp_dir () {
     return GLib.DirUtils.make_tmp ("gradio-runtime-test-XXXXXX");
@@ -8,6 +7,7 @@ string make_tmp_dir () {
 void cleanup_dir (string dir) {
     GLib.FileUtils.remove (GLib.Path.build_filename (dir, "config.json"));
     GLib.FileUtils.remove (GLib.Path.build_filename (dir, "config.json.tmp"));
+    GLib.FileUtils.remove (GLib.Path.build_filename (dir, "config.json.corrupt"));
     GLib.FileUtils.remove (GLib.Path.build_filename (dir, "blocker"));
     GLib.DirUtils.remove (dir);
 }
@@ -89,6 +89,58 @@ void test_save_failure_dispatches_error () {
     cleanup_dir (dir);
 }
 
+void test_corrupt_config_survives_shutdown () {
+    string dir = make_tmp_dir ();
+    string path = GLib.Path.build_filename (dir, "config.json");
+    GLib.FileUtils.set_contents (path, "{not json");
+
+    bool load_failed = false;
+    try {
+        Gradio.AppConfig.load (path);
+    } catch (GLib.Error e) {
+        load_failed = true;
+    }
+    assert (load_failed);
+
+    var config = new Gradio.AppConfig (path);
+    var runtime = new Gradio.AppRuntime (config, true);
+    runtime.attach ((msg) => {});
+    runtime.save_now ();
+
+    string contents;
+    GLib.FileUtils.get_contents (path, out contents);
+    assert (contents == "{not json");
+    assert (!GLib.FileUtils.test (path + ".corrupt", GLib.FileTest.EXISTS));
+    cleanup_dir (dir);
+}
+
+void test_user_save_after_load_failure_backs_up_and_writes () {
+    string dir = make_tmp_dir ();
+    string path = GLib.Path.build_filename (dir, "config.json");
+    GLib.FileUtils.set_contents (path, "{not json");
+
+    var config = new Gradio.AppConfig (path);
+    var station = new Gradio.RadioStation ();
+    station.id = "u1";
+    station.name = "Jazz FM";
+    station.url = "https://example.test/jazz";
+    config.add_station (station);
+
+    var runtime = new Gradio.AppRuntime (config, true);
+    runtime.attach ((msg) => {});
+    var cmd = runtime.save_config ();
+    Elmish.Cmd.exec<Gradio.Message> ((msg) => {}, cmd);
+    runtime.save_now ();
+
+    string backup;
+    GLib.FileUtils.get_contents (path + ".corrupt", out backup);
+    assert (backup == "{not json");
+
+    var loaded = load_config (path);
+    assert (loaded.stations.length == 1);
+    cleanup_dir (dir);
+}
+
 int main (string[] args) {
     Gst.init (ref args);
     Test.init (ref args);
@@ -96,6 +148,8 @@ int main (string[] args) {
     Test.add_func ("/app-runtime/save_schedules_write", test_save_schedules_write);
     Test.add_func ("/app-runtime/volume_schedules_save", test_volume_schedules_save);
     Test.add_func ("/app-runtime/save_failure_dispatches_error", test_save_failure_dispatches_error);
+    Test.add_func ("/app-runtime/corrupt_config_survives_shutdown", test_corrupt_config_survives_shutdown);
+    Test.add_func ("/app-runtime/user_save_after_load_failure_backs_up", test_user_save_after_load_failure_backs_up_and_writes);
 
     return Test.run ();
 }

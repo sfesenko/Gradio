@@ -1,5 +1,4 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2026 Sergii Fesenko
+// SPDX-License-Identifier: GPL-3.0-or-later
 
 // RadioStation JSON conversion and display helpers.
 
@@ -57,6 +56,35 @@ void test_round_trip () {
     assert (parsed.bitrate == station.bitrate);
 }
 
+void test_stream_urls () {
+    var station = new Gradio.RadioStation ();
+    station.url = "https://example.test/resolved";
+    station.original_url = "https://example.test/original";
+
+    string[] urls = station.stream_urls ();
+    assert (urls.length == 2);
+    assert (urls[0] == station.original_url);
+    assert (urls[1] == station.url);
+
+    station.original_url = station.url;
+    urls = station.stream_urls ();
+    assert (urls.length == 1);
+    assert (urls[0] == station.url);
+}
+
+void test_original_url_round_trip () {
+    var station = new Gradio.RadioStation ();
+    station.id = "u4";
+    station.name = "Two Streams";
+    station.original_url = "https://example.test/original";
+    station.url = "https://example.test/resolved";
+
+    var parsed = Gradio.RadioStation.from_json_object (station.to_json_node ().get_object ());
+    assert (parsed != null);
+    assert (parsed.original_url == station.original_url);
+    assert (parsed.url == station.url);
+}
+
 void test_secondary_text () {
     var station = new Gradio.RadioStation ();
     station.country = "Germany";
@@ -73,6 +101,8 @@ int main (string[] args) {
     Test.add_func ("/radio-station/from_json_full", test_from_json_full);
     Test.add_func ("/radio-station/from_json_minimal", test_from_json_minimal);
     Test.add_func ("/radio-station/round_trip", test_round_trip);
+    Test.add_func ("/radio-station/stream_urls", test_stream_urls);
+    Test.add_func ("/radio-station/original_url_round_trip", test_original_url_round_trip);
     Test.add_func ("/radio-station/secondary_text", test_secondary_text);
 
     return Test.run ();

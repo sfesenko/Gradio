@@ -103,6 +103,55 @@ void test_search_requested_empty () {
     assert (commands.search_calls == 0);
 }
 
+void test_search_clear_invalidates_in_flight () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    model.search_generation = 1;
+    model.searching = true;
+
+    updateModel (new SearchRequestedMessage (""), model, commands);
+    assert (model.search_generation == 2);
+    assert (model.searching == false);
+
+    var results = new GLib.GenericArray<RadioStation> ();
+    results.add (make_station ("u1"));
+    updateModel (new SearchResultsMessage (results, 1), model, commands);
+    assert (model.search_results.length == 0);
+
+    updateModel (new SearchFailedMessage ("late", 1), model, commands);
+    assert (model.search_error == null);
+}
+
+void test_set_view_invalidates_in_flight () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    model.search_generation = 1;
+    model.searching = true;
+
+    updateModel (new SetViewMessage (ViewMode.ADD_STATION), model, commands);
+    assert (model.search_generation == 2);
+    assert (model.searching == false);
+
+    var results = new GLib.GenericArray<RadioStation> ();
+    results.add (make_station ("u1"));
+    updateModel (new SearchResultsMessage (results, 1), model, commands);
+    assert (model.search_results.length == 0);
+}
+
+void test_same_view_keeps_search () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    model.view = ViewMode.ADD_STATION;
+    model.search_query = "jazz";
+    model.search_results.add (make_station ("u1"));
+    model.search_generation = 5;
+
+    updateModel (new SetViewMessage (ViewMode.ADD_STATION), model, commands);
+    assert (model.search_query == "jazz");
+    assert (model.search_results.length == 1);
+    assert (model.search_generation == 5);
+}
+
 void test_search_requested () {
     var model = make_model ();
     var commands = new RecordingCommands ();
@@ -274,10 +323,50 @@ void test_player_error () {
     var model = make_model ();
     var commands = new RecordingCommands ();
     model.playing = true;
+    model.stream_title = "Track";
+    model.stream_bitrate = 192;
 
     updateModel (new PlayerErrorMessage ("boom"), model, commands);
     assert (model.playing == false);
     assert (model.status_message == "boom");
+    assert (model.stream_title == "");
+    assert (model.stream_bitrate == 0);
+}
+
+void test_error_survives_stopped_state () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    model.playing = true;
+
+    updateModel (new PlayerErrorMessage ("boom"), model, commands);
+    updateModel (new PlayerStateChangedMessage (false), model, commands);
+    assert (model.playing == false);
+    assert (model.status_message == "boom");
+}
+
+void test_play_clears_error_state () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    model.playing = true;
+    updateModel (new PlayerErrorMessage ("boom"), model, commands);
+
+    updateModel (new PlayStationMessage (make_station ("u1")), model, commands);
+    updateModel (new PlayerStateChangedMessage (false), model, commands);
+    assert (model.status_message == "Stopped");
+}
+
+void test_stop_clears_metadata () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    model.current_station = make_station ("u1");
+    model.playing = true;
+    model.stream_title = "Track";
+    model.stream_bitrate = 192;
+
+    updateModel (new TogglePlayMessage (), model, commands);
+    assert (model.playing == false);
+    assert (model.stream_title == "");
+    assert (model.stream_bitrate == 0);
 }
 
 void test_show_details () {
@@ -329,15 +418,6 @@ void test_set_show_technical_info () {
     assert (commands.save_calls == 1);
 }
 
-void test_set_dark_theme () {
-    var model = make_model ();
-    var commands = new RecordingCommands ();
-
-    updateModel (new SetDarkThemeMessage (true), model, commands);
-    assert (model.config.dark_theme == true);
-    assert (commands.save_calls == 1);
-}
-
 void test_config_save_failed () {
     var model = make_model ();
     var commands = new RecordingCommands ();
@@ -352,6 +432,9 @@ int main (string[] args) {
     Test.add_func ("/update/defaults", test_defaults);
     Test.add_func ("/update/set_view", test_set_view);
     Test.add_func ("/update/search_requested_empty", test_search_requested_empty);
+    Test.add_func ("/update/search_clear_invalidates_in_flight", test_search_clear_invalidates_in_flight);
+    Test.add_func ("/update/set_view_invalidates_in_flight", test_set_view_invalidates_in_flight);
+    Test.add_func ("/update/same_view_keeps_search", test_same_view_keeps_search);
     Test.add_func ("/update/search_requested", test_search_requested);
     Test.add_func ("/update/search_results_current", test_search_results_current);
     Test.add_func ("/update/search_results_stale", test_search_results_stale);
@@ -365,11 +448,13 @@ int main (string[] args) {
     Test.add_func ("/update/player_state", test_player_state);
     Test.add_func ("/update/player_metadata", test_player_metadata);
     Test.add_func ("/update/player_error", test_player_error);
+    Test.add_func ("/update/error_survives_stopped_state", test_error_survives_stopped_state);
+    Test.add_func ("/update/play_clears_error_state", test_play_clears_error_state);
+    Test.add_func ("/update/stop_clears_metadata", test_stop_clears_metadata);
     Test.add_func ("/update/show_details", test_show_details);
     Test.add_func ("/update/hide_details", test_hide_details);
     Test.add_func ("/update/set_volume_clamps", test_set_volume_clamps);
     Test.add_func ("/update/set_show_technical_info", test_set_show_technical_info);
-    Test.add_func ("/update/set_dark_theme", test_set_dark_theme);
     Test.add_func ("/update/config_save_failed", test_config_save_failed);
 
     return Test.run ();

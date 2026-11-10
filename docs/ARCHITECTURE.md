@@ -64,9 +64,11 @@ dispatched back through the long-lived dispatch captured by `attach`.
 
 Persistence is JSON, not SQLite: `AppConfig` reads and writes
 `$XDG_CONFIG_HOME/gradio/config.json` (default `~/.config/gradio/config.json`).
-`~/.local/share/gradio/gradio.db` from the GTK3 app is intentionally never
-read. Cache files belong under `$XDG_CACHE_HOME/gradio/` and are not used for
-the library.
+If the file cannot be parsed, the app starts empty and leaves the file
+untouched until a user-triggered save, which first backs it up as
+`config.json.corrupt`. `~/.local/share/gradio/gradio.db` from the GTK3 app is
+intentionally never read. Cache files belong under `$XDG_CACHE_HOME/gradio/`
+and are not used for the library.
 
 ## Messages: plain classes + enum discriminator
 
@@ -280,7 +282,7 @@ The core library (`src/elmish.vala`, `src/model/messages.vala`,
 `src/app-update.vala`) has zero GTK imports, so every test in `tests/` runs
 headless with plain glib assertions:
 
-- `test_update.vala` — model behavior for each message kind (22 tests)
+- `test_update.vala` — model behavior for each message kind
 - `test_app_config.vala` — JSON persistence, duplicates, invalid files
 - `test_radio_station.vala` — station JSON and display text
 - `test_http.vala` — URL validation, query building, GETs against a local server
@@ -304,6 +306,8 @@ Tests that need the main loop (coalescing, worker dispatch) pump it with
   `GMenu`/popovers), `Gtk.Dialog` (use `Gtk.FileDialog`/`Gtk.AlertDialog` or
   libadwaita).
 - `show_close_button` → `show_title_buttons` (GTK ≥ 4.10).
+- Theme handling is left entirely to GTK: `GTK_THEME` wins, then the
+  `gtk-theme` (Legacy Applications) setting, then built-in Adwaita.
 
 ## Memory checkpoint
 

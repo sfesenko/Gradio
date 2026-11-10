@@ -19,7 +19,7 @@ int main (string[] args) {
         load_error = e.message;
     }
 
-    var runtime = new Gradio.AppRuntime (config);
+    var runtime = new Gradio.AppRuntime (config, load_error != null);
     var model = new Gradio.AppModel (config);
     if (load_error != null)
         model.status_message = load_error;
@@ -36,6 +36,7 @@ int main (string[] args) {
             var view = new Gradio.MainView (app);
             view.build_ui (dispatch, current_model);
             view.present ();
+
             return view;
         },
         (msg, current_model) => updateModel (msg, current_model, runtime),

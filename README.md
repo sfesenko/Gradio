@@ -33,7 +33,7 @@ Gradio is a usable single-list radio player:
 - Add stays in search and marks results as added; Back returns to the list
 - GStreamer playback with play/stop, volume, and stream metadata
 - Slide-in station details with homepage, stream URL, and remove
-- Preferences for dark theme and technical information
+- Preferences for technical information
 - JSON config at `~/.config/gradio/config.json` (`XDG_CONFIG_HOME` honored);
   cache lives at `~/.cache/gradio/`
 - Headless core tests for the model, config, HTTP, search, player, and runtime

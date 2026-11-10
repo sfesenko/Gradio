@@ -9,7 +9,6 @@ namespace Gradio {
 
         public double volume = 0.8;
         public bool show_technical_info = false;
-        public bool dark_theme = false;
         public GLib.GenericArray<RadioStation> stations = new GLib.GenericArray<RadioStation> ();
 
         public string path { get; private set; }
@@ -43,9 +42,15 @@ namespace Gradio {
             var settings = settings_node != null && settings_node.get_value_type () == typeof (Json.Object)
                 ? settings_node.get_object () : null;
             if (settings != null) {
-                config.volume = settings.get_double_member_with_default ("volume", config.volume);
+                var volume_node = settings.get_member ("volume");
+                if (volume_node != null && volume_node.get_value_type () == typeof (double)) {
+                    double value = volume_node.get_double ();
+                    if (value == value)
+                        config.volume = value.clamp (0.0, 1.0);
+                } else if (volume_node != null && volume_node.get_value_type () == typeof (int64)) {
+                    config.volume = ((double) volume_node.get_int ()).clamp (0.0, 1.0);
+                }
                 config.show_technical_info = settings.get_boolean_member_with_default ("show_technical_info", config.show_technical_info);
-                config.dark_theme = settings.get_boolean_member_with_default ("dark_theme", config.dark_theme);
             }
 
             var array_node = obj.get_member ("stations");
@@ -57,7 +62,7 @@ namespace Gradio {
                     if (element == null || element.get_value_type () != typeof (Json.Object))
                         continue;
                     var station = RadioStation.from_json_object (element.get_object ());
-                    if (station == null)
+                    if (station == null || station.id == "")
                         continue;
                     config.add_station (station);
                 }
@@ -76,7 +81,6 @@ namespace Gradio {
             var settings = new Json.Object ();
             settings.set_double_member ("volume", volume);
             settings.set_boolean_member ("show_technical_info", show_technical_info);
-            settings.set_boolean_member ("dark_theme", dark_theme);
             root.set_object_member ("settings", settings);
 
             var array = new Json.Array ();
@@ -95,8 +99,10 @@ namespace Gradio {
 
             string tmp = path + ".tmp";
             GLib.FileUtils.set_contents (tmp, data);
-            if (GLib.FileUtils.rename (tmp, path) != 0)
+            if (GLib.FileUtils.rename (tmp, path) != 0) {
+                GLib.FileUtils.remove (tmp);
                 throw new GLib.FileError.FAILED ("could not replace config file");
+            }
         }
 
         public bool add_station (RadioStation station) {

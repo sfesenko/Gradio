@@ -8,17 +8,14 @@ namespace Gradio {
         private Gtk.Label name_label;
         private Gtk.Label meta_label;
         private Gtk.Label tags_label;
-        private Gtk.Label tech_label;
+        private Gtk.Label now_playing_label;
         private Gtk.LinkButton homepage_button;
-        private Gtk.Label url_label;
-        private Gtk.Button play_button;
-        private bool playing;
-        private bool is_current;
+        private Gtk.Label streams_heading;
+        private Gtk.Box streams_box;
 
         public DetailsPanel (Elmish.Dispatch<Message> dispatch) {
             Object (orientation: Gtk.Orientation.VERTICAL, spacing: 8);
             this.dispatch = dispatch;
-            width_request = 300;
             margin_top = 12;
             margin_bottom = 12;
             margin_start = 12;
@@ -26,21 +23,35 @@ namespace Gradio {
 
             var close_row = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 0);
             var close = new Gtk.Button () {
-                icon_name = "window-close-symbolic",
-                tooltip_text = _("Close details"),
-                halign = Gtk.Align.END
+                icon_name = "go-next-symbolic",
+                tooltip_text = _("Hide details"),
+                halign = Gtk.Align.START
             };
             close.clicked.connect (() => dispatch (new HideDetailsMessage ()));
             close_row.append (close);
             append (close_row);
 
+            var name_row = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 6) {
+                halign = Gtk.Align.START
+            };
             name_label = new Gtk.Label ("") {
                 halign = Gtk.Align.START,
                 wrap = true,
-                xalign = 0
+                xalign = 0,
+                max_width_chars = 24
             };
             name_label.add_css_class ("title-3");
-            append (name_label);
+            name_row.append (name_label);
+
+            homepage_button = new Gtk.LinkButton ("") {
+                halign = Gtk.Align.START,
+                valign = Gtk.Align.CENTER,
+                tooltip_text = _("Homepage"),
+                visible = false
+            };
+            homepage_button.set_child (new Gtk.Image.from_icon_name ("web-browser-symbolic"));
+            name_row.append (homepage_button);
+            append (name_row);
 
             meta_label = new Gtk.Label ("") {
                 halign = Gtk.Align.START,
@@ -58,65 +69,39 @@ namespace Gradio {
             tags_label.add_css_class ("dim-label");
             append (tags_label);
 
-            tech_label = new Gtk.Label ("") {
-                halign = Gtk.Align.START,
-                xalign = 0
-            };
-            tech_label.add_css_class ("dim-label");
-            append (tech_label);
-
-            homepage_button = new Gtk.LinkButton.with_label ("", _("Homepage")) {
-                halign = Gtk.Align.START,
-                visible = false
-            };
-            append (homepage_button);
-
-            url_label = new Gtk.Label ("") {
+            now_playing_label = new Gtk.Label ("") {
                 halign = Gtk.Align.START,
                 wrap = true,
-                selectable = true,
-                xalign = 0
+                xalign = 0,
+                visible = false
             };
-            url_label.add_css_class ("dim-label");
-            append (url_label);
+            now_playing_label.add_css_class ("dim-label");
+            append (now_playing_label);
 
-            play_button = new Gtk.Button.with_label (_("Play")) {
-                halign = Gtk.Align.FILL,
-                margin_top = 12
+            streams_heading = new Gtk.Label (_("Streams")) {
+                halign = Gtk.Align.START,
+                xalign = 0,
+                visible = false
             };
-            play_button.clicked.connect (() => {
-                if (station == null)
-                    return;
-                if (is_current && playing)
-                    dispatch (new TogglePlayMessage ());
-                else
-                    dispatch (new PlayStationMessage (station));
-            });
-            append (play_button);
+            streams_heading.add_css_class ("dim-label");
+            append (streams_heading);
 
-            var remove = new Gtk.Button.with_label (_("Remove from library")) {
-                halign = Gtk.Align.FILL
-            };
-            remove.clicked.connect (() => {
-                if (station != null)
-                    dispatch (new RemoveStationMessage (station.id));
-            });
-            append (remove);
+            streams_box = new Gtk.Box (Gtk.Orientation.VERTICAL, 6);
+            append (streams_box);
         }
 
         public void update (RadioStation? station, AppModel model) {
             this.station = station;
-            this.playing = model.playing;
             sensitive = station != null;
 
             if (station == null) {
                 name_label.label = "";
                 meta_label.label = "";
                 tags_label.label = "";
-                tech_label.label = "";
-                url_label.label = "";
+                now_playing_label.label = "";
+                now_playing_label.visible = false;
                 homepage_button.visible = false;
-                play_button.label = _("Play");
+                rebuild_streams (null);
                 return;
             }
 
@@ -136,17 +121,57 @@ namespace Gradio {
             tags_label.label = station.tags;
             tags_label.visible = station.tags != "";
 
-            tech_label.label = station.tech_info ();
-            tech_label.visible = station.tech_info () != "";
+            bool is_current = model.current_station != null && model.current_station.id == station.id;
+            now_playing_label.label = is_current ? model.stream_title : "";
+            now_playing_label.visible = now_playing_label.label != "";
 
             homepage_button.visible = station.homepage != "";
             if (station.homepage != "")
                 homepage_button.set_uri (station.homepage);
 
-            url_label.label = station.url;
+            rebuild_streams (station);
+        }
 
-            is_current = model.current_station != null && model.current_station.id == station.id;
-            play_button.label = is_current && model.playing ? _("Stop") : _("Play");
+        private void rebuild_streams (RadioStation? station) {
+            Gtk.Widget? child = streams_box.get_first_child ();
+            while (child != null) {
+                var next = child.get_next_sibling ();
+                streams_box.remove (child);
+                child = next;
+            }
+
+            if (station == null) {
+                streams_heading.visible = false;
+                return;
+            }
+
+            string[] urls = station.stream_urls ();
+            streams_heading.visible = urls.length > 0;
+            foreach (string url in urls) {
+                var row = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 8);
+                var url_label = new Gtk.Label (url) {
+                    halign = Gtk.Align.START,
+                    valign = Gtk.Align.START,
+                    wrap = true,
+                    selectable = true,
+                    xalign = 0,
+                    hexpand = true
+                };
+                url_label.add_css_class ("dim-label");
+                row.append (url_label);
+
+                string tech = station.tech_info ();
+                if (tech != "") {
+                    var tech_label = new Gtk.Label (tech) {
+                        halign = Gtk.Align.END,
+                        valign = Gtk.Align.START
+                    };
+                    tech_label.add_css_class ("dim-label");
+                    row.append (tech_label);
+                }
+
+                streams_box.append (row);
+            }
         }
     }
 }
