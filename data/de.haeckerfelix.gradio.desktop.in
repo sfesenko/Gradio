@@ -8,3 +8,4 @@ Type=Application
 Categories=AudioVideo;Audio;Player;GNOME;
 Keywords=gradio;internet;radio;music;
 StartupNotify=true
+X-GNOME-UsesNotifications=true

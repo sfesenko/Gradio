@@ -285,6 +285,29 @@ void test_search_filters_round_trip () {
     cleanup (dir);
 }
 
+void test_resume_playback_round_trip () {
+    string dir = make_tmp_dir ();
+    string path = GLib.Path.build_filename (dir, "config.json");
+
+    var config = new Gradio.AppConfig (path);
+    config.resume_playback = true;
+    config.last_station_id = "u1";
+    save_config (config);
+
+    var loaded = load_config (path);
+    assert (loaded.resume_playback == true);
+    assert (loaded.last_station_id == "u1");
+    cleanup (dir);
+}
+
+void test_resume_playback_defaults_off () {
+    string dir = make_tmp_dir ();
+    var config = load_config (GLib.Path.build_filename (dir, "config.json"));
+    assert (config.resume_playback == false);
+    assert (config.last_station_id == "");
+    cleanup (dir);
+}
+
 int main (string[] args) {
     Test.init (ref args);
 
@@ -294,6 +317,8 @@ int main (string[] args) {
     Test.add_func ("/app-config/normalize_icon_size", test_unknown_icon_size_normalizes_to_default);
     Test.add_func ("/app-config/invalid_sort_modes", test_invalid_sort_modes_fall_back);
     Test.add_func ("/app-config/search_filters_round_trip", test_search_filters_round_trip);
+    Test.add_func ("/app-config/resume_playback_round_trip", test_resume_playback_round_trip);
+    Test.add_func ("/app-config/resume_playback_defaults", test_resume_playback_defaults_off);
     Test.add_func ("/app-config/round_trip", test_round_trip);
     Test.add_func ("/app-config/empty_file", test_empty_file);
     Test.add_func ("/app-config/invalid_json", test_invalid_json);

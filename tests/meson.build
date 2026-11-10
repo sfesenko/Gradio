@@ -61,3 +61,21 @@ test_station_sort = executable('test_station_sort',
   dependencies: [test_deps, lib_core_dep],
 )
 test('station-sort', test_station_sort)
+
+test_station_transfer = executable('test_station_transfer',
+  'test_station_transfer.vala',
+  dependencies: [test_deps, lib_core_dep],
+)
+test('station-transfer', test_station_transfer)
+
+test_mpris = executable('test_mpris',
+  'test_mpris.vala',
+  dependencies: [test_deps, lib_core_dep],
+)
+test('mpris', test_mpris)
+
+test_search_provider = executable('test_search_provider',
+  'test_search_provider.vala',
+  dependencies: [test_deps, lib_core_dep],
+)
+test('search-provider', test_search_provider)

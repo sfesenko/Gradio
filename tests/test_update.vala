@@ -11,6 +11,19 @@ class RecordingCommands : Gradio.Commands {
     public int save_calls = 0;
     public int favicon_calls = 0;
     public int clear_favicon_calls = 0;
+    public int vote_calls = 0;
+    public int notify_calls = 0;
+    public int import_calls = 0;
+    public int export_calls = 0;
+    public string last_import_path = "";
+    public string last_export_path = "";
+    public int last_export_count = 0;
+    public int playlist_calls = 0;
+    public string last_playlist_path = "";
+    public int last_playlist_count = 0;
+    public int filter_option_calls = 0;
+    public string last_vote_id = "";
+    public string last_notification = "";
     public string last_query = "";
     public uint last_generation = 0;
     public double last_volume = -1;
@@ -58,6 +71,43 @@ class RecordingCommands : Gradio.Commands {
 
     public override Elmish.Cmd<Gradio.Message>? clear_favicon_cache () {
         clear_favicon_calls++;
+        return dummy ();
+    }
+
+    public override Elmish.Cmd<Gradio.Message>? vote (string station_id) {
+        vote_calls++;
+        last_vote_id = station_id;
+        return dummy ();
+    }
+
+    public override Elmish.Cmd<Gradio.Message>? notify_error (string message) {
+        notify_calls++;
+        last_notification = message;
+        return dummy ();
+    }
+
+    public override Elmish.Cmd<Gradio.Message>? import_stations (string path) {
+        import_calls++;
+        last_import_path = path;
+        return dummy ();
+    }
+
+    public override Elmish.Cmd<Gradio.Message>? export_stations (GLib.GenericArray<RadioStation> stations, string path) {
+        export_calls++;
+        last_export_path = path;
+        last_export_count = (int) stations.length;
+        return dummy ();
+    }
+
+    public override Elmish.Cmd<Gradio.Message>? export_playlist (GLib.GenericArray<RadioStation> stations, string path) {
+        playlist_calls++;
+        last_playlist_path = path;
+        last_playlist_count = (int) stations.length;
+        return dummy ();
+    }
+
+    public override Elmish.Cmd<Gradio.Message>? load_filter_options () {
+        filter_option_calls++;
         return dummy ();
     }
 }
@@ -307,6 +357,156 @@ void test_move_station_noop_does_not_save () {
     assert (commands.save_calls == 0);
 }
 
+void test_vote_starts_command () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    model.config.add_station (make_station ("u1"));
+
+    var cmd = updateModel (new VoteStationMessage ("u1"), model, commands);
+    assert (cmd != null);
+    assert (commands.vote_calls == 1);
+    assert (commands.last_vote_id == "u1");
+    assert (model.votes_pending.contains ("u1"));
+    assert (!model.voted_ids.contains ("u1"));
+}
+
+void test_vote_unknown_station_is_ignored () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+
+    var cmd = updateModel (new VoteStationMessage ("missing"), model, commands);
+    assert (cmd == null);
+    assert (commands.vote_calls == 0);
+}
+
+void test_vote_duplicate_is_ignored () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    model.config.add_station (make_station ("u1"));
+    model.voted_ids.set ("u1", true);
+
+    var cmd = updateModel (new VoteStationMessage ("u1"), model, commands);
+    assert (cmd == null);
+    assert (commands.vote_calls == 0);
+}
+
+void test_vote_success_marks_voted_and_updates_count () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    var station = make_station ("u1");
+    station.votes = 3;
+    model.config.add_station (station);
+    model.votes_pending.set ("u1", true);
+
+    var updated = make_station ("u1");
+    updated.votes = 4;
+    var cmd = updateModel (new VoteSucceededMessage ("u1", updated), model, commands);
+
+    assert (cmd == null);
+    assert (model.voted_ids.contains ("u1"));
+    assert (!model.votes_pending.contains ("u1"));
+    assert (station.votes == 4);
+    assert (model.status_message == "Thanks for voting");
+}
+
+void test_vote_success_without_station_increments_count () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    var station = make_station ("u1");
+    station.votes = 3;
+    model.config.add_station (station);
+    model.votes_pending.set ("u1", true);
+
+    updateModel (new VoteSucceededMessage ("u1", null), model, commands);
+    assert (station.votes == 4);
+}
+
+void test_vote_failure_reports_and_clears_pending () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    model.config.add_station (make_station ("u1"));
+    model.votes_pending.set ("u1", true);
+
+    updateModel (new VoteFailedMessage ("u1", "try later"), model, commands);
+    assert (!model.votes_pending.contains ("u1"));
+    assert (!model.voted_ids.contains ("u1"));
+    assert (model.status_message == "try later");
+}
+
+void test_player_error_notifies () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+
+    var cmd = updateModel (new PlayerErrorMessage ("boom"), model, commands);
+    assert (cmd != null);
+    assert (commands.notify_calls == 1);
+    assert (commands.last_notification == "boom");
+}
+
+void test_import_stations_starts_command () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+
+    var cmd = updateModel (new ImportStationsMessage ("/tmp/stations.json"), model, commands);
+    assert (cmd != null);
+    assert (commands.import_calls == 1);
+    assert (commands.last_import_path == "/tmp/stations.json");
+}
+
+void test_import_success_merges_and_saves () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    model.config.add_station (make_station ("u1"));
+
+    var incoming = new GLib.GenericArray<RadioStation> ();
+    incoming.add (make_station ("u1"));
+    incoming.add (make_station ("u2"));
+
+    var cmd = updateModel (new StationsImportedMessage (incoming), model, commands);
+    assert (cmd != null);
+    assert (model.config.stations.length == 2);
+    assert (model.status_message == "Imported 1 station, skipped 1");
+    assert (commands.save_calls == 1);
+}
+
+void test_import_failure_reports_status () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+
+    updateModel (new ImportFailedMessage ("bad file"), model, commands);
+    assert (model.status_message == "bad file");
+    assert (commands.save_calls == 0);
+}
+
+void test_export_starts_command () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    model.config.add_station (make_station ("u1"));
+    model.config.add_station (make_station ("u2"));
+
+    var cmd = updateModel (new ExportStationsMessage ("/tmp/out.json"), model, commands);
+    assert (cmd != null);
+    assert (commands.export_calls == 1);
+    assert (commands.last_export_path == "/tmp/out.json");
+    assert (commands.last_export_count == 2);
+}
+
+void test_export_success_reports_status () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+
+    updateModel (new ExportSucceededMessage ("/tmp/out.json", 3), model, commands);
+    assert (model.status_message == "Exported 3 stations");
+}
+
+void test_export_failure_reports_status () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+
+    updateModel (new ExportFailedMessage ("disk full"), model, commands);
+    assert (model.status_message == "disk full");
+}
+
 void test_remove_current_station () {
     var model = make_model ();
     var commands = new RecordingCommands ();
@@ -340,6 +540,107 @@ void test_play_station () {
     assert (model.playing == true);
     assert (model.status_message == "Connecting…");
     assert (commands.play_calls == 1);
+    assert (model.config.last_station_id == "u1");
+    assert (commands.save_calls == 1);
+}
+
+void test_restore_last_station_plays_when_enabled () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    var station = make_station ("u1");
+    model.config.add_station (station);
+    model.config.last_station_id = "u1";
+    model.config.resume_playback = true;
+
+    var cmd = updateModel (new RestoreLastStationMessage (), model, commands);
+    assert (cmd != null);
+    assert (model.current_station == station);
+    assert (model.playing == true);
+    assert (commands.play_calls == 1);
+}
+
+void test_restore_last_station_needs_setting () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    model.config.add_station (make_station ("u1"));
+    model.config.last_station_id = "u1";
+    model.config.resume_playback = false;
+
+    var cmd = updateModel (new RestoreLastStationMessage (), model, commands);
+    assert (cmd == null);
+    assert (model.current_station == null);
+    assert (commands.play_calls == 0);
+}
+
+void test_restore_last_station_unknown_id_is_noop () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    model.config.last_station_id = "missing";
+    model.config.resume_playback = true;
+
+    var cmd = updateModel (new RestoreLastStationMessage (), model, commands);
+    assert (cmd == null);
+    assert (commands.play_calls == 0);
+}
+
+void test_set_resume_playback_saves () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+
+    var cmd = updateModel (new SetResumePlaybackMessage (true), model, commands);
+    assert (cmd != null);
+    assert (model.config.resume_playback == true);
+    assert (commands.save_calls == 1);
+}
+
+void test_remove_current_station_clears_last_station () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    model.config.add_station (make_station ("u1"));
+    model.config.last_station_id = "u1";
+
+    updateModel (new RemoveStationMessage ("u1"), model, commands);
+    assert (model.config.last_station_id == "");
+}
+
+void test_export_playlist_starts_command () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    model.config.add_station (make_station ("u1"));
+    model.config.add_station (make_station ("u2"));
+
+    var cmd = updateModel (new ExportPlaylistMessage ("/tmp/out.m3u"), model, commands);
+    assert (cmd != null);
+    assert (commands.playlist_calls == 1);
+    assert (commands.last_playlist_path == "/tmp/out.m3u");
+    assert (commands.last_playlist_count == 2);
+}
+
+void test_request_filter_options_starts_command () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+
+    var cmd = updateModel (new RequestFilterOptionsMessage (), model, commands);
+    assert (cmd != null);
+    assert (commands.filter_option_calls == 1);
+}
+
+void test_filter_options_loaded_sets_names () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+
+    updateModel (new FilterOptionsLoadedMessage (SearchFilterKind.COUNTRY,
+        { "Germany", "France" }), model, commands);
+    updateModel (new FilterOptionsLoadedMessage (SearchFilterKind.LANGUAGE,
+        { "german" }), model, commands);
+    updateModel (new FilterOptionsLoadedMessage (SearchFilterKind.TAG,
+        { "jazz" }), model, commands);
+
+    assert (model.filter_options (SearchFilterKind.COUNTRY).length == 2);
+    assert (model.filter_options (SearchFilterKind.COUNTRY)[0] == "Germany");
+    assert (model.filter_options (SearchFilterKind.LANGUAGE)[0] == "german");
+    assert (model.filter_options (SearchFilterKind.TAG)[0] == "jazz");
+    assert (model.filter_options (SearchFilterKind.STATE).length == 0);
 }
 
 void test_toggle_play () {
@@ -781,8 +1082,29 @@ int main (string[] args) {
     Test.add_func ("/update/remove_station", test_remove_station);
     Test.add_func ("/update/move_station", test_move_station_reorders_and_saves);
     Test.add_func ("/update/move_station_noop", test_move_station_noop_does_not_save);
+    Test.add_func ("/update/vote_starts_command", test_vote_starts_command);
+    Test.add_func ("/update/vote_unknown_station", test_vote_unknown_station_is_ignored);
+    Test.add_func ("/update/vote_duplicate", test_vote_duplicate_is_ignored);
+    Test.add_func ("/update/vote_success", test_vote_success_marks_voted_and_updates_count);
+    Test.add_func ("/update/vote_success_no_station", test_vote_success_without_station_increments_count);
+    Test.add_func ("/update/vote_failure", test_vote_failure_reports_and_clears_pending);
+    Test.add_func ("/update/player_error_notifies", test_player_error_notifies);
     Test.add_func ("/update/remove_current_station", test_remove_current_station);
+    Test.add_func ("/update/import_starts_command", test_import_stations_starts_command);
+    Test.add_func ("/update/import_success", test_import_success_merges_and_saves);
+    Test.add_func ("/update/import_failure", test_import_failure_reports_status);
+    Test.add_func ("/update/export_starts_command", test_export_starts_command);
+    Test.add_func ("/update/export_success", test_export_success_reports_status);
+    Test.add_func ("/update/export_failure", test_export_failure_reports_status);
     Test.add_func ("/update/play_station", test_play_station);
+    Test.add_func ("/update/restore_last_station", test_restore_last_station_plays_when_enabled);
+    Test.add_func ("/update/restore_last_station_disabled", test_restore_last_station_needs_setting);
+    Test.add_func ("/update/restore_last_station_unknown", test_restore_last_station_unknown_id_is_noop);
+    Test.add_func ("/update/set_resume_playback", test_set_resume_playback_saves);
+    Test.add_func ("/update/remove_clears_last_station", test_remove_current_station_clears_last_station);
+    Test.add_func ("/update/export_playlist", test_export_playlist_starts_command);
+    Test.add_func ("/update/request_filter_options", test_request_filter_options_starts_command);
+    Test.add_func ("/update/filter_options_loaded", test_filter_options_loaded_sets_names);
     Test.add_func ("/update/toggle_play", test_toggle_play);
     Test.add_func ("/update/player_state", test_player_state);
     Test.add_func ("/update/player_metadata", test_player_metadata);

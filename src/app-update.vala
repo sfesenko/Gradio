@@ -121,6 +121,8 @@ public Elmish.Cmd<Gradio.Message>? updateModel (Gradio.Message msg, Gradio.AppMo
                 model.details_station = null;
                 model.details_visible = false;
             }
+            if (model.config.last_station_id == remove.station_id)
+                model.config.last_station_id = "";
 
             bool was_current = model.current_station != null && model.current_station.id == remove.station_id;
             if (was_current) {
@@ -145,17 +147,161 @@ public Elmish.Cmd<Gradio.Message>? updateModel (Gradio.Message msg, Gradio.AppMo
                 break;
             return commands.save_config ();
 
+        case MessageKind.VOTE_STATION:
+            var vote = msg as VoteStationMessage;
+            if (vote == null || vote.station_id == "")
+                break;
+            if (model.voted_ids.contains (vote.station_id) ||
+                    model.votes_pending.contains (vote.station_id))
+                break;
+            if (find_station (model, vote.station_id) == null) {
+                model.status_message = _("Station not found");
+                break;
+            }
+            model.votes_pending.set (vote.station_id, true);
+            model.status_message = _("Voting…");
+            return commands.vote (vote.station_id);
+
+        case MessageKind.VOTE_SUCCEEDED:
+            var voted = msg as VoteSucceededMessage;
+            if (voted == null)
+                break;
+            model.votes_pending.remove (voted.station_id);
+            model.voted_ids.set (voted.station_id, true);
+            var voted_station = find_station (model, voted.station_id);
+            if (voted_station != null) {
+                if (voted.station != null)
+                    voted_station.votes = voted.station.votes;
+                else
+                    voted_station.votes++;
+            }
+            model.status_message = _("Thanks for voting");
+            break;
+
+        case MessageKind.VOTE_FAILED:
+            var vote_error = msg as VoteFailedMessage;
+            if (vote_error == null)
+                break;
+            model.votes_pending.remove (vote_error.station_id);
+            model.status_message = vote_error.message;
+            break;
+
+        case MessageKind.STOP_PLAYBACK:
+            model.playing = false;
+            model.playback_failed = false;
+            model.stream_title = "";
+            model.stream_bitrate = 0;
+            model.status_message = _("Stopped");
+            return commands.stop ();
+
+        case MessageKind.IMPORT_STATIONS:
+            var import = msg as ImportStationsMessage;
+            if (import == null || import.path == "")
+                break;
+            return commands.import_stations (import.path);
+
+        case MessageKind.STATIONS_IMPORTED:
+            var imported = msg as StationsImportedMessage;
+            if (imported == null)
+                break;
+            var summary = model.config.import_stations (imported.stations);
+            if (summary.imported == 1)
+                model.status_message = _("Imported 1 station, skipped %d").printf (summary.skipped);
+            else
+                model.status_message = _("Imported %d stations, skipped %d").printf (
+                    summary.imported, summary.skipped);
+            if (summary.imported == 0)
+                break;
+            return commands.save_config ();
+
+        case MessageKind.IMPORT_FAILED:
+            var import_error = msg as ImportFailedMessage;
+            if (import_error == null)
+                break;
+            model.status_message = import_error.message;
+            break;
+
+        case MessageKind.EXPORT_STATIONS:
+            var export = msg as ExportStationsMessage;
+            if (export == null || export.path == "")
+                break;
+            var copy = new GLib.GenericArray<RadioStation> ();
+            for (uint i = 0; i < model.config.stations.length; i++)
+                copy.add (model.config.stations.get (i));
+            return commands.export_stations (copy, export.path);
+
+        case MessageKind.EXPORT_SUCCEEDED:
+            var exported = msg as ExportSucceededMessage;
+            if (exported == null)
+                break;
+            model.status_message = _("Exported %d stations").printf (exported.count);
+            break;
+
+        case MessageKind.EXPORT_FAILED:
+            var export_error = msg as ExportFailedMessage;
+            if (export_error == null)
+                break;
+            model.status_message = export_error.message;
+            break;
+
+        case MessageKind.EXPORT_PLAYLIST:
+            var playlist = msg as ExportPlaylistMessage;
+            if (playlist == null || playlist.path == "")
+                break;
+            var playlist_copy = new GLib.GenericArray<RadioStation> ();
+            for (uint i = 0; i < model.config.stations.length; i++)
+                playlist_copy.add (model.config.stations.get (i));
+            return commands.export_playlist (playlist_copy, playlist.path);
+
+        case MessageKind.SET_RESUME_PLAYBACK:
+            var resume = msg as SetResumePlaybackMessage;
+            if (resume == null || resume.enabled == model.config.resume_playback)
+                break;
+            model.config.resume_playback = resume.enabled;
+            return commands.save_config ();
+
+        case MessageKind.RESTORE_LAST_STATION:
+            if (!model.config.resume_playback || model.config.last_station_id == "")
+                break;
+            var last_station = model.config.find_station (model.config.last_station_id);
+            if (last_station == null)
+                break;
+            return updateModel (new PlayStationMessage (last_station), model, commands);
+
+        case MessageKind.REQUEST_FILTER_OPTIONS:
+            return commands.load_filter_options ();
+
+        case MessageKind.FILTER_OPTIONS_LOADED:
+            var options = msg as FilterOptionsLoadedMessage;
+            if (options == null || options.names.length == 0)
+                break;
+            switch (options.field) {
+                case SearchFilterKind.COUNTRY:
+                    model.filter_countries = options.names;
+                    break;
+                case SearchFilterKind.LANGUAGE:
+                    model.filter_languages = options.names;
+                    break;
+                case SearchFilterKind.TAG:
+                    model.filter_tags = options.names;
+                    break;
+                default:
+                    break;
+            }
+            break;
+
         case MessageKind.PLAY_STATION:
             var play = msg as PlayStationMessage;
             if (play == null)
                 break;
             model.current_station = play.station;
+            model.config.last_station_id = play.station.id;
             model.playing = true;
             model.playback_failed = false;
             model.stream_title = "";
             model.stream_bitrate = 0;
             model.status_message = _("Connecting…");
-            return commands.play (play.station);
+            return Commands.chain (commands.save_config (), commands.play (play.station));
 
         case MessageKind.TOGGLE_PLAY:
             if (model.current_station == null)
@@ -205,7 +351,7 @@ public Elmish.Cmd<Gradio.Message>? updateModel (Gradio.Message msg, Gradio.AppMo
             model.stream_title = "";
             model.stream_bitrate = 0;
             model.status_message = error.message;
-            break;
+            return commands.notify_error (error.message);
 
         case MessageKind.SHOW_DETAILS:
             var show = msg as ShowDetailsMessage;

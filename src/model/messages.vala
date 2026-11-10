@@ -31,7 +31,22 @@ public enum Gradio.MessageKind {
     SET_ICON_SIZE,
     SET_SEARCH_SORT_MODE,
     SET_SEARCH_FILTER,
-    FAVICON_DISCOVERED
+    FAVICON_DISCOVERED,
+    VOTE_STATION,
+    VOTE_SUCCEEDED,
+    VOTE_FAILED,
+    STOP_PLAYBACK,
+    IMPORT_STATIONS,
+    STATIONS_IMPORTED,
+    IMPORT_FAILED,
+    EXPORT_STATIONS,
+    EXPORT_SUCCEEDED,
+    EXPORT_FAILED,
+    EXPORT_PLAYLIST,
+    SET_RESUME_PLAYBACK,
+    RESTORE_LAST_STATION,
+    REQUEST_FILTER_OPTIONS,
+    FILTER_OPTIONS_LOADED
 }
 
 public abstract class Gradio.Message {
@@ -220,8 +235,7 @@ public class Gradio.SetSearchSortModeMessage : Gradio.Message {
     public override MessageKind kind { get { return MessageKind.SET_SEARCH_SORT_MODE; } }
 }
 
-public class Gradio.SetSearchFilterMessage : Gradio.Message {
-    public SearchFilterKind field;
+public class Gradio.SetSearchFilterMessage : Gradio.Message {    public SearchFilterKind field;
     public string value;
 
     public SetSearchFilterMessage (SearchFilterKind field, string value) {
@@ -230,6 +244,132 @@ public class Gradio.SetSearchFilterMessage : Gradio.Message {
     }
 
     public override MessageKind kind { get { return MessageKind.SET_SEARCH_FILTER; } }
+}
+
+public class Gradio.VoteStationMessage : Gradio.Message {
+    public string station_id;
+
+    public VoteStationMessage (string station_id) { this.station_id = station_id; }
+
+    public override MessageKind kind { get { return MessageKind.VOTE_STATION; } }
+}
+
+public class Gradio.VoteSucceededMessage : Gradio.Message {
+    public string station_id;
+    public RadioStation? station;
+
+    public VoteSucceededMessage (string station_id, RadioStation? station) {
+        this.station_id = station_id;
+        this.station = station;
+    }
+
+    public override MessageKind kind { get { return MessageKind.VOTE_SUCCEEDED; } }
+}
+
+public class Gradio.VoteFailedMessage : Gradio.Message {
+    public string station_id;
+    public string message;
+
+    public VoteFailedMessage (string station_id, string message) {
+        this.station_id = station_id;
+        this.message = message;
+    }
+
+    public override MessageKind kind { get { return MessageKind.VOTE_FAILED; } }
+}
+
+public class Gradio.StopPlaybackMessage : Gradio.Message {
+    public override MessageKind kind { get { return MessageKind.STOP_PLAYBACK; } }
+}
+
+public class Gradio.ImportStationsMessage : Gradio.Message {
+    public string path;
+
+    public ImportStationsMessage (string path) { this.path = path; }
+
+    public override MessageKind kind { get { return MessageKind.IMPORT_STATIONS; } }
+}
+
+public class Gradio.StationsImportedMessage : Gradio.Message {
+    public GLib.GenericArray<RadioStation> stations;
+
+    public StationsImportedMessage (GLib.GenericArray<RadioStation> stations) {
+        this.stations = stations;
+    }
+
+    public override MessageKind kind { get { return MessageKind.STATIONS_IMPORTED; } }
+}
+
+public class Gradio.ImportFailedMessage : Gradio.Message {
+    public string message;
+
+    public ImportFailedMessage (string message) { this.message = message; }
+
+    public override MessageKind kind { get { return MessageKind.IMPORT_FAILED; } }
+}
+
+public class Gradio.ExportStationsMessage : Gradio.Message {
+    public string path;
+
+    public ExportStationsMessage (string path) { this.path = path; }
+
+    public override MessageKind kind { get { return MessageKind.EXPORT_STATIONS; } }
+}
+
+public class Gradio.ExportSucceededMessage : Gradio.Message {
+    public string path;
+    public int count;
+
+    public ExportSucceededMessage (string path, int count) {
+        this.path = path;
+        this.count = count;
+    }
+
+    public override MessageKind kind { get { return MessageKind.EXPORT_SUCCEEDED; } }
+}
+
+public class Gradio.ExportFailedMessage : Gradio.Message {
+    public string message;
+
+    public ExportFailedMessage (string message) { this.message = message; }
+
+    public override MessageKind kind { get { return MessageKind.EXPORT_FAILED; } }
+}
+
+public class Gradio.ExportPlaylistMessage : Gradio.Message {
+    public string path;
+
+    public ExportPlaylistMessage (string path) { this.path = path; }
+
+    public override MessageKind kind { get { return MessageKind.EXPORT_PLAYLIST; } }
+}
+
+public class Gradio.SetResumePlaybackMessage : Gradio.Message {
+    public bool enabled;
+
+    public SetResumePlaybackMessage (bool enabled) { this.enabled = enabled; }
+
+    public override MessageKind kind { get { return MessageKind.SET_RESUME_PLAYBACK; } }
+}
+
+public class Gradio.RestoreLastStationMessage : Gradio.Message {
+    public override MessageKind kind { get { return MessageKind.RESTORE_LAST_STATION; } }
+}
+
+public class Gradio.RequestFilterOptionsMessage : Gradio.Message {
+    public override MessageKind kind { get { return MessageKind.REQUEST_FILTER_OPTIONS; } }
+}
+
+public class Gradio.FilterOptionsLoadedMessage : Gradio.Message {
+    public SearchFilterKind field;
+    public string[] names;
+
+    public FilterOptionsLoadedMessage (SearchFilterKind field, string[] names) {
+        this.field = field;
+        this.names = names;
+    }
+
+    public override MessageKind kind { get { return MessageKind.FILTER_OPTIONS_LOADED; } }
 }
 
 public class Gradio.AppModel {
@@ -251,6 +391,11 @@ public class Gradio.AppModel {
     public string status_message = _("Ready");
     public GLib.HashTable<string, string> favicons = new GLib.HashTable<string, string> (str_hash, str_equal);
     public GLib.HashTable<string, string> favicon_sources = new GLib.HashTable<string, string> (str_hash, str_equal);
+    public GLib.HashTable<string, bool> voted_ids = new GLib.HashTable<string, bool> (str_hash, str_equal);
+    public GLib.HashTable<string, bool> votes_pending = new GLib.HashTable<string, bool> (str_hash, str_equal);
+    public string[] filter_countries = {};
+    public string[] filter_languages = {};
+    public string[] filter_tags = {};
 
     public AppModel (AppConfig config) {
         this.config = config;
@@ -266,5 +411,18 @@ public class Gradio.AppModel {
         if (path == null || path == "")
             return null;
         return path;
+    }
+
+    public string[] filter_options (SearchFilterKind field) {
+        switch (field) {
+            case SearchFilterKind.COUNTRY:
+                return filter_countries;
+            case SearchFilterKind.LANGUAGE:
+                return filter_languages;
+            case SearchFilterKind.TAG:
+                return filter_tags;
+            default:
+                return {};
+        }
     }
 }

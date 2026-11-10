@@ -38,10 +38,13 @@ lib_core_sources = [
   'src/model/app-config.vala',
   'src/model/station-sort.vala',
   'src/model/search-filters.vala',
+  'src/model/station-transfer.vala',
   'src/backend/http.vala',
   'src/backend/radio-browser.vala',
   'src/backend/player.vala',
   'src/backend/favicon.vala',
+  'src/backend/mpris.vala',
+  'src/backend/search-provider.vala',
   'src/app-update.vala',
 ]
 

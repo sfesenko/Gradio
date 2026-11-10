@@ -19,8 +19,7 @@ int main (string[] args) {
         load_error = e.message;
     }
 
-    var runtime = new Gradio.AppRuntime (config, load_error != null);
-    var model = new Gradio.AppModel (config);
+    var runtime = new Gradio.AppRuntime (config, load_error != null);    var model = new Gradio.AppModel (config);
     if (load_error != null)
         model.status_message = load_error;
 
@@ -28,6 +27,9 @@ int main (string[] args) {
         "de.haeckerfelix.gradio",
         ApplicationFlags.DEFAULT_FLAGS
     );
+    runtime.set_application (app);
+
+    Gradio.MprisServer? mpris = null;
 
     var program = new Elmish.ElmishProgram<Gradio.Message, Gradio.AppModel, Gradio.MainView> (
         model,
@@ -37,18 +39,35 @@ int main (string[] args) {
             view.build_ui (dispatch, current_model);
             view.present ();
 
+            mpris = new Gradio.MprisServer (dispatch, app);
+            mpris.register ();
+            mpris.update (current_model);
+
             return view;
         },
         (msg, current_model) => updateModel (msg, current_model, runtime),
-        (msg, current_model, view) => view.update (msg, current_model)
+        (msg, current_model, view) => {
+            view.update (msg, current_model);
+            if (mpris != null)
+                mpris.update (current_model);
+        }
     );
 
     var quit_action = new GLib.SimpleAction ("quit", null);
     quit_action.activate.connect ((parameter) => app.quit ());
     app.add_action (quit_action);
 
-    var about_action = new GLib.SimpleAction ("about", null);
-    about_action.activate.connect ((parameter) => {
+    var raise_action = new GLib.SimpleAction ("raise", null);
+    raise_action.activate.connect ((parameter) => {
+        var window = app.get_active_window ();
+        if (window != null) {
+            window.present ();
+            window.set_visible (true);
+        }
+    });
+    app.add_action (raise_action);
+
+    var about_action = new GLib.SimpleAction ("about", null);    about_action.activate.connect ((parameter) => {
         var about = new Gtk.AboutDialog ();
         about.set_program_name (_("Gradio"));
         about.set_version ("8.0.0");
@@ -73,12 +92,29 @@ int main (string[] args) {
 
     app.shutdown.connect (() => runtime.save_now ());
 
+    var search_provider = new Gradio.SearchProvider (config);
+    search_provider.station_activated.connect ((station) => {
+        app.activate ();
+        program.dispatch_message (new Gradio.PlayStationMessage (station));
+    });
+    search_provider.search_launched.connect (() => {
+        app.activate ();
+    });
+
+    app.startup.connect (() => {
+        var connection = app.get_dbus_connection ();
+        if (connection != null)
+            search_provider.register (connection);
+    });
+
     bool started = false;
     app.activate.connect (() => {
         if (!started) {
             started = true;
             program.start ();
             program.dispatch_message (new Gradio.RequestFaviconsMessage ());
+            program.dispatch_message (new Gradio.RequestFilterOptionsMessage ());
+            program.dispatch_message (new Gradio.RestoreLastStationMessage ());
         }
     });
 

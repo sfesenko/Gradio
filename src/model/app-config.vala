@@ -19,6 +19,8 @@ namespace Gradio {
         public int window_height = DEFAULT_WINDOW_HEIGHT;
         public bool maximized = false;
         public int icon_size = DEFAULT_ICON_SIZE;
+        public bool resume_playback = false;
+        public string last_station_id = "";
         public SearchSortMode search_sort = SearchSortMode.RELEVANCE;
         public SearchFilters search_filters = new SearchFilters ();
         public GLib.GenericArray<RadioStation> stations = new GLib.GenericArray<RadioStation> ();
@@ -85,6 +87,10 @@ namespace Gradio {
                 config.maximized = settings.get_boolean_member_with_default ("maximized", config.maximized);
                 config.icon_size = normalize_icon_size (
                     (int) settings.get_int_member_with_default ("icon_size", config.icon_size));
+                config.resume_playback = settings.get_boolean_member_with_default (
+                    "resume_playback", config.resume_playback);
+                config.last_station_id = settings.get_string_member_with_default (
+                    "last_station", config.last_station_id);
                 config.search_sort = StationSort.search_from_string (
                     settings.get_string_member_with_default ("search_sort",
                         StationSort.search_to_string (config.search_sort)));
@@ -131,6 +137,8 @@ namespace Gradio {
             settings.set_int_member ("window_height", window_height);
             settings.set_boolean_member ("maximized", maximized);
             settings.set_int_member ("icon_size", icon_size);
+            settings.set_boolean_member ("resume_playback", resume_playback);
+            settings.set_string_member ("last_station", last_station_id);
             settings.set_string_member ("search_sort", StationSort.search_to_string (search_sort));
 
             var filters = new Json.Object ();
@@ -220,6 +228,37 @@ namespace Gradio {
 
         public bool contains_station (string id) {
             return find_station (id) != null;
+        }
+
+        public RadioStation? find_station_by_url (string url) {
+            if (url == "")
+                return null;
+            for (uint i = 0; i < stations.length; i++) {
+                var station = stations.get (i);
+                if (station.url == url || station.original_url == url)
+                    return station;
+            }
+            return null;
+        }
+
+        public ImportSummary import_stations (GLib.GenericArray<RadioStation> incoming) {
+            var summary = new ImportSummary ();
+            for (uint i = 0; i < incoming.length; i++) {
+                var station = incoming.get (i);
+                if (station.id == "" || station.name == "" || station.url == "") {
+                    summary.skipped++;
+                    continue;
+                }
+                if (find_station (station.id) != null ||
+                        find_station_by_url (station.url) != null ||
+                        find_station_by_url (station.original_url) != null) {
+                    summary.skipped++;
+                    continue;
+                }
+                stations.add (station);
+                summary.imported++;
+            }
+            return summary;
         }
 
         public RadioStation? find_station (string id) {

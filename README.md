@@ -16,7 +16,9 @@ no shared git history with it; it is a deliberate rewrite.
 ## Build
 
 Requirements: `meson`, `ninja`, `vala`, `gtk4` (≥ 4.10), `libsoup-3.0`,
-`json-glib`, `gstreamer`, `gettext`.
+`json-glib`, `gstreamer`, `gettext`, and the GStreamer plugin sets
+`gst-plugins-base`, `gst-plugins-good`, `gst-plugins-bad`, `gst-plugins-ugly`,
+`gst-libav` for common stream codecs.
 
 ```bash
 meson setup builddir
@@ -37,17 +39,26 @@ Gradio is a usable single-list radio player:
 - Station icons cached under `~/.cache/gradio/favicons/`, with homepage icon
   discovery and an RSS fallback
 - Drag stations to reorder the library; search-result sorting stays on the search tab
-- Persisted country, state, language, and tag search filters
+- Persisted country, state, language, and tag search filters; country,
+  language, and tag are searchable pickers filled from radio-browser
 - Window geometry and station-icon size are remembered
-- Preferences for technical information and clearing the icon cache
+- Preferences for technical information, resuming the last station on startup,
+  and clearing the icon cache
+- Vote for stations from the details panel
+- Import and export the station library as JSON, or export an M3U playlist
+- MPRIS 2.2 controls, media keys, and the GNOME media widget
+- GNOME Shell search over the local library
+- Desktop notifications for playback errors
 - JSON config at `~/.config/gradio/config.json` (`XDG_CONFIG_HOME` honored);
   cache lives at `~/.cache/gradio/`
 - Headless core tests for the model, config, HTTP, search, player, and runtime
 
-Gradio adds the parity extras: discover, station editing, import/export, MPRIS, the
-GNOME Shell search provider, notifications, codec installation, and
-background/resume playback. Collections, headerbar tabs, tray icon, and
-multi-select are dropped.
+Gradio keeps the extras that fit the single-list design: import/export (JSON and
+M3U), MPRIS, the GNOME Shell search provider, playback-error notifications,
+voting, filter pickers, and optional resume of the last station. Discover
+presets, station editing, background playback, and a codec installer are
+dropped; common GStreamer codec packages are regular dependencies. Collections,
+headerbar tabs, tray icon, and multi-select remain out of scope.
 
 ## Packaging
 

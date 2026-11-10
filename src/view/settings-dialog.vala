@@ -30,6 +30,16 @@ namespace Gradio {
             });
             list.append (build_row (_("Show technical information"), technical_toggle));
 
+            var resume_toggle = new Gtk.Switch () {
+                active = model.config.resume_playback,
+                valign = Gtk.Align.CENTER
+            };
+            resume_toggle.state_set.connect ((state) => {
+                dispatch (new SetResumePlaybackMessage (state));
+                return false;
+            });
+            list.append (build_row (_("Resume playback on startup"), resume_toggle));
+
             int[] icon_sizes = { 32, 48, 64, 96 };
             var icon_size = new Gtk.DropDown.from_strings ({ "32", "48", "64", "96" });
             uint selected = 0;

@@ -106,9 +106,75 @@ void test_search_filters_trim_values () {
     assert (filters.tag == "jazz, soul");
 }
 
+void test_filter_list_url () {
+    string url = Gradio.RadioBrowser.filter_list_url (Gradio.RadioBrowser.countries_endpoint);
+    assert (url.has_prefix (Gradio.RadioBrowser.countries_endpoint + "?"));
+    var query = Soup.Form.decode (url.substring (url.index_of ("?") + 1));
+    assert (query.lookup ("hidebroken") == "true");
+    assert (query.lookup ("order") == "stationcount");
+    assert (query.lookup ("reverse") == "true");
+}
+
+void test_parse_filter_names () {
+    try {
+        var names = Gradio.RadioBrowser.parse_names (
+            "[{\"name\":\"Germany\",\"stationcount\":10},{\"name\":\" France \"},{\"name\":\"\"}]");
+        assert (names.length == 2);
+        assert (names[0] == "Germany");
+        assert (names[1] == "France");
+    } catch (GLib.Error e) {
+        assert_not_reached ();
+    }
+}
+
+void test_parse_filter_names_rejects_non_array () {
+    bool threw = false;
+    try {
+        Gradio.RadioBrowser.parse_names ("{\"name\":\"Germany\"}");
+    } catch (GLib.Error e) {
+        threw = true;
+    }
+    assert (threw);
+}
+
 void test_station_by_uuid_url () {
     string url = Gradio.RadioBrowser.station_by_uuid_url ("abc-123");
     assert (url == Gradio.RadioBrowser.radio_browser + "/stations/byuuid/abc-123");
+}
+
+void test_vote_url () {    string url = Gradio.RadioBrowser.vote_url ("abc-123");
+    assert (url == Gradio.RadioBrowser.radio_browser + "/vote/abc-123");
+}
+
+void test_parse_vote_ok () {
+    var result = Gradio.RadioBrowser.parse_vote_response (
+        "{\"ok\":true,\"message\":\"voted for station successfully\"}");
+    assert (result.ok);
+    assert (result.station == null);
+}
+
+void test_parse_vote_returns_changed_station () {
+    var result = Gradio.RadioBrowser.parse_vote_response (
+        "{\"stationuuid\":\"u1\",\"name\":\"Jazz FM\",\"url_resolved\":\"https://example.test/jazz\",\"votes\":7}");
+    assert (result.ok);
+    assert (result.station != null);
+    assert (result.station.votes == 7);
+}
+
+void test_parse_vote_rejected () {
+    var result = Gradio.RadioBrowser.parse_vote_response (
+        "{\"ok\":false,\"message\":\"you can only vote once every 10 minutes\"}");
+    assert (!result.ok);
+}
+
+void test_parse_vote_invalid_json () {
+    bool threw = false;
+    try {
+        Gradio.RadioBrowser.parse_vote_response ("not json");
+    } catch (GLib.Error e) {
+        threw = true;
+    }
+    assert (threw);
 }
 
 int main (string[] args) {
@@ -124,6 +190,15 @@ int main (string[] args) {
     Test.add_func ("/radio-browser/search_url_omits_empty_filters", test_search_url_omits_empty_filters);
     Test.add_func ("/radio-browser/search_filters_trim", test_search_filters_trim_values);
     Test.add_func ("/radio-browser/station_by_uuid_url", test_station_by_uuid_url);
+    Test.add_func ("/radio-browser/filter_list_url", test_filter_list_url);
+    Test.add_func ("/radio-browser/parse_filter_names", test_parse_filter_names);
+    Test.add_func ("/radio-browser/parse_filter_names_invalid",
+        test_parse_filter_names_rejects_non_array);
+    Test.add_func ("/radio-browser/vote_url", test_vote_url);
+    Test.add_func ("/radio-browser/parse_vote_ok", test_parse_vote_ok);
+    Test.add_func ("/radio-browser/parse_vote_station", test_parse_vote_returns_changed_station);
+    Test.add_func ("/radio-browser/parse_vote_rejected", test_parse_vote_rejected);
+    Test.add_func ("/radio-browser/parse_vote_invalid", test_parse_vote_invalid_json);
 
     return Test.run ();
 }

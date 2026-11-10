@@ -16,6 +16,11 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
     private Gtk.ListBox search_list_box;
     private Gtk.Spinner spinner;
     private Gtk.Label search_error_label;
+    private Gtk.DropDown country_dropdown;
+    private Gtk.DropDown language_dropdown;
+    private Gtk.DropDown tag_dropdown;
+    private bool syncing_filters = false;
+    private string filter_signature = "";
     private bool last_adding = false;
     private Gradio.AppModel app_model;
     private string library_signature = "";
@@ -73,6 +78,9 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
             tooltip_text = _("Menu")
         };
         var menu = new GLib.Menu ();
+        menu.append (_("Import stations…"), "win.import-stations");
+        menu.append (_("Export stations…"), "win.export-stations");
+        menu.append (_("Export playlist…"), "win.export-playlist");
         menu.append (_("Preferences"), "win.preferences");
         menu.append (_("About"), "app.about");
         menu.append (_("Quit"), "app.quit");
@@ -92,6 +100,18 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
         var preferences_action = new GLib.SimpleAction ("preferences", null);
         preferences_action.activate.connect (open_preferences);
         add_action (preferences_action);
+
+        var import_action = new GLib.SimpleAction ("import-stations", null);
+        import_action.activate.connect (open_import_dialog);
+        add_action (import_action);
+
+        var export_action = new GLib.SimpleAction ("export-stations", null);
+        export_action.activate.connect (open_export_dialog);
+        add_action (export_action);
+
+        var playlist_action = new GLib.SimpleAction ("export-playlist", null);
+        playlist_action.activate.connect (open_playlist_dialog);
+        add_action (playlist_action);
 
         var toggle_action = new GLib.SimpleAction ("toggle-play", null);
         toggle_action.activate.connect (() => dispatch (new TogglePlayMessage ()));
@@ -212,53 +232,37 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
 
         box.append (search_row);
 
-        var filters_row = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 6) {
+        var filters_grid = new Gtk.Grid () {
             margin_start = 12,
             margin_end = 12,
-            margin_bottom = 12
+            margin_bottom = 12,
+            row_spacing = 6,
+            column_spacing = 6,
+            column_homogeneous = true
         };
 
-        var country_entry = new Gtk.Entry () {
-            placeholder_text = _("Country"),
-            hexpand = true,
-            text = model.config.search_filters.country,
-            tooltip_text = _("Filter by country")
-        };
-        country_entry.activate.connect (() => dispatch (
-            new SetSearchFilterMessage (SearchFilterKind.COUNTRY, country_entry.text)));
-        filters_row.append (country_entry);
+        country_dropdown = build_filter_dropdown (SearchFilterKind.COUNTRY,
+            _("Filter by country"));
+        filters_grid.attach (filter_field (_("Country"), country_dropdown), 0, 0, 1, 1);
 
         var state_entry = new Gtk.Entry () {
-            placeholder_text = _("State"),
+            placeholder_text = _("Any"),
             hexpand = true,
             text = model.config.search_filters.state,
             tooltip_text = _("Filter by state")
         };
         state_entry.activate.connect (() => dispatch (
             new SetSearchFilterMessage (SearchFilterKind.STATE, state_entry.text)));
-        filters_row.append (state_entry);
+        filters_grid.attach (filter_field (_("State"), state_entry), 1, 0, 1, 1);
 
-        var language_entry = new Gtk.Entry () {
-            placeholder_text = _("Language"),
-            hexpand = true,
-            text = model.config.search_filters.language,
-            tooltip_text = _("Filter by language")
-        };
-        language_entry.activate.connect (() => dispatch (
-            new SetSearchFilterMessage (SearchFilterKind.LANGUAGE, language_entry.text)));
-        filters_row.append (language_entry);
+        language_dropdown = build_filter_dropdown (SearchFilterKind.LANGUAGE,
+            _("Filter by language"));
+        filters_grid.attach (filter_field (_("Language"), language_dropdown), 0, 1, 1, 1);
 
-        var tag_entry = new Gtk.Entry () {
-            placeholder_text = _("Tag"),
-            hexpand = true,
-            text = model.config.search_filters.tag,
-            tooltip_text = _("Filter by tag")
-        };
-        tag_entry.activate.connect (() => dispatch (
-            new SetSearchFilterMessage (SearchFilterKind.TAG, tag_entry.text)));
-        filters_row.append (tag_entry);
+        tag_dropdown = build_filter_dropdown (SearchFilterKind.TAG, _("Filter by tag"));
+        filters_grid.attach (filter_field (_("Tag"), tag_dropdown), 1, 1, 1, 1);
 
-        box.append (filters_row);
+        box.append (filters_grid);
 
         add_stack = new Gtk.Stack () {
             transition_type = Gtk.StackTransitionType.CROSSFADE,
@@ -307,7 +311,96 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
         add_stack.add_named (search_error_label, "error");
 
         box.append (add_stack);
+        sync_filter_pickers (model);
         return box;
+    }
+
+    private static Gtk.Widget filter_field (string caption, Gtk.Widget control) {
+        var box = new Gtk.Box (Gtk.Orientation.VERTICAL, 2);
+        var label = new Gtk.Label (caption) {
+            halign = Gtk.Align.START
+        };
+        label.add_css_class ("dim-label");
+        label.add_css_class ("caption");
+        box.append (label);
+        box.append (control);
+        return box;
+    }
+
+    private Gtk.DropDown build_filter_dropdown (SearchFilterKind field, string tooltip) {
+        var dropdown = new Gtk.DropDown.from_strings ({ _("Any") }) {
+            hexpand = true,
+            tooltip_text = tooltip
+        };
+        dropdown.enable_search = true;
+        dropdown.notify["selected"].connect (() => {
+            if (syncing_filters)
+                return;
+            var list = dropdown.model;
+            if (list == null)
+                return;
+            uint index = dropdown.selected;
+            if (index >= list.get_n_items ())
+                return;
+            var item = list.get_item (index) as Gtk.StringObject;
+            string value = item != null ? item.string : "";
+            dispatch (new SetSearchFilterMessage (field, index == 0 ? "" : value));
+        });
+        return dropdown;
+    }
+
+    private static void append_option_signature (GLib.StringBuilder builder, string[] options) {
+        for (uint i = 0; i < options.length; i++)
+            builder.append_printf ("\x1e%s", options[i]);
+        builder.append ("\x1f");
+    }
+
+    private string filter_picker_signature (Gradio.AppModel model) {
+        var builder = new GLib.StringBuilder ();
+        builder.append_printf ("%s\x1f%s\x1f%s\x1f%s\x1f",
+            model.config.search_filters.country, model.config.search_filters.state,
+            model.config.search_filters.language, model.config.search_filters.tag);
+        append_option_signature (builder, model.filter_countries);
+        append_option_signature (builder, model.filter_languages);
+        append_option_signature (builder, model.filter_tags);
+        return builder.str;
+    }
+
+    private static void set_filter_options (Gtk.DropDown dropdown, string current,
+            string[] options) {
+        var list = new Gtk.StringList (null);
+        list.append (_("Any"));
+        bool present = current == "";
+        uint selected = 0;
+        for (uint i = 0; i < options.length; i++) {
+            list.append (options[i]);
+            if (options[i] == current) {
+                present = true;
+                selected = i + 1;
+            }
+        }
+        if (!present) {
+            list.append (current);
+            selected = options.length + 1;
+        }
+        dropdown.model = list;
+        dropdown.selected = selected;
+    }
+
+    private void sync_filter_pickers (Gradio.AppModel model) {
+        string sig = filter_picker_signature (model);
+        if (sig == filter_signature)
+            return;
+        filter_signature = sig;
+
+        syncing_filters = true;
+        set_filter_options (country_dropdown, model.config.search_filters.country,
+            model.filter_countries);
+        set_filter_options (language_dropdown, model.config.search_filters.language,
+            model.filter_languages);
+        set_filter_options (tag_dropdown, model.config.search_filters.tag,
+            model.filter_tags);
+        syncing_filters = false;
     }
 
     private static string rows_signature (GLib.GenericArray<Gradio.RadioStation> stations,
@@ -397,6 +490,85 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
         dialog.present ();
     }
 
+    private Gtk.FileFilter json_filter () {
+        var filter = new Gtk.FileFilter ();
+        filter.name = _("JSON files");
+        filter.add_pattern ("*.json");
+        filter.add_mime_type ("application/json");
+        return filter;
+    }
+
+    private GLib.ListStore single_filter (Gtk.FileFilter filter) {
+        var filters = new GLib.ListStore (typeof (Gtk.FileFilter));
+        filters.append (filter);
+        return filters;
+    }
+
+    private void open_import_dialog () {
+        var dialog = new Gtk.FileDialog () {
+            title = _("Import stations"),
+            modal = true
+        };
+        var filter = json_filter ();
+        dialog.filters = single_filter (filter);
+        dialog.default_filter = filter;
+
+        dialog.open.begin (this, null, (obj, res) => {
+            try {
+                var file = dialog.open.end (res);
+                string? path = file != null ? file.get_path () : null;
+                if (path != null)
+                    dispatch (new ImportStationsMessage (path));
+            } catch (GLib.Error e) {
+            }
+        });
+    }
+
+    private void open_export_dialog () {
+        var dialog = new Gtk.FileDialog () {
+            title = _("Export stations"),
+            initial_name = "gradio-stations.json",
+            modal = true
+        };
+        var filter = json_filter ();
+        dialog.filters = single_filter (filter);
+        dialog.default_filter = filter;
+
+        dialog.save.begin (this, null, (obj, res) => {
+            try {
+                var file = dialog.save.end (res);
+                string? path = file != null ? file.get_path () : null;
+                if (path != null)
+                    dispatch (new ExportStationsMessage (path));
+            } catch (GLib.Error e) {
+            }
+        });
+    }
+
+    private void open_playlist_dialog () {
+        var dialog = new Gtk.FileDialog () {
+            title = _("Export playlist"),
+            initial_name = "gradio-stations.m3u",
+            modal = true
+        };
+        var filter = new Gtk.FileFilter ();
+        filter.name = _("M3U playlists");
+        filter.add_pattern ("*.m3u");
+        filter.add_mime_type ("audio/x-mpegurl");
+        dialog.filters = single_filter (filter);
+        dialog.default_filter = filter;
+
+        dialog.save.begin (this, null, (obj, res) => {
+            try {
+                var file = dialog.save.end (res);
+                string? path = file != null ? file.get_path () : null;
+                if (path != null)
+                    dispatch (new ExportPlaylistMessage (path));
+            } catch (GLib.Error e) {
+            }
+        });
+    }
+
     public void update (Gradio.Message msg, Gradio.AppModel model) {
         app_model = model;
 
@@ -414,6 +586,7 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
             });
         }
         last_adding = adding;
+        sync_filter_pickers (model);
 
         var library = model.config.stations;
         string lib_sig = rows_signature (library, model.config.show_technical_info,

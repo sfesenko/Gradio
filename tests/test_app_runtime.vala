@@ -141,6 +141,90 @@ void test_user_save_after_load_failure_backs_up_and_writes () {
     cleanup_dir (dir);
 }
 
+void test_export_writes_stations () {
+    string dir = make_tmp_dir ();
+    string path = GLib.Path.build_filename (dir, "export.json");
+    var config = new Gradio.AppConfig (GLib.Path.build_filename (dir, "config.json"));
+    var station = new Gradio.RadioStation ();
+    station.id = "u1";
+    station.name = "Jazz FM";
+    station.url = "https://example.test/jazz";
+    config.add_station (station);
+
+    var runtime = new Gradio.AppRuntime (config);
+    runtime.attach ((msg) => {});
+    var cmd = runtime.export_stations (config.stations, path);
+    assert (cmd != null);
+    Elmish.Cmd.exec<Gradio.Message> ((msg) => {}, cmd);
+    wait_for_save ();
+
+    string contents;
+    GLib.FileUtils.get_contents (path, out contents);
+    assert (contents.contains ("Jazz FM"));
+    GLib.FileUtils.remove (path);
+    cleanup_dir (dir);
+}
+
+void test_import_dispatches_stations () {
+    string dir = make_tmp_dir ();
+    string path = GLib.Path.build_filename (dir, "import.json");
+    GLib.FileUtils.set_contents (path,
+        "[{\"stationuuid\":\"u1\",\"name\":\"Jazz FM\",\"url_resolved\":\"https://example.test/jazz\"}]");
+
+    var config = new Gradio.AppConfig (GLib.Path.build_filename (dir, "config.json"));
+    var runtime = new Gradio.AppRuntime (config);
+    Gradio.Message? last = null;
+    runtime.attach ((msg) => { last = msg; });
+    var cmd = runtime.import_stations (path);
+    assert (cmd != null);
+    Elmish.Cmd.exec<Gradio.Message> ((msg) => {}, cmd);
+    wait_for_save ();
+
+    assert (last != null);
+    assert (last is Gradio.StationsImportedMessage);
+    var imported = (Gradio.StationsImportedMessage) last;
+    assert (imported.stations.length == 1);
+    GLib.FileUtils.remove (path);
+    cleanup_dir (dir);
+}
+
+void test_notify_without_application_is_noop () {
+    string dir = make_tmp_dir ();
+    var config = new Gradio.AppConfig (GLib.Path.build_filename (dir, "config.json"));
+    var runtime = new Gradio.AppRuntime (config);
+    runtime.attach ((msg) => {});
+
+    var cmd = runtime.notify_error ("boom");
+    assert (cmd != null);
+    Elmish.Cmd.exec<Gradio.Message> ((msg) => {}, cmd);
+    cleanup_dir (dir);
+}
+
+void test_export_playlist_writes_m3u () {
+    string dir = make_tmp_dir ();
+    string path = GLib.Path.build_filename (dir, "export.m3u");
+    var config = new Gradio.AppConfig (GLib.Path.build_filename (dir, "config.json"));
+    var station = new Gradio.RadioStation ();
+    station.id = "u1";
+    station.name = "Jazz FM";
+    station.url = "https://example.test/jazz";
+    config.add_station (station);
+
+    var runtime = new Gradio.AppRuntime (config);
+    runtime.attach ((msg) => {});
+    var cmd = runtime.export_playlist (config.stations, path);
+    assert (cmd != null);
+    Elmish.Cmd.exec<Gradio.Message> ((msg) => {}, cmd);
+    wait_for_save ();
+
+    string contents;
+    GLib.FileUtils.get_contents (path, out contents);
+    assert (contents.has_prefix ("#EXTM3U\n"));
+    assert (contents.contains ("#EXTINF:-1,Jazz FM\nhttps://example.test/jazz\n"));
+    GLib.FileUtils.remove (path);
+    cleanup_dir (dir);
+}
+
 int main (string[] args) {
     Gst.init (ref args);
     Test.init (ref args);
@@ -150,6 +234,10 @@ int main (string[] args) {
     Test.add_func ("/app-runtime/save_failure_dispatches_error", test_save_failure_dispatches_error);
     Test.add_func ("/app-runtime/corrupt_config_survives_shutdown", test_corrupt_config_survives_shutdown);
     Test.add_func ("/app-runtime/user_save_after_load_failure_backs_up", test_user_save_after_load_failure_backs_up_and_writes);
+    Test.add_func ("/app-runtime/export_writes_stations", test_export_writes_stations);
+    Test.add_func ("/app-runtime/export_playlist_writes_m3u", test_export_playlist_writes_m3u);
+    Test.add_func ("/app-runtime/import_dispatches_stations", test_import_dispatches_stations);
+    Test.add_func ("/app-runtime/notify_without_app", test_notify_without_application_is_noop);
 
     return Test.run ();
 }

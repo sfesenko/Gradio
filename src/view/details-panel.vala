@@ -9,6 +9,7 @@ namespace Gradio {
         private Gtk.Label meta_label;
         private Gtk.Label tags_label;
         private Gtk.Label now_playing_label;
+        private Gtk.Button vote_button;
         private Gtk.LinkButton homepage_button;
         private Gtk.Label streams_heading;
         private Gtk.Box streams_box;
@@ -78,6 +79,17 @@ namespace Gradio {
             now_playing_label.add_css_class ("dim-label");
             append (now_playing_label);
 
+            vote_button = new Gtk.Button.with_label (_("Vote")) {
+                halign = Gtk.Align.START,
+                visible = false
+            };
+            vote_button.add_css_class ("pill");
+            vote_button.clicked.connect (() => {
+                if (station != null)
+                    dispatch (new VoteStationMessage (station.id));
+            });
+            append (vote_button);
+
             streams_heading = new Gtk.Label (_("Streams")) {
                 halign = Gtk.Align.START,
                 xalign = 0,
@@ -101,6 +113,7 @@ namespace Gradio {
                 now_playing_label.label = "";
                 now_playing_label.visible = false;
                 homepage_button.visible = false;
+                vote_button.visible = false;
                 rebuild_streams (null);
                 return;
             }
@@ -128,6 +141,12 @@ namespace Gradio {
             homepage_button.visible = station.homepage != "";
             if (station.homepage != "")
                 homepage_button.set_uri (station.homepage);
+
+            bool voted = model.voted_ids.contains (station.id);
+            bool pending = model.votes_pending.contains (station.id);
+            vote_button.visible = station.id != "";
+            vote_button.sensitive = !voted && !pending;
+            vote_button.label = voted ? _("Voted") : pending ? _("Voting…") : _("Vote");
 
             rebuild_streams (station);
         }
