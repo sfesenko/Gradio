@@ -32,17 +32,33 @@ gnome.post_install(
 lib_core_sources = [
   'src/elmish.vala',
   'src/model/messages.vala',
+  'src/commands.vala',
+  'src/app-runtime.vala',
+  'src/model/radio-station.vala',
+  'src/model/app-config.vala',
+  'src/backend/http.vala',
+  'src/backend/radio-browser.vala',
+  'src/backend/player.vala',
   'src/app-update.vala',
+]
+
+lib_core_deps = [
+  dependency('gio-2.0', version: '>= 2.76'),
+  dependency('json-glib-1.0'),
+  dependency('libsoup-3.0'),
+  dependency('gstreamer-1.0'),
+  dependency('gstreamer-pbutils-1.0'),
 ]
 
 lib_core = static_library('gradio-core',
   lib_core_sources,
-  dependencies: [ dependency('gio-2.0', version: '>= 2.76') ],
+  dependencies: lib_core_deps,
 )
 
 lib_core_dep = declare_dependency(
   link_with: lib_core,
   include_directories: include_directories('.'),
+  dependencies: lib_core_deps,
 )
 
 

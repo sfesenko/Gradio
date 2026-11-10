@@ -1,0 +1,101 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Sergii Fesenko
+
+string make_tmp_dir () {
+    return GLib.DirUtils.make_tmp ("gradio-runtime-test-XXXXXX");
+}
+
+void cleanup_dir (string dir) {
+    GLib.FileUtils.remove (GLib.Path.build_filename (dir, "config.json"));
+    GLib.FileUtils.remove (GLib.Path.build_filename (dir, "config.json.tmp"));
+    GLib.FileUtils.remove (GLib.Path.build_filename (dir, "blocker"));
+    GLib.DirUtils.remove (dir);
+}
+
+void wait_for_save () {
+    var loop = new GLib.MainLoop ();
+    GLib.Timeout.add (1500, () => { loop.quit (); return false; });
+    loop.run ();
+}
+
+Gradio.AppConfig load_config (string path) {
+    try {
+        return Gradio.AppConfig.load (path);
+    } catch (GLib.Error e) {
+        assert_not_reached ();
+    }
+    return new Gradio.AppConfig (path);
+}
+
+void test_save_schedules_write () {
+    string dir = make_tmp_dir ();
+    string path = GLib.Path.build_filename (dir, "config.json");
+    var config = new Gradio.AppConfig (path);
+    var station = new Gradio.RadioStation ();
+    station.id = "u1";
+    station.name = "Jazz FM";
+    station.url = "https://example.test/jazz";
+    config.add_station (station);
+
+    var runtime = new Gradio.AppRuntime (config);
+    runtime.attach ((msg) => {});
+    var cmd = runtime.save_config ();
+    assert (cmd != null);
+    Elmish.Cmd.exec<Gradio.Message> ((msg) => {}, cmd);
+
+    wait_for_save ();
+
+    assert (GLib.FileUtils.test (path, GLib.FileTest.EXISTS));
+    var loaded = load_config (path);
+    assert (loaded.stations.length == 1);
+    cleanup_dir (dir);
+}
+
+void test_volume_schedules_save () {
+    string dir = make_tmp_dir ();
+    string path = GLib.Path.build_filename (dir, "config.json");
+    var config = new Gradio.AppConfig (path);
+    config.volume = 0.4;
+
+    var runtime = new Gradio.AppRuntime (config);
+    runtime.attach ((msg) => {});
+    var cmd = runtime.set_volume (0.4);
+    assert (cmd != null);
+    Elmish.Cmd.exec<Gradio.Message> ((msg) => {}, cmd);
+
+    wait_for_save ();
+
+    assert (runtime.player.volume == 0.4);
+    var loaded = load_config (path);
+    assert (loaded.volume == 0.4);
+    cleanup_dir (dir);
+}
+
+void test_save_failure_dispatches_error () {
+    string dir = make_tmp_dir ();
+    string blocker = GLib.Path.build_filename (dir, "blocker");
+    GLib.FileUtils.set_contents (blocker, "not a directory");
+    string path = GLib.Path.build_filename (blocker, "config.json");
+
+    var config = new Gradio.AppConfig (path);
+    var runtime = new Gradio.AppRuntime (config);
+    Gradio.Message? last = null;
+    runtime.attach ((msg) => { last = msg; });
+
+    runtime.save_now ();
+
+    assert (last != null);
+    assert (last is Gradio.ConfigSaveFailedMessage);
+    cleanup_dir (dir);
+}
+
+int main (string[] args) {
+    Gst.init (ref args);
+    Test.init (ref args);
+
+    Test.add_func ("/app-runtime/save_schedules_write", test_save_schedules_write);
+    Test.add_func ("/app-runtime/volume_schedules_save", test_volume_schedules_save);
+    Test.add_func ("/app-runtime/save_failure_dispatches_error", test_save_failure_dispatches_error);
+
+    return Test.run ();
+}
