@@ -49,3 +49,15 @@ test_app_runtime = executable('test_app_runtime',
   dependencies: [test_deps, lib_core_dep],
 )
 test('app-runtime', test_app_runtime)
+
+test_favicon = executable('test_favicon',
+  'test_favicon.vala',
+  dependencies: [test_deps, lib_core_dep],
+)
+test('favicon', test_favicon)
+
+test_station_sort = executable('test_station_sort',
+  'test_station_sort.vala',
+  dependencies: [test_deps, lib_core_dep],
+)
+test('station-sort', test_station_sort)

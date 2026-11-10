@@ -58,6 +58,49 @@ void test_search_url_unicode () {
     assert (query.lookup ("name") == "jazz ä");
 }
 
+void test_search_url_with_filters () {
+    var filters = new Gradio.SearchFilters ();
+    filters.country = "Germany";
+    filters.state = "Bavaria";
+    filters.language = "german";
+    filters.tag = "jazz";
+
+    string url = Gradio.RadioBrowser.search_url ("radio", 10, filters);
+    var query = Soup.Form.decode (url.substring (url.index_of ("?") + 1));
+
+    assert (query.lookup ("country") == "Germany");
+    assert (query.lookup ("state") == "Bavaria");
+    assert (query.lookup ("language") == "german");
+    assert (query.lookup ("tagList") == "jazz");
+}
+
+void test_search_url_omits_empty_filters () {
+    var filters = new Gradio.SearchFilters ();
+    filters.country = "Germany";
+    filters.state = "Novorossiya";
+
+    string url = Gradio.RadioBrowser.search_url ("radio", 10, filters);
+    var query = Soup.Form.decode (url.substring (url.index_of ("?") + 1));
+
+    assert (query.lookup ("country") == "Germany");
+    assert (query.lookup ("state") == "Novorossiya");
+    assert (query.lookup ("language") == null);
+    assert (query.lookup ("tagList") == null);
+}
+
+void test_search_filters_trim_values () {
+    var filters = new Gradio.SearchFilters ();
+    filters.country = "  Germany  ";
+    assert (filters.country == "Germany");
+    filters.tag = "  jazz, soul ";
+    assert (filters.tag == "jazz, soul");
+}
+
+void test_station_by_uuid_url () {
+    string url = Gradio.RadioBrowser.station_by_uuid_url ("abc-123");
+    assert (url == Gradio.RadioBrowser.radio_browser + "/stations/byuuid/abc-123");
+}
+
 int main (string[] args) {
     Test.init (ref args);
 
@@ -66,6 +109,10 @@ int main (string[] args) {
     Test.add_func ("/radio-browser/parse_empty", test_parse_empty);
     Test.add_func ("/radio-browser/parse_skips_invalid", test_parse_skips_invalid);
     Test.add_func ("/radio-browser/search_url_unicode", test_search_url_unicode);
+    Test.add_func ("/radio-browser/search_url_with_filters", test_search_url_with_filters);
+    Test.add_func ("/radio-browser/search_url_omits_empty_filters", test_search_url_omits_empty_filters);
+    Test.add_func ("/radio-browser/search_filters_trim", test_search_filters_trim_values);
+    Test.add_func ("/radio-browser/station_by_uuid_url", test_station_by_uuid_url);
 
     return Test.run ();
 }

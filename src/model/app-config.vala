@@ -6,15 +6,40 @@ namespace Gradio {
 
     public class AppConfig : GLib.Object {
         public const int FORMAT_VERSION = 1;
+        public const int DEFAULT_WINDOW_WIDTH = 900;
+        public const int DEFAULT_WINDOW_HEIGHT = 600;
+        public const int MIN_WINDOW_WIDTH = 320;
+        public const int MIN_WINDOW_HEIGHT = 240;
+        public const int MAX_WINDOW_SIZE = 16384;
+        public const int DEFAULT_ICON_SIZE = 48;
 
         public double volume = 0.8;
         public bool show_technical_info = false;
+        public int window_width = DEFAULT_WINDOW_WIDTH;
+        public int window_height = DEFAULT_WINDOW_HEIGHT;
+        public bool maximized = false;
+        public int icon_size = DEFAULT_ICON_SIZE;
+        public LibrarySortMode library_sort = LibrarySortMode.MANUAL;
+        public SearchSortMode search_sort = SearchSortMode.RELEVANCE;
+        public SearchFilters search_filters = new SearchFilters ();
         public GLib.GenericArray<RadioStation> stations = new GLib.GenericArray<RadioStation> ();
 
         public string path { get; private set; }
 
         public AppConfig (string? path = null) {
             this.path = path ?? default_path ();
+        }
+
+        public static int normalize_icon_size (int size) {
+            switch (size) {
+                case 32:
+                case 48:
+                case 64:
+                case 96:
+                    return size;
+                default:
+                    return DEFAULT_ICON_SIZE;
+            }
         }
 
         public static string default_path () {
@@ -51,6 +76,31 @@ namespace Gradio {
                     config.volume = ((double) volume_node.get_int ()).clamp (0.0, 1.0);
                 }
                 config.show_technical_info = settings.get_boolean_member_with_default ("show_technical_info", config.show_technical_info);
+
+                int width = (int) settings.get_int_member_with_default ("window_width", config.window_width);
+                int height = (int) settings.get_int_member_with_default ("window_height", config.window_height);
+                if (width >= MIN_WINDOW_WIDTH && width <= MAX_WINDOW_SIZE)
+                    config.window_width = width;
+                if (height >= MIN_WINDOW_HEIGHT && height <= MAX_WINDOW_SIZE)
+                    config.window_height = height;
+                config.maximized = settings.get_boolean_member_with_default ("maximized", config.maximized);
+                config.icon_size = normalize_icon_size (
+                    (int) settings.get_int_member_with_default ("icon_size", config.icon_size));
+                config.library_sort = StationSort.library_from_string (
+                    settings.get_string_member_with_default ("sort_mode",
+                        StationSort.library_to_string (config.library_sort)));
+                config.search_sort = StationSort.search_from_string (
+                    settings.get_string_member_with_default ("search_sort",
+                        StationSort.search_to_string (config.search_sort)));
+
+                var filters_node = settings.get_member ("search_filters");
+                if (filters_node != null && filters_node.get_value_type () == typeof (Json.Object)) {
+                    var filters = filters_node.get_object ();
+                    config.search_filters.country = filters.get_string_member_with_default ("country", "");
+                    config.search_filters.state = filters.get_string_member_with_default ("state", "");
+                    config.search_filters.language = filters.get_string_member_with_default ("language", "");
+                    config.search_filters.tag = filters.get_string_member_with_default ("tag", "");
+                }
             }
 
             var array_node = obj.get_member ("stations");
@@ -81,6 +131,19 @@ namespace Gradio {
             var settings = new Json.Object ();
             settings.set_double_member ("volume", volume);
             settings.set_boolean_member ("show_technical_info", show_technical_info);
+            settings.set_int_member ("window_width", window_width);
+            settings.set_int_member ("window_height", window_height);
+            settings.set_boolean_member ("maximized", maximized);
+            settings.set_int_member ("icon_size", icon_size);
+            settings.set_string_member ("sort_mode", StationSort.library_to_string (library_sort));
+            settings.set_string_member ("search_sort", StationSort.search_to_string (search_sort));
+
+            var filters = new Json.Object ();
+            filters.set_string_member ("country", search_filters.country);
+            filters.set_string_member ("state", search_filters.state);
+            filters.set_string_member ("language", search_filters.language);
+            filters.set_string_member ("tag", search_filters.tag);
+            settings.set_object_member ("search_filters", filters);
             root.set_object_member ("settings", settings);
 
             var array = new Json.Array ();

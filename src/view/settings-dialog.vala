@@ -30,10 +30,31 @@ namespace Gradio {
             });
             list.append (build_row (_("Show technical information"), technical_toggle));
 
+            int[] icon_sizes = { 32, 48, 64, 96 };
+            var icon_size = new Gtk.DropDown.from_strings ({ "32", "48", "64", "96" });
+            uint selected = 0;
+            for (int i = 0; i < icon_sizes.length; i++) {
+                if (icon_sizes[i] == model.config.icon_size)
+                    selected = (uint) i;
+            }
+            icon_size.selected = selected;
+            icon_size.notify["selected"].connect (() => {
+                uint index = icon_size.selected;
+                if (index < icon_sizes.length)
+                    dispatch (new SetIconSizeMessage (icon_sizes[index]));
+            });
+            list.append (build_row (_("Station icon size"), icon_size));
+
+            var clear_favicons = new Gtk.Button.with_label (_("Clear")) {
+                valign = Gtk.Align.CENTER
+            };
+            clear_favicons.clicked.connect (() => dispatch (new ClearFaviconCacheMessage ()));
+            list.append (build_row (_("Favicon cache"), clear_favicons));
+
             set_child (list);
         }
 
-        private Gtk.ListBoxRow build_row (string label, Gtk.Switch toggle) {
+        private Gtk.ListBoxRow build_row (string label, Gtk.Widget control) {
             var box = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 12) {
                 margin_top = 8,
                 margin_bottom = 8
@@ -43,7 +64,7 @@ namespace Gradio {
                 hexpand = true
             };
             box.append (text);
-            box.append (toggle);
+            box.append (control);
 
             var row = new Gtk.ListBoxRow ();
             row.set_child (box);

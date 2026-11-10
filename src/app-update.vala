@@ -2,6 +2,42 @@
 
 using Gradio;
 
+private RadioStation? find_station (Gradio.AppModel model, string id) {
+    for (uint i = 0; i < model.config.stations.length; i++) {
+        var station = model.config.stations.get (i);
+        if (station.id == id)
+            return station;
+    }
+    for (uint i = 0; i < model.search_results.length; i++) {
+        var station = model.search_results.get (i);
+        if (station.id == id)
+            return station;
+    }
+    return null;
+}
+
+private GLib.GenericArray<RadioStation> stations_for_favicons (Gradio.AppModel model) {
+    var result = new GLib.GenericArray<RadioStation> ();
+    var seen = new GLib.HashTable<string, bool> (str_hash, str_equal);
+
+    for (uint i = 0; i < model.config.stations.length; i++) {
+        var station = model.config.stations.get (i);
+        if (seen.contains (station.id))
+            continue;
+        seen.set (station.id, true);
+        result.add (station);
+    }
+    for (uint i = 0; i < model.search_results.length; i++) {
+        var station = model.search_results.get (i);
+        if (seen.contains (station.id))
+            continue;
+        seen.set (station.id, true);
+        result.add (station);
+    }
+
+    return result;
+}
+
 public Elmish.Cmd<Gradio.Message>? updateModel (Gradio.Message msg, Gradio.AppModel model, Gradio.Commands commands) {
     switch (msg.kind) {
         case MessageKind.SET_VIEW:
@@ -48,7 +84,7 @@ public Elmish.Cmd<Gradio.Message>? updateModel (Gradio.Message msg, Gradio.AppMo
             model.search_results = results.stations;
             model.searching = false;
             model.search_error = null;
-            break;
+            return commands.load_favicons (results.stations);
 
         case MessageKind.SEARCH_FAILED:
             var failed = msg as SearchFailedMessage;
@@ -194,6 +230,115 @@ public Elmish.Cmd<Gradio.Message>? updateModel (Gradio.Message msg, Gradio.AppMo
                 break;
             model.status_message = save_error.message;
             break;
+
+        case MessageKind.REQUEST_FAVICONS:
+            return commands.load_favicons (stations_for_favicons (model));
+
+        case MessageKind.FAVICON_LOADED:
+            var loaded = msg as FaviconLoadedMessage;
+            if (loaded == null)
+                break;
+            var station = find_station (model, loaded.station_id);
+            if (station == null || station.favicon != loaded.url)
+                break;
+            model.favicon_sources.set (loaded.station_id, loaded.url);
+            model.favicons.set (loaded.station_id, loaded.path);
+            break;
+
+        case MessageKind.FAVICON_DISCOVERED:
+            var discovered = msg as FaviconDiscoveredMessage;
+            if (discovered == null)
+                break;
+            var known = model.config.find_station (discovered.station_id);
+            if (known == null || known.favicon != "" || !Http.is_valid_url (discovered.url))
+                break;
+            known.favicon = discovered.url;
+            return commands.save_config ();
+
+        case MessageKind.CLEAR_FAVICON_CACHE:
+            model.favicons.remove_all ();
+            model.favicon_sources.remove_all ();
+            model.status_message = _("Favicon cache cleared");
+            return Commands.chain (commands.clear_favicon_cache (),
+                commands.load_favicons (stations_for_favicons (model)));
+
+        case MessageKind.WINDOW_GEOMETRY_CHANGED:
+            var geometry = msg as WindowGeometryChangedMessage;
+            if (geometry == null)
+                break;
+            if (geometry.width < AppConfig.MIN_WINDOW_WIDTH ||
+                    geometry.width > AppConfig.MAX_WINDOW_SIZE ||
+                    geometry.height < AppConfig.MIN_WINDOW_HEIGHT ||
+                    geometry.height > AppConfig.MAX_WINDOW_SIZE)
+                break;
+            model.config.window_width = geometry.width;
+            model.config.window_height = geometry.height;
+            model.config.maximized = geometry.maximized;
+            return commands.save_config ();
+
+        case MessageKind.SET_ICON_SIZE:
+            var icon_size = msg as SetIconSizeMessage;
+            if (icon_size == null)
+                break;
+            int size = AppConfig.normalize_icon_size (icon_size.size);
+            if (size == model.config.icon_size)
+                break;
+            model.config.icon_size = size;
+            return commands.save_config ();
+
+        case MessageKind.SET_SORT_MODE:
+            var sort_mode = msg as SetSortModeMessage;
+            if (sort_mode == null || sort_mode.mode == model.config.library_sort)
+                break;
+            model.config.library_sort = sort_mode.mode;
+            return commands.save_config ();
+
+        case MessageKind.SET_SEARCH_SORT_MODE:
+            var search_sort = msg as SetSearchSortModeMessage;
+            if (search_sort == null || search_sort.mode == model.config.search_sort)
+                break;
+            model.config.search_sort = search_sort.mode;
+            if (model.search_query == "")
+                return commands.save_config ();
+            model.search_generation++;
+            model.searching = true;
+            model.search_error = null;
+            return Commands.chain (commands.save_config (),
+                commands.search (model.search_query, model.search_generation));
+
+        case MessageKind.SET_SEARCH_FILTER:
+            var filter = msg as SetSearchFilterMessage;
+            if (filter == null)
+                break;
+            string value = filter.value.strip ();
+            bool changed = false;
+            switch (filter.field) {
+                case SearchFilterKind.COUNTRY:
+                    changed = model.config.search_filters.country != value;
+                    model.config.search_filters.country = value;
+                    break;
+                case SearchFilterKind.STATE:
+                    changed = model.config.search_filters.state != value;
+                    model.config.search_filters.state = value;
+                    break;
+                case SearchFilterKind.LANGUAGE:
+                    changed = model.config.search_filters.language != value;
+                    model.config.search_filters.language = value;
+                    break;
+                case SearchFilterKind.TAG:
+                    changed = model.config.search_filters.tag != value;
+                    model.config.search_filters.tag = value;
+                    break;
+            }
+            if (!changed)
+                break;
+            if (model.search_query == "")
+                return commands.save_config ();
+            model.search_generation++;
+            model.searching = true;
+            model.search_error = null;
+            return Commands.chain (commands.save_config (),
+                commands.search (model.search_query, model.search_generation));
 
         default:
             break;

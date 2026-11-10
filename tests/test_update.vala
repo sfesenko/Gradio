@@ -9,9 +9,12 @@ class RecordingCommands : Gradio.Commands {
     public int stop_calls = 0;
     public int set_volume_calls = 0;
     public int save_calls = 0;
+    public int favicon_calls = 0;
+    public int clear_favicon_calls = 0;
     public string last_query = "";
     public uint last_generation = 0;
     public double last_volume = -1;
+    public GLib.GenericArray<RadioStation> last_favicon_stations = new GLib.GenericArray<RadioStation> ();
 
     private Elmish.Cmd<Gradio.Message> dummy () {
         return new Elmish.Cmd<Gradio.Message> ((dispatch) => {});
@@ -44,6 +47,19 @@ class RecordingCommands : Gradio.Commands {
         save_calls++;
         return dummy ();
     }
+
+    public override Elmish.Cmd<Gradio.Message>? load_favicons (GLib.GenericArray<RadioStation> stations) {
+        favicon_calls++;
+        last_favicon_stations = new GLib.GenericArray<RadioStation> ();
+        for (uint i = 0; i < stations.length; i++)
+            last_favicon_stations.add (stations.get (i));
+        return dummy ();
+    }
+
+    public override Elmish.Cmd<Gradio.Message>? clear_favicon_cache () {
+        clear_favicon_calls++;
+        return dummy ();
+    }
 }
 
 AppModel make_model () {
@@ -55,6 +71,7 @@ RadioStation make_station (string id) {
     station.id = id;
     station.name = id;
     station.url = "https://example.test/" + id;
+    station.favicon = "https://example.test/" + id + ".png";
     return station;
 }
 
@@ -426,6 +443,252 @@ void test_config_save_failed () {
     assert (model.status_message == "disk full");
 }
 
+void test_request_favicons_loads_library_and_results () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    var library = make_station ("lib");
+    var found = make_station ("found");
+    model.config.add_station (library);
+    model.search_results.add (found);
+
+    updateModel (new RequestFaviconsMessage (), model, commands);
+
+    assert (commands.favicon_calls == 1);
+    assert (commands.last_favicon_stations.length == 2);
+    assert (commands.last_favicon_stations.get (0) == library);
+    assert (commands.last_favicon_stations.get (1) == found);
+}
+
+void test_favicon_loaded_stores_for_known_station () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    var station = make_station ("u1");
+    model.config.add_station (station);
+
+    updateModel (new FaviconLoadedMessage ("u1", station.favicon, "/cache/u1.png"), model, commands);
+
+    assert (model.favicon_for (station) == "/cache/u1.png");
+}
+
+void test_favicon_loaded_rejects_stale_url () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    var station = make_station ("u1");
+    model.config.add_station (station);
+
+    updateModel (new FaviconLoadedMessage ("u1", "https://old.test/u1", "/cache/u1.png"), model, commands);
+
+    assert (model.favicons.size () == 0);
+    assert (model.favicon_for (station) == null);
+}
+
+void test_favicon_loaded_ignores_unknown_station () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+
+    updateModel (new FaviconLoadedMessage ("missing", "https://example.test/x", "/cache/x.png"),
+        model, commands);
+
+    assert (model.favicons.size () == 0);
+}
+
+void test_favicon_failure_uses_fallback () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    var station = make_station ("u1");
+    model.config.add_station (station);
+
+    updateModel (new FaviconLoadedMessage ("u1", station.favicon, ""), model, commands);
+
+    assert (model.favicon_for (station) == null);
+}
+
+void test_favicon_loaded_ignores_station_without_favicon () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    var station = make_station ("u1");
+    station.favicon = "";
+    model.config.add_station (station);
+
+    updateModel (new FaviconLoadedMessage ("u1", "https://example.test/x.png", "/cache/x.png"),
+        model, commands);
+
+    assert (model.favicons.size () == 0);
+    assert (model.favicon_for (station) == null);
+}
+
+void test_favicon_stale_source_is_not_rendered () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    var station = make_station ("u1");
+    model.config.add_station (station);
+
+    updateModel (new FaviconLoadedMessage ("u1", station.favicon, "/cache/u1.png"), model, commands);
+    station.favicon = "https://example.test/changed.png";
+
+    assert (model.favicon_for (station) == null);
+}
+
+void test_clear_favicon_cache () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    var station = make_station ("u1");
+    model.config.add_station (station);
+    model.favicons.set ("u1", "/cache/u1.png");
+    model.favicon_sources.set ("u1", station.favicon);
+
+    updateModel (new ClearFaviconCacheMessage (), model, commands);
+
+    assert (model.favicons.size () == 0);
+    assert (model.favicon_sources.size () == 0);
+    assert (commands.clear_favicon_calls == 1);
+    assert (commands.favicon_calls == 1);
+    assert (model.status_message == "Favicon cache cleared");
+}
+
+void test_search_results_request_favicons () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    var station = make_station ("found");
+    model.search_generation = 7;
+
+    var results = new GLib.GenericArray<RadioStation> ();
+    results.add (station);
+    updateModel (new SearchResultsMessage (results, 7), model, commands);
+
+    assert (commands.favicon_calls == 1);
+    assert (commands.last_favicon_stations.length == 1);
+    assert (commands.last_favicon_stations.get (0) == station);
+}
+
+void test_window_geometry_changed () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+
+    updateModel (new WindowGeometryChangedMessage (1200, 800, true), model, commands);
+
+    assert (model.config.window_width == 1200);
+    assert (model.config.window_height == 800);
+    assert (model.config.maximized == true);
+    assert (commands.save_calls == 1);
+}
+
+void test_window_geometry_rejects_invalid_size () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+
+    updateModel (new WindowGeometryChangedMessage (0, -20, false), model, commands);
+
+    assert (model.config.window_width == 900);
+    assert (model.config.window_height == 600);
+    assert (commands.save_calls == 0);
+}
+
+void test_set_icon_size () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+
+    updateModel (new SetIconSizeMessage (64), model, commands);
+    assert (model.config.icon_size == 64);
+    assert (commands.save_calls == 1);
+
+    updateModel (new SetIconSizeMessage (77), model, commands);
+    assert (model.config.icon_size == 48);
+}
+
+void test_set_sort_mode () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+
+    updateModel (new SetSortModeMessage (LibrarySortMode.NAME), model, commands);
+    assert (model.config.library_sort == LibrarySortMode.NAME);
+    assert (commands.save_calls == 1);
+
+    updateModel (new SetSortModeMessage (LibrarySortMode.NAME), model, commands);
+    assert (commands.save_calls == 1);
+}
+
+void test_set_search_sort_mode_reruns_search () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    model.search_query = "jazz";
+    model.search_generation = 4;
+
+    updateModel (new SetSearchSortModeMessage (SearchSortMode.VOTES), model, commands);
+
+    assert (model.config.search_sort == SearchSortMode.VOTES);
+    assert (commands.save_calls == 1);
+    assert (commands.search_calls == 1);
+    assert (commands.last_query == "jazz");
+    assert (model.search_generation == 5);
+}
+
+void test_set_search_filter_reruns_search () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    model.search_query = "jazz";
+    model.search_generation = 2;
+
+    updateModel (new SetSearchFilterMessage (SearchFilterKind.COUNTRY, "Germany"), model, commands);
+
+    assert (model.config.search_filters.country == "Germany");
+    assert (commands.save_calls == 1);
+    assert (commands.search_calls == 1);
+    assert (model.search_generation == 3);
+}
+
+void test_set_search_filter_without_query_only_saves () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+
+    updateModel (new SetSearchFilterMessage (SearchFilterKind.TAG, "jazz"), model, commands);
+
+    assert (model.config.search_filters.tag == "jazz");
+    assert (commands.save_calls == 1);
+    assert (commands.search_calls == 0);
+}
+
+void test_favicon_discovered_sets_empty_source () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    var station = make_station ("u1");
+    station.favicon = "";
+    model.config.add_station (station);
+
+    updateModel (new FaviconDiscoveredMessage ("u1", "https://example.test/favicon.ico"),
+        model, commands);
+
+    assert (station.favicon == "https://example.test/favicon.ico");
+    assert (commands.save_calls == 1);
+}
+
+void test_favicon_discovered_keeps_existing_source () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    var station = make_station ("u1");
+    model.config.add_station (station);
+
+    updateModel (new FaviconDiscoveredMessage ("u1", "https://example.test/favicon.ico"),
+        model, commands);
+
+    assert (station.favicon == "https://example.test/u1.png");
+    assert (commands.save_calls == 0);
+}
+
+void test_favicon_discovered_ignores_search_only_station () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    var station = make_station ("found");
+    station.favicon = "";
+    model.search_results.add (station);
+
+    updateModel (new FaviconDiscoveredMessage ("found", "https://example.test/favicon.ico"),
+        model, commands);
+
+    assert (station.favicon == "");
+    assert (commands.save_calls == 0);
+}
+
 int main (string[] args) {
     Test.init (ref args);
 
@@ -456,6 +719,25 @@ int main (string[] args) {
     Test.add_func ("/update/set_volume_clamps", test_set_volume_clamps);
     Test.add_func ("/update/set_show_technical_info", test_set_show_technical_info);
     Test.add_func ("/update/config_save_failed", test_config_save_failed);
+    Test.add_func ("/update/request_favicons", test_request_favicons_loads_library_and_results);
+    Test.add_func ("/update/favicon_loaded", test_favicon_loaded_stores_for_known_station);
+    Test.add_func ("/update/favicon_stale_url", test_favicon_loaded_rejects_stale_url);
+    Test.add_func ("/update/favicon_unknown_station", test_favicon_loaded_ignores_unknown_station);
+    Test.add_func ("/update/favicon_failure", test_favicon_failure_uses_fallback);
+    Test.add_func ("/update/favicon_no_source", test_favicon_loaded_ignores_station_without_favicon);
+    Test.add_func ("/update/favicon_discovered", test_favicon_discovered_sets_empty_source);
+    Test.add_func ("/update/favicon_discovered_keeps_existing", test_favicon_discovered_keeps_existing_source);
+    Test.add_func ("/update/favicon_discovered_search_only", test_favicon_discovered_ignores_search_only_station);
+    Test.add_func ("/update/favicon_stale_source", test_favicon_stale_source_is_not_rendered);
+    Test.add_func ("/update/clear_favicon_cache", test_clear_favicon_cache);
+    Test.add_func ("/update/search_results_request_favicons", test_search_results_request_favicons);
+    Test.add_func ("/update/window_geometry", test_window_geometry_changed);
+    Test.add_func ("/update/window_geometry_invalid", test_window_geometry_rejects_invalid_size);
+    Test.add_func ("/update/set_icon_size", test_set_icon_size);
+    Test.add_func ("/update/set_sort_mode", test_set_sort_mode);
+    Test.add_func ("/update/set_search_sort_mode", test_set_search_sort_mode_reruns_search);
+    Test.add_func ("/update/set_search_filter", test_set_search_filter_reruns_search);
+    Test.add_func ("/update/set_search_filter_no_query", test_set_search_filter_without_query_only_saves);
 
     return Test.run ();
 }

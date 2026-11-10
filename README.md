@@ -33,15 +33,20 @@ Gradio is a usable single-list radio player:
 - Add stays in search and marks results as added; Back returns to the list
 - GStreamer playback with play/stop, volume, and stream metadata
 - Slide-in station details with homepage, stream URL, and remove
-- Preferences for technical information
+- Station icons cached under `~/.cache/gradio/favicons/`, with homepage icon
+  discovery and an RSS fallback
+- Library sorting (manual/name/country/bitrate) and search sorting
+- Persisted country, state, language, and tag search filters
+- Window geometry and station-icon size are remembered
+- Preferences for technical information and clearing the icon cache
 - JSON config at `~/.config/gradio/config.json` (`XDG_CONFIG_HOME` honored);
   cache lives at `~/.cache/gradio/`
 - Headless core tests for the model, config, HTTP, search, player, and runtime
 
-Gradio adds the parity extras: search filters, sorting, discover, station editing,
-import/export, MPRIS, the GNOME Shell search provider, notifications, codec
-installation, background/resume playback, and favicon caching. Collections,
-headerbar tabs, tray icon, and multi-select are dropped.
+Gradio adds the parity extras: discover, station editing, import/export, MPRIS, the
+GNOME Shell search provider, notifications, codec installation, and
+background/resume playback. Collections, headerbar tabs, tray icon, and
+multi-select are dropped.
 
 ## Packaging
 

@@ -22,7 +22,16 @@ public enum Gradio.MessageKind {
     HIDE_DETAILS,
     SET_VOLUME,
     SET_SHOW_TECHNICAL_INFO,
-    CONFIG_SAVE_FAILED
+    CONFIG_SAVE_FAILED,
+    REQUEST_FAVICONS,
+    FAVICON_LOADED,
+    CLEAR_FAVICON_CACHE,
+    WINDOW_GEOMETRY_CHANGED,
+    SET_ICON_SIZE,
+    SET_SORT_MODE,
+    SET_SEARCH_SORT_MODE,
+    SET_SEARCH_FILTER,
+    FAVICON_DISCOVERED
 }
 
 public abstract class Gradio.Message {
@@ -133,6 +142,90 @@ public class Gradio.ConfigSaveFailedMessage : Gradio.Message {
     public override MessageKind kind { get { return MessageKind.CONFIG_SAVE_FAILED; } }
 }
 
+public class Gradio.RequestFaviconsMessage : Gradio.Message {
+    public override MessageKind kind { get { return MessageKind.REQUEST_FAVICONS; } }
+}
+
+public class Gradio.FaviconLoadedMessage : Gradio.Message {
+    public string station_id;
+    public string url;
+    public string path;
+
+    public FaviconLoadedMessage (string station_id, string url, string path) {
+        this.station_id = station_id;
+        this.url = url;
+        this.path = path;
+    }
+
+    public override MessageKind kind { get { return MessageKind.FAVICON_LOADED; } }
+}
+
+public class Gradio.FaviconDiscoveredMessage : Gradio.Message {
+    public string station_id;
+    public string url;
+
+    public FaviconDiscoveredMessage (string station_id, string url) {
+        this.station_id = station_id;
+        this.url = url;
+    }
+
+    public override MessageKind kind { get { return MessageKind.FAVICON_DISCOVERED; } }
+}
+
+public class Gradio.ClearFaviconCacheMessage : Gradio.Message {
+    public override MessageKind kind { get { return MessageKind.CLEAR_FAVICON_CACHE; } }
+}
+
+public class Gradio.WindowGeometryChangedMessage : Gradio.Message {
+    public int width;
+    public int height;
+    public bool maximized;
+
+    public WindowGeometryChangedMessage (int width, int height, bool maximized) {
+        this.width = width;
+        this.height = height;
+        this.maximized = maximized;
+    }
+
+    public override MessageKind kind { get { return MessageKind.WINDOW_GEOMETRY_CHANGED; } }
+}
+
+public class Gradio.SetIconSizeMessage : Gradio.Message {
+    public int size;
+
+    public SetIconSizeMessage (int size) { this.size = size; }
+
+    public override MessageKind kind { get { return MessageKind.SET_ICON_SIZE; } }
+}
+
+public class Gradio.SetSortModeMessage : Gradio.Message {
+    public LibrarySortMode mode;
+
+    public SetSortModeMessage (LibrarySortMode mode) { this.mode = mode; }
+
+    public override MessageKind kind { get { return MessageKind.SET_SORT_MODE; } }
+}
+
+public class Gradio.SetSearchSortModeMessage : Gradio.Message {
+    public SearchSortMode mode;
+
+    public SetSearchSortModeMessage (SearchSortMode mode) { this.mode = mode; }
+
+    public override MessageKind kind { get { return MessageKind.SET_SEARCH_SORT_MODE; } }
+}
+
+public class Gradio.SetSearchFilterMessage : Gradio.Message {
+    public SearchFilterKind field;
+    public string value;
+
+    public SetSearchFilterMessage (SearchFilterKind field, string value) {
+        this.field = field;
+        this.value = value;
+    }
+
+    public override MessageKind kind { get { return MessageKind.SET_SEARCH_FILTER; } }
+}
+
 public class Gradio.AppModel {
     public ViewMode view = ViewMode.LIBRARY;
     public AppConfig config;
@@ -149,8 +242,22 @@ public class Gradio.AppModel {
     public bool details_visible = false;
     public RadioStation? details_station = null;
     public string status_message = _("Ready");
+    public GLib.HashTable<string, string> favicons = new GLib.HashTable<string, string> (str_hash, str_equal);
+    public GLib.HashTable<string, string> favicon_sources = new GLib.HashTable<string, string> (str_hash, str_equal);
 
     public AppModel (AppConfig config) {
         this.config = config;
+    }
+
+    public string? favicon_for (RadioStation station) {
+        if (station.favicon == "")
+            return null;
+        unowned string? source = favicon_sources.lookup (station.id);
+        if (source == null || source != station.favicon)
+            return null;
+        unowned string? path = favicons.lookup (station.id);
+        if (path == null || path == "")
+            return null;
+        return path;
     }
 }

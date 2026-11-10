@@ -320,4 +320,4 @@ baseline):
 
 `smem` is not installed, so PSS could not be sampled; `VmRSS` matched
 `VmHWM` in both runs. The gap is not material, so the rewrite does not force
-`GSK_RENDERER=cairo`. Re-measure after the favicon cache and MPRIS land.
+`GSK_RENDERER=cairo`. Re-measure after MPRIS lands.

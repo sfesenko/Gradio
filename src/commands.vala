@@ -8,6 +8,8 @@ namespace Gradio {
         public virtual Elmish.Cmd<Message>? stop () { return null; }
         public virtual Elmish.Cmd<Message>? set_volume (double volume) { return null; }
         public virtual Elmish.Cmd<Message>? save_config () { return null; }
+        public virtual Elmish.Cmd<Message>? load_favicons (GLib.GenericArray<RadioStation> stations) { return null; }
+        public virtual Elmish.Cmd<Message>? clear_favicon_cache () { return null; }
 
         public static Elmish.Cmd<Message>? chain (Elmish.Cmd<Message>? first, Elmish.Cmd<Message>? second) {
             if (first == null)

@@ -78,6 +78,7 @@ int main (string[] args) {
         if (!started) {
             started = true;
             program.start ();
+            program.dispatch_message (new Gradio.RequestFaviconsMessage ());
         }
     });
 

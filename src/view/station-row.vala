@@ -12,11 +12,15 @@ namespace Gradio {
         private bool already_added;
         private bool show_technical_info;
         private Gtk.Label secondary_label;
+        private Gtk.Image station_icon;
+        private string favicon_path = "";
+        private int icon_size;
         private Gtk.Button? add_button = null;
         private Gtk.Button? play_button = null;
 
         public StationRow (RadioStation station, bool library_row, bool show_technical_info,
-                bool is_current, bool playing, bool already_added, Elmish.Dispatch<Message> dispatch) {
+                bool is_current, bool playing, bool already_added, string? favicon_path,
+                int icon_size, Elmish.Dispatch<Message> dispatch) {
             this.station = station;
             this.library_row = library_row;
             this.dispatch = dispatch;
@@ -24,6 +28,7 @@ namespace Gradio {
             this.playing = playing;
             this.already_added = already_added;
             this.show_technical_info = show_technical_info;
+            this.icon_size = icon_size;
 
             var row = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 12) {
                 margin_top = 8,
@@ -33,9 +38,11 @@ namespace Gradio {
             };
 
             var icon = new Gtk.Image.from_icon_name ("application-rss+xml-symbolic") {
-                pixel_size = 48
+                pixel_size = icon_size
             };
             row.append (icon);
+            station_icon = icon;
+            set_favicon (favicon_path);
 
             var text = new Gtk.Box (Gtk.Orientation.VERTICAL, 2) {
                 hexpand = true,
@@ -81,6 +88,40 @@ namespace Gradio {
                     dispatch (new AddStationMessage (station));
                 }
             });
+        }
+
+        public void set_favicon (string? path) {
+            string next = path ?? "";
+            if (next == favicon_path)
+                return;
+            favicon_path = next;
+
+            if (next == "") {
+                station_icon.set_from_icon_name ("application-rss+xml-symbolic");
+                station_icon.pixel_size = icon_size;
+                return;
+            }
+
+            try {
+                var pixbuf = new Gdk.Pixbuf.from_file (next);
+                int width = pixbuf.get_width ();
+                int height = pixbuf.get_height ();
+                if (width <= 0 || height <= 0)
+                    throw new GLib.FileError.FAILED ("empty favicon");
+
+                double ratio = double.min ((double) icon_size / width, (double) icon_size / height);
+                int scaled_width = int.max (1, (int) (width * ratio));
+                int scaled_height = int.max (1, (int) (height * ratio));
+                var scaled = pixbuf.scale_simple (scaled_width, scaled_height,
+                    Gdk.InterpType.BILINEAR);
+                if (scaled == null)
+                    throw new GLib.FileError.FAILED ("could not scale favicon");
+
+                station_icon.set_from_paintable (Gdk.Texture.for_pixbuf (scaled));
+            } catch (GLib.Error e) {
+                station_icon.set_from_icon_name ("application-rss+xml-symbolic");
+                station_icon.pixel_size = icon_size;
+            }
         }
 
         public void set_state (bool is_current, bool playing, bool already_added, string stream_title = "") {

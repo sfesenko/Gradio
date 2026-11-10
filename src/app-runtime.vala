@@ -2,10 +2,23 @@
 
 namespace Gradio {
 
+    private class FaviconRequest : GLib.Object {
+        public string station_id;
+        public string url;
+
+        public FaviconRequest (string station_id, string url) {
+            this.station_id = station_id;
+            this.url = url;
+        }
+    }
+
     public class AppRuntime : Gradio.Commands {
+        private const int FAVICON_CONCURRENCY = 4;
+
         public Elmish.Dispatch<Message>? dispatch { get; private set; }
         public AppConfig config { get; private set; }
         public Player player { get; private set; }
+        public FaviconCache favicon_cache { get; private set; }
 
         private Soup.Session session;
         private uint save_id = 0;
@@ -13,8 +26,17 @@ namespace Gradio {
         private bool load_failed;
         private bool dirty = false;
         private bool backup_pending;
+        private GLib.GenericArray<FaviconRequest> favicon_queue = new GLib.GenericArray<FaviconRequest> ();
+        private GLib.HashTable<string, GLib.GenericArray<string>> favicon_inflight =
+            new GLib.HashTable<string, GLib.GenericArray<string>> (str_hash, str_equal);
+        private GLib.HashTable<string, bool> favicon_backfilled =
+            new GLib.HashTable<string, bool> (str_hash, str_equal);
+        private GLib.HashTable<string, bool> favicon_homepages =
+            new GLib.HashTable<string, bool> (str_hash, str_equal);
+        private FaviconCooldown favicon_cooldown = new FaviconCooldown ();
+        private int favicon_active = 0;
 
-        public AppRuntime (AppConfig config, bool load_failed = false) {
+        public AppRuntime (AppConfig config, bool load_failed = false, string? favicon_dir = null) {
             this.config = config;
             this.load_failed = load_failed;
             this.backup_pending = load_failed;
@@ -22,6 +44,7 @@ namespace Gradio {
             session.set_user_agent ("gradio-gtk4");
             session.timeout = 10;
             player = new Player ();
+            favicon_cache = new FaviconCache (favicon_dir);
         }
 
         public void attach (Elmish.Dispatch<Message> dispatch) {
@@ -80,6 +103,188 @@ namespace Gradio {
             });
         }
 
+        public override Elmish.Cmd<Message>? load_favicons (GLib.GenericArray<RadioStation> stations) {
+            var copy = new GLib.GenericArray<RadioStation> ();
+            for (uint i = 0; i < stations.length; i++)
+                copy.add (stations.get (i));
+
+            return new Elmish.Cmd<Message> ((dispatch) => {
+                queue_favicons (copy);
+            });
+        }
+
+        public override Elmish.Cmd<Message>? clear_favicon_cache () {
+            return new Elmish.Cmd<Message> ((dispatch) => {
+                favicon_cache.clear ();
+                favicon_cooldown.clear ();
+                favicon_backfilled.remove_all ();
+            });
+        }
+
+        private void queue_favicons (GLib.GenericArray<RadioStation> stations) {
+            for (uint i = 0; i < stations.length; i++) {
+                var station = stations.get (i);
+                if (station.id == "")
+                    continue;
+
+                var configured = config.find_station (station.id);
+                string favicon = station.favicon;
+                if (favicon == "" && configured != null)
+                    favicon = configured.favicon;
+
+                if (favicon != "") {
+                    request_icon_url (station.id, favicon);
+                    continue;
+                }
+
+                // Homepage discovery is only for library stations: it costs an
+                // extra request and would otherwise run for every search result.
+                if (configured == null)
+                    continue;
+
+                string homepage = station.homepage != "" ? station.homepage : configured.homepage;
+                if (homepage == "" || !Http.is_valid_url (homepage))
+                    continue;
+
+                if (favicon_backfilled.contains (station.id)) {
+                    resolve_homepage_favicon.begin (station.id, homepage);
+                    continue;
+                }
+
+                favicon_backfilled.set (station.id, true);
+                backfill_favicon.begin (station.id, homepage);
+            }
+
+            pump_favicons ();
+        }
+
+        private void request_icon_url (string station_id, string url) {
+            if (!Http.is_valid_url (url))
+                return;
+            if (favicon_cooldown.is_blocked ("u:" + url, GLib.get_monotonic_time ()))
+                return;
+
+            string? cached = favicon_cache.lookup (url);
+            if (cached != null) {
+                dispatch_cached_favicon (station_id, url, cached);
+                return;
+            }
+
+            var waiting = favicon_inflight.lookup (url);
+            if (waiting != null) {
+                waiting.add (station_id);
+                return;
+            }
+
+            var ids = new GLib.GenericArray<string> ();
+            ids.add (station_id);
+            favicon_inflight.set (url, ids);
+            favicon_queue.add (new FaviconRequest (station_id, url));
+            pump_favicons ();
+        }
+
+        private void dispatch_cached_favicon (string station_id, string url, string path) {
+            GLib.Idle.add (() => {
+                var target = this.dispatch;
+                if (target != null) {
+                    target (new FaviconDiscoveredMessage (station_id, url));
+                    target (new FaviconLoadedMessage (station_id, url, path));
+                }
+                return false;
+            });
+        }
+
+        private void pump_favicons () {
+            while (favicon_active < FAVICON_CONCURRENCY && favicon_queue.length > 0) {
+                var request = favicon_queue.get (0);
+                favicon_queue.remove_index (0);
+                favicon_active++;
+                fetch_favicon.begin (request.url);
+            }
+        }
+
+        private async void backfill_favicon (string station_id, string homepage) {
+            try {
+                var updated = yield RadioBrowser.station_by_uuid_async (session, station_id);
+                if (updated != null && updated.favicon != "" &&
+                        Http.is_valid_url (updated.favicon)) {
+                    request_icon_url (station_id, updated.favicon);
+                    return;
+                }
+            } catch (GLib.Error e) {
+            }
+
+            resolve_homepage_favicon.begin (station_id, homepage);
+        }
+
+        private async void resolve_homepage_favicon (string station_id, string homepage) {
+            string key = "h:" + homepage;
+            int64 now = GLib.get_monotonic_time ();
+            if (favicon_cooldown.is_blocked (key, now))
+                return;
+            if (favicon_homepages.contains (homepage))
+                return;
+
+            favicon_homepages.set (homepage, true);
+            string? icon_url = null;
+            bool html_failed = false;
+            try {
+                string html = yield Http.get_string_async (session, homepage);
+                if (html.length <= 512 * 1024)
+                    icon_url = FaviconResolver.icon_url_from_html (html, homepage);
+            } catch (GLib.Error e) {
+                html_failed = true;
+            }
+            favicon_homepages.remove (homepage);
+
+            if (icon_url == null)
+                icon_url = FaviconResolver.origin_icon_url (homepage);
+
+            if (icon_url == null) {
+                favicon_cooldown.record_failure (key, now);
+                return;
+            }
+            if (html_failed)
+                favicon_cooldown.record_failure (key, now);
+
+            request_icon_url (station_id, icon_url);
+        }
+
+        private async void fetch_favicon (string url) {
+            string path = "";
+            try {
+                var bytes = yield Http.get_bytes_async (session, url);
+                unowned uint8[]? data = bytes.get_data ();
+                if (data != null) {
+                    string? stored = favicon_cache.store (url, data);
+                    if (stored != null)
+                        path = stored;
+                }
+            } catch (GLib.Error e) {
+            }
+
+            if (path == "")
+                favicon_cooldown.record_failure ("u:" + url, GLib.get_monotonic_time ());
+            finish_favicon (url, path);
+        }
+
+        private void finish_favicon (string url, string path) {
+            favicon_active--;
+            unowned GLib.GenericArray<string>? ids = favicon_inflight.lookup (url);
+            if (ids != null) {
+                for (uint i = 0; i < ids.length; i++) {
+                    var target = dispatch;
+                    if (target != null) {
+                        if (path != "")
+                            target (new FaviconDiscoveredMessage (ids.get (i), url));
+                        target (new FaviconLoadedMessage (ids.get (i), url, path));
+                    }
+                }
+                favicon_inflight.remove (url);
+            }
+            pump_favicons ();
+        }
+
         public void save_now () {
             if (load_failed && !dirty)
                 return;
@@ -114,7 +319,7 @@ namespace Gradio {
 
         private async void search_async (string query, uint generation) {
             try {
-                var stations = yield RadioBrowser.search_async (session, query);
+                var stations = yield RadioBrowser.search_async (session, query, 50, config.search_filters);
                 var target = dispatch;
                 if (target != null)
                     target (new SearchResultsMessage (stations, generation));

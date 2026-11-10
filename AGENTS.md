@@ -24,7 +24,8 @@ Arch package: `./scripts/build-package.sh` (see README).
 - `src/model/app-config.vala` — settings + station library stored as JSON.
 - `src/commands.vala` — `Commands` factory (the injected IO boundary).
 - `src/app-update.vala` — `updateModel`, the pure update function.
-- `src/backend/` — libsoup HTTP, radio-browser search, GStreamer player.
+- `src/backend/` — libsoup HTTP, radio-browser search, GStreamer player,
+  favicon disk cache (gdk-pixbuf).
 - `src/app-runtime.vala` — production `Commands`: async search, playback,
   debounced config saves, player signal wiring.
 - `src/app-view.vala` — main window and headerbar; `src/view/` holds the

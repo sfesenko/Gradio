@@ -52,7 +52,65 @@ void test_missing_file_returns_empty () {
     var config = load_config (GLib.Path.build_filename (dir, "config.json"));
     assert (config.stations.length == 0);
     assert (config.volume == 0.8);
+    assert (config.window_width == 900);
+    assert (config.window_height == 600);
+    assert (config.maximized == false);
+    assert (config.icon_size == 48);
     cleanup (dir);
+}
+
+void test_window_and_icon_round_trip () {
+    string dir = make_tmp_dir ();
+    string path = GLib.Path.build_filename (dir, "config.json");
+
+    var config = new Gradio.AppConfig (path);
+    config.window_width = 1200;
+    config.window_height = 800;
+    config.maximized = true;
+    config.icon_size = 64;
+    config.library_sort = Gradio.LibrarySortMode.NAME;
+    config.search_sort = Gradio.SearchSortMode.VOTES;
+    save_config (config);
+
+    var loaded = load_config (path);
+    assert (loaded.window_width == 1200);
+    assert (loaded.window_height == 800);
+    assert (loaded.maximized == true);
+    assert (loaded.icon_size == 64);
+    assert (loaded.library_sort == Gradio.LibrarySortMode.NAME);
+    assert (loaded.search_sort == Gradio.SearchSortMode.VOTES);
+    cleanup (dir);
+}
+
+void test_invalid_sort_modes_fall_back () {
+    string dir = make_tmp_dir ();
+    string path = write_file (dir, "config.json",
+        "{\"version\":1,\"settings\":{\"sort_mode\":\"bogus\",\"search_sort\":\"bogus\"}}");
+
+    var config = load_config (path);
+    assert (config.library_sort == Gradio.LibrarySortMode.MANUAL);
+    assert (config.search_sort == Gradio.SearchSortMode.RELEVANCE);
+    cleanup (dir);
+}
+
+void test_invalid_window_and_icon_values_fall_back () {
+    string dir = make_tmp_dir ();
+    string path = write_file (dir, "config.json",
+        "{\"version\":1,\"settings\":{\"window_width\":-5,\"window_height\":0,\"icon_size\":77}}");
+
+    var config = load_config (path);
+    assert (config.window_width == 900);
+    assert (config.window_height == 600);
+    assert (config.icon_size == 48);
+    cleanup (dir);
+}
+
+void test_unknown_icon_size_normalizes_to_default () {
+    assert (Gradio.AppConfig.normalize_icon_size (32) == 32);
+    assert (Gradio.AppConfig.normalize_icon_size (48) == 48);
+    assert (Gradio.AppConfig.normalize_icon_size (64) == 64);
+    assert (Gradio.AppConfig.normalize_icon_size (96) == 96);
+    assert (Gradio.AppConfig.normalize_icon_size (77) == 48);
 }
 
 void test_round_trip () {
@@ -151,10 +209,34 @@ void test_skips_station_without_id () {
     cleanup (dir);
 }
 
+void test_search_filters_round_trip () {
+    string dir = make_tmp_dir ();
+    string path = GLib.Path.build_filename (dir, "config.json");
+
+    var config = new Gradio.AppConfig (path);
+    config.search_filters.country = "Germany";
+    config.search_filters.state = "Bavaria";
+    config.search_filters.language = "german";
+    config.search_filters.tag = "jazz";
+    save_config (config);
+
+    var loaded = load_config (path);
+    assert (loaded.search_filters.country == "Germany");
+    assert (loaded.search_filters.state == "Bavaria");
+    assert (loaded.search_filters.language == "german");
+    assert (loaded.search_filters.tag == "jazz");
+    cleanup (dir);
+}
+
 int main (string[] args) {
     Test.init (ref args);
 
     Test.add_func ("/app-config/missing_file_returns_empty", test_missing_file_returns_empty);
+    Test.add_func ("/app-config/window_and_icon_round_trip", test_window_and_icon_round_trip);
+    Test.add_func ("/app-config/invalid_window_and_icon", test_invalid_window_and_icon_values_fall_back);
+    Test.add_func ("/app-config/normalize_icon_size", test_unknown_icon_size_normalizes_to_default);
+    Test.add_func ("/app-config/invalid_sort_modes", test_invalid_sort_modes_fall_back);
+    Test.add_func ("/app-config/search_filters_round_trip", test_search_filters_round_trip);
     Test.add_func ("/app-config/round_trip", test_round_trip);
     Test.add_func ("/app-config/empty_file", test_empty_file);
     Test.add_func ("/app-config/invalid_json", test_invalid_json);

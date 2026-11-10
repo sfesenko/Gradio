@@ -36,9 +36,12 @@ lib_core_sources = [
   'src/app-runtime.vala',
   'src/model/radio-station.vala',
   'src/model/app-config.vala',
+  'src/model/station-sort.vala',
+  'src/model/search-filters.vala',
   'src/backend/http.vala',
   'src/backend/radio-browser.vala',
   'src/backend/player.vala',
+  'src/backend/favicon.vala',
   'src/app-update.vala',
 ]
 
@@ -48,6 +51,7 @@ lib_core_deps = [
   dependency('libsoup-3.0'),
   dependency('gstreamer-1.0'),
   dependency('gstreamer-pbutils-1.0'),
+  dependency('gdk-pixbuf-2.0'),
 ]
 
 lib_core = static_library('gradio-core',
