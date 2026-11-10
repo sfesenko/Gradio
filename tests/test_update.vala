@@ -96,6 +96,7 @@ void test_set_view () {
     updateModel (new SetViewMessage (ViewMode.ADD_STATION), model, commands);
     assert (model.view == ViewMode.ADD_STATION);
     assert (model.search_query == "");
+    assert (model.search_active == false);
     assert (model.search_results.length == 0);
     assert (model.search_error == null);
     assert (model.searching == false);
@@ -117,7 +118,25 @@ void test_search_requested_empty () {
     assert (cmd == null);
     assert (model.search_results.length == 0);
     assert (model.searching == false);
+    assert (model.search_active == false);
     assert (commands.search_calls == 0);
+}
+
+void test_search_requested_blank_with_filter_browses () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    model.config.search_filters.country = "Ukraine";
+    model.search_generation = 3;
+
+    var cmd = updateModel (new SearchRequestedMessage ("   "), model, commands);
+
+    assert (cmd != null);
+    assert (model.search_active == true);
+    assert (model.searching == true);
+    assert (model.search_generation == 4);
+    assert (commands.search_calls == 1);
+    assert (commands.last_query == "");
+    assert (commands.last_generation == 4);
 }
 
 void test_search_clear_invalidates_in_flight () {
@@ -259,6 +278,33 @@ void test_remove_station () {
     assert (cmd != null);
     assert (model.config.stations.length == 0);
     assert (commands.save_calls == 1);
+}
+
+void test_move_station_reorders_and_saves () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    model.config.add_station (make_station ("a"));
+    model.config.add_station (make_station ("b"));
+    model.config.add_station (make_station ("c"));
+
+    updateModel (new MoveStationMessage ("a", "c", true), model, commands);
+
+    assert (model.config.stations.get (0).id == "b");
+    assert (model.config.stations.get (1).id == "c");
+    assert (model.config.stations.get (2).id == "a");
+    assert (commands.save_calls == 1);
+}
+
+void test_move_station_noop_does_not_save () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    model.config.add_station (make_station ("a"));
+    model.config.add_station (make_station ("b"));
+
+    updateModel (new MoveStationMessage ("a", "missing", true), model, commands);
+
+    assert (model.config.stations.get (0).id == "a");
+    assert (commands.save_calls == 0);
 }
 
 void test_remove_current_station () {
@@ -596,18 +642,6 @@ void test_set_icon_size () {
     assert (model.config.icon_size == 48);
 }
 
-void test_set_sort_mode () {
-    var model = make_model ();
-    var commands = new RecordingCommands ();
-
-    updateModel (new SetSortModeMessage (LibrarySortMode.NAME), model, commands);
-    assert (model.config.library_sort == LibrarySortMode.NAME);
-    assert (commands.save_calls == 1);
-
-    updateModel (new SetSortModeMessage (LibrarySortMode.NAME), model, commands);
-    assert (commands.save_calls == 1);
-}
-
 void test_set_search_sort_mode_reruns_search () {
     var model = make_model ();
     var commands = new RecordingCommands ();
@@ -637,15 +671,54 @@ void test_set_search_filter_reruns_search () {
     assert (model.search_generation == 3);
 }
 
-void test_set_search_filter_without_query_only_saves () {
+void test_set_search_filter_without_query_searches_all () {
     var model = make_model ();
     var commands = new RecordingCommands ();
+    model.search_generation = 2;
 
     updateModel (new SetSearchFilterMessage (SearchFilterKind.TAG, "jazz"), model, commands);
 
     assert (model.config.search_filters.tag == "jazz");
     assert (commands.save_calls == 1);
+    assert (commands.search_calls == 1);
+    assert (commands.last_query == "");
+    assert (model.search_active == true);
+    assert (model.search_generation == 3);
+}
+
+void test_clearing_last_filter_stops_filter_search () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    model.config.search_filters.country = "Ukraine";
+    model.search_active = true;
+    model.search_results.add (make_station ("u1"));
+    model.searching = true;
+    model.search_generation = 2;
+
+    updateModel (new SetSearchFilterMessage (SearchFilterKind.COUNTRY, ""), model, commands);
+
+    assert (model.config.search_filters.is_empty ());
+    assert (commands.save_calls == 1);
     assert (commands.search_calls == 0);
+    assert (model.search_active == false);
+    assert (model.search_results.length == 0);
+    assert (model.searching == false);
+    assert (model.search_generation == 3);
+}
+
+void test_set_search_sort_replays_filter_only_search () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    model.config.search_filters.country = "Ukraine";
+    model.search_active = true;
+    model.search_generation = 4;
+
+    updateModel (new SetSearchSortModeMessage (SearchSortMode.CLICKS), model, commands);
+
+    assert (commands.save_calls == 1);
+    assert (commands.search_calls == 1);
+    assert (commands.last_query == "");
+    assert (model.search_generation == 5);
 }
 
 void test_favicon_discovered_sets_empty_source () {
@@ -695,6 +768,7 @@ int main (string[] args) {
     Test.add_func ("/update/defaults", test_defaults);
     Test.add_func ("/update/set_view", test_set_view);
     Test.add_func ("/update/search_requested_empty", test_search_requested_empty);
+    Test.add_func ("/update/search_requested_blank_with_filter", test_search_requested_blank_with_filter_browses);
     Test.add_func ("/update/search_clear_invalidates_in_flight", test_search_clear_invalidates_in_flight);
     Test.add_func ("/update/set_view_invalidates_in_flight", test_set_view_invalidates_in_flight);
     Test.add_func ("/update/same_view_keeps_search", test_same_view_keeps_search);
@@ -705,6 +779,8 @@ int main (string[] args) {
     Test.add_func ("/update/add_station", test_add_station);
     Test.add_func ("/update/add_duplicate", test_add_duplicate);
     Test.add_func ("/update/remove_station", test_remove_station);
+    Test.add_func ("/update/move_station", test_move_station_reorders_and_saves);
+    Test.add_func ("/update/move_station_noop", test_move_station_noop_does_not_save);
     Test.add_func ("/update/remove_current_station", test_remove_current_station);
     Test.add_func ("/update/play_station", test_play_station);
     Test.add_func ("/update/toggle_play", test_toggle_play);
@@ -734,10 +810,11 @@ int main (string[] args) {
     Test.add_func ("/update/window_geometry", test_window_geometry_changed);
     Test.add_func ("/update/window_geometry_invalid", test_window_geometry_rejects_invalid_size);
     Test.add_func ("/update/set_icon_size", test_set_icon_size);
-    Test.add_func ("/update/set_sort_mode", test_set_sort_mode);
     Test.add_func ("/update/set_search_sort_mode", test_set_search_sort_mode_reruns_search);
     Test.add_func ("/update/set_search_filter", test_set_search_filter_reruns_search);
-    Test.add_func ("/update/set_search_filter_no_query", test_set_search_filter_without_query_only_saves);
+    Test.add_func ("/update/set_search_filter_no_query", test_set_search_filter_without_query_searches_all);
+    Test.add_func ("/update/clear_last_filter_stops_search", test_clearing_last_filter_stops_filter_search);
+    Test.add_func ("/update/set_search_sort_filter_only", test_set_search_sort_replays_filter_only_search);
 
     return Test.run ();
 }

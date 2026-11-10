@@ -50,6 +50,7 @@ public Elmish.Cmd<Gradio.Message>? updateModel (Gradio.Message msg, Gradio.AppMo
                 model.search_generation++;
                 if (set_view.view == ViewMode.ADD_STATION) {
                     model.search_query = "";
+                    model.search_active = false;
                     model.search_results = new GLib.GenericArray<RadioStation> ();
                     model.search_error = null;
                     model.searching = false;
@@ -63,9 +64,10 @@ public Elmish.Cmd<Gradio.Message>? updateModel (Gradio.Message msg, Gradio.AppMo
             if (requested == null)
                 break;
             string query = requested.query.strip ();
-            if (query == "") {
+            if (query == "" && model.config.search_filters.is_empty ()) {
                 model.search_generation++;
                 model.search_query = "";
+                model.search_active = false;
                 model.search_results = new GLib.GenericArray<RadioStation> ();
                 model.search_error = null;
                 model.searching = false;
@@ -74,6 +76,7 @@ public Elmish.Cmd<Gradio.Message>? updateModel (Gradio.Message msg, Gradio.AppMo
             model.search_generation++;
             model.searching = true;
             model.search_error = null;
+            model.search_active = true;
             model.search_query = query;
             return commands.search (query, model.search_generation);
 
@@ -132,6 +135,14 @@ public Elmish.Cmd<Gradio.Message>? updateModel (Gradio.Message msg, Gradio.AppMo
             }
 
             model.status_message = _("Station removed");
+            return commands.save_config ();
+
+        case MessageKind.MOVE_STATION:
+            var move = msg as MoveStationMessage;
+            if (move == null)
+                break;
+            if (!model.config.move_station (move.station_id, move.target_id, move.after))
+                break;
             return commands.save_config ();
 
         case MessageKind.PLAY_STATION:
@@ -286,19 +297,12 @@ public Elmish.Cmd<Gradio.Message>? updateModel (Gradio.Message msg, Gradio.AppMo
             model.config.icon_size = size;
             return commands.save_config ();
 
-        case MessageKind.SET_SORT_MODE:
-            var sort_mode = msg as SetSortModeMessage;
-            if (sort_mode == null || sort_mode.mode == model.config.library_sort)
-                break;
-            model.config.library_sort = sort_mode.mode;
-            return commands.save_config ();
-
         case MessageKind.SET_SEARCH_SORT_MODE:
             var search_sort = msg as SetSearchSortModeMessage;
             if (search_sort == null || search_sort.mode == model.config.search_sort)
                 break;
             model.config.search_sort = search_sort.mode;
-            if (model.search_query == "")
+            if (!model.search_active && model.search_query == "")
                 return commands.save_config ();
             model.search_generation++;
             model.searching = true;
@@ -332,11 +336,18 @@ public Elmish.Cmd<Gradio.Message>? updateModel (Gradio.Message msg, Gradio.AppMo
             }
             if (!changed)
                 break;
-            if (model.search_query == "")
+            if (model.search_query == "" && model.config.search_filters.is_empty ()) {
+                model.search_generation++;
+                model.search_active = false;
+                model.search_results = new GLib.GenericArray<RadioStation> ();
+                model.search_error = null;
+                model.searching = false;
                 return commands.save_config ();
+            }
             model.search_generation++;
             model.searching = true;
             model.search_error = null;
+            model.search_active = true;
             return Commands.chain (commands.save_config (),
                 commands.search (model.search_query, model.search_generation));
 

@@ -2,13 +2,6 @@
 
 namespace Gradio {
 
-    public enum LibrarySortMode {
-        MANUAL,
-        NAME,
-        COUNTRY,
-        BITRATE
-    }
-
     public enum SearchSortMode {
         RELEVANCE,
         CLICKS,
@@ -16,35 +9,9 @@ namespace Gradio {
         BITRATE
     }
 
-    // Pure station ordering helpers. Sorting always works on a copy so the
-    // model's insertion order (Manual) is never lost.
+    // Pure search-result ordering helpers. Sorting works on a copy so the
+    // radio-browser result order is never lost.
     public class StationSort {
-        public static string library_to_string (LibrarySortMode mode) {
-            switch (mode) {
-                case LibrarySortMode.NAME:
-                    return "name";
-                case LibrarySortMode.COUNTRY:
-                    return "country";
-                case LibrarySortMode.BITRATE:
-                    return "bitrate";
-                default:
-                    return "manual";
-            }
-        }
-
-        public static LibrarySortMode library_from_string (string value) {
-            switch (value) {
-                case "name":
-                    return LibrarySortMode.NAME;
-                case "country":
-                    return LibrarySortMode.COUNTRY;
-                case "bitrate":
-                    return LibrarySortMode.BITRATE;
-                default:
-                    return LibrarySortMode.MANUAL;
-            }
-        }
-
         public static string search_to_string (SearchSortMode mode) {
             switch (mode) {
                 case SearchSortMode.CLICKS:
@@ -69,25 +36,6 @@ namespace Gradio {
                 default:
                     return SearchSortMode.RELEVANCE;
             }
-        }
-
-        public static GLib.GenericArray<RadioStation> sort_library (
-                GLib.GenericArray<RadioStation> stations, LibrarySortMode mode) {
-            var result = copy (stations);
-            switch (mode) {
-                case LibrarySortMode.NAME:
-                    result.sort (compare_name);
-                    break;
-                case LibrarySortMode.COUNTRY:
-                    result.sort (compare_country);
-                    break;
-                case LibrarySortMode.BITRATE:
-                    result.sort (compare_bitrate);
-                    break;
-                default:
-                    break;
-            }
-            return result;
         }
 
         public static GLib.GenericArray<RadioStation> sort_search (
@@ -128,13 +76,6 @@ namespace Gradio {
             if (result != 0)
                 return result;
             return a.id.collate (b.id);
-        }
-
-        private static int compare_country (RadioStation a, RadioStation b) {
-            int result = compare_text (a.country, b.country);
-            if (result != 0)
-                return result;
-            return compare_name (a, b);
         }
 
         private static int compare_bitrate (RadioStation a, RadioStation b) {

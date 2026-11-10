@@ -12,7 +12,6 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
     private Gradio.DetailsPanel details_panel;
     private Gtk.Revealer details_revealer;
     private Gtk.SearchEntry search_entry;
-    private Gtk.DropDown library_sort_dropdown;
     private Gtk.Stack add_stack;
     private Gtk.ListBox search_list_box;
     private Gtk.Spinner spinner;
@@ -30,7 +29,10 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
         this.dispatch = dispatch;
 
         var css = new Gtk.CssProvider ();
-        string rules = ".current-station { background-color: alpha(@accent_bg_color, 0.25); }";
+        string rules = ".current-station { background-color: alpha(@accent_bg_color, 0.25); }\n" +
+            ".dragging { opacity: 0.5; }\n" +
+            ".drop-before { box-shadow: inset 0 2px 0 0 @accent_bg_color; }\n" +
+            ".drop-after { box-shadow: inset 0 -2px 0 0 @accent_bg_color; }";
         css.load_from_data (rules.data);
         Gtk.StyleContext.add_provider_for_display (Gdk.Display.get_default (), css,
             Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION);
@@ -65,15 +67,6 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
         title_label = new Gtk.Label (_("Gradio"));
         title_label.add_css_class ("title-4");
         header.set_title_widget (title_label);
-
-        library_sort_dropdown = new Gtk.DropDown.from_strings (
-            { _("Manual"), _("Name"), _("Country"), _("Bitrate") });
-        library_sort_dropdown.tooltip_text = _("Sort library");
-        library_sort_dropdown.selected = (uint) model.config.library_sort;
-        library_sort_dropdown.notify["selected"].connect (() => {
-            dispatch (new SetSortModeMessage ((LibrarySortMode) library_sort_dropdown.selected));
-        });
-        header.pack_end (library_sort_dropdown);
 
         var menu_button = new Gtk.MenuButton () {
             icon_name = "open-menu-symbolic",
@@ -272,7 +265,7 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
             vexpand = true
         };
 
-        var idle = new Gtk.Label (_("Search for radio stations by name.")) {
+        var idle = new Gtk.Label (_("Search by name, or leave it empty and use the filters below.")) {
             halign = Gtk.Align.CENTER,
             valign = Gtk.Align.CENTER
         };
@@ -329,6 +322,68 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
         return builder.str;
     }
 
+    private void attach_library_drag (Gradio.StationRow row) {
+        string station_id = row.station.id;
+        var handle = row.drag_handle;
+        if (handle == null)
+            return;
+
+        var source = new Gtk.DragSource () {
+            actions = Gdk.DragAction.MOVE
+        };
+        source.prepare.connect ((x, y) => {
+            var value = GLib.Value (typeof (string));
+            value.set_string (station_id);
+            return new Gdk.ContentProvider.for_value (value);
+        });
+        source.drag_begin.connect ((drag) => {
+            row.add_css_class ("dragging");
+        });
+        source.drag_end.connect ((drag, delete_data) => {
+            row.remove_css_class ("dragging");
+            clear_drop_marks ();
+        });
+        handle.add_controller (source);
+
+        var target = new Gtk.DropTarget (typeof (string), Gdk.DragAction.MOVE);
+        target.enter.connect ((x, y) => {
+            set_drop_mark (row, y >= row.get_height () / 2.0);
+            return Gdk.DragAction.MOVE;
+        });
+        target.motion.connect ((x, y) => {
+            set_drop_mark (row, y >= row.get_height () / 2.0);
+            return Gdk.DragAction.MOVE;
+        });
+        target.leave.connect (() => {
+            row.remove_css_class ("drop-before");
+            row.remove_css_class ("drop-after");
+        });
+        target.drop.connect ((value, x, y) => {
+            string source_id = (string) value;
+            bool after = y >= row.get_height () / 2.0;
+            clear_drop_marks ();
+            if (source_id != "" && source_id != station_id)
+                dispatch (new MoveStationMessage (source_id, station_id, after));
+            return true;
+        });
+        row.add_controller (target);
+    }
+
+    private void set_drop_mark (Gtk.Widget row, bool after) {
+        clear_drop_marks ();
+        row.add_css_class (after ? "drop-after" : "drop-before");
+    }
+
+    private void clear_drop_marks () {
+        for (int i = 0; ; i++) {
+            var row = list_box.get_row_at_index (i);
+            if (row == null)
+                break;
+            row.remove_css_class ("drop-before");
+            row.remove_css_class ("drop-after");
+        }
+    }
+
     private void open_add_view () {
         dispatch (new SetViewMessage (ViewMode.ADD_STATION));
         GLib.Idle.add (() => {
@@ -349,7 +404,6 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
         stack.set_visible_child_name (adding ? "add" : "library");
         add_button.visible = !adding;
         back_button.visible = adding;
-        library_sort_dropdown.visible = !adding;
         title_label.label = adding ? _("Add station") : _("Gradio");
 
         if (adding && !last_adding) {
@@ -361,7 +415,7 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
         }
         last_adding = adding;
 
-        var library = StationSort.sort_library (model.config.stations, model.config.library_sort);
+        var library = model.config.stations;
         string lib_sig = rows_signature (library, model.config.show_technical_info,
             model.config.icon_size);
         if (lib_sig != library_signature) {
@@ -372,6 +426,7 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
                 var row = new Gradio.StationRow (station, true, model.config.show_technical_info,
                     false, false, false, model.favicon_for (station), model.config.icon_size, dispatch);
                 list_box.append (row);
+                attach_library_drag (row);
             }
         }
         for (uint i = 0; i < library.length; i++) {
@@ -417,7 +472,7 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
             if (model.search_error != null) {
                 search_error_label.label = model.search_error;
                 add_stack.set_visible_child_name ("error");
-            } else if (model.search_query == "") {
+            } else if (!model.search_active) {
                 add_stack.set_visible_child_name ("idle");
             } else if (model.search_results.length == 0) {
                 add_stack.set_visible_child_name ("empty");

@@ -5,6 +5,7 @@ namespace Gradio {
     public class StationRow : Gtk.ListBoxRow {
         public RadioStation station { get; private set; }
         public bool library_row { get; private set; }
+        public Gtk.Widget? drag_handle { get; private set; }
 
         private Elmish.Dispatch<Message> dispatch;
         private bool is_current;
@@ -40,6 +41,16 @@ namespace Gradio {
             var icon = new Gtk.Image.from_icon_name ("application-rss+xml-symbolic") {
                 pixel_size = icon_size
             };
+            if (library_row) {
+                var handle = new Gtk.Image.from_icon_name ("list-drag-handle-symbolic") {
+                    pixel_size = 16,
+                    valign = Gtk.Align.CENTER,
+                    tooltip_text = _("Drag to reorder")
+                };
+                handle.add_css_class ("dim-label");
+                row.append (handle);
+                drag_handle = handle;
+            }
             row.append (icon);
             station_icon = icon;
             set_favicon (favicon_path);

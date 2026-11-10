@@ -30,12 +30,13 @@ meson test -C builddir        # headless — no display needed
 Gradio is a usable single-list radio player:
 
 - One library list; `+` opens a radio-browser name search
+- Blank name with any filter browses everything matching that filter
 - Add stays in search and marks results as added; Back returns to the list
 - GStreamer playback with play/stop, volume, and stream metadata
 - Slide-in station details with homepage, stream URL, and remove
 - Station icons cached under `~/.cache/gradio/favicons/`, with homepage icon
   discovery and an RSS fallback
-- Library sorting (manual/name/country/bitrate) and search sorting
+- Drag stations to reorder the library; search-result sorting stays on the search tab
 - Persisted country, state, language, and tag search filters
 - Window geometry and station-icon size are remembered
 - Preferences for technical information and clearing the icon cache

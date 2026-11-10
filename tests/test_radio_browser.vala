@@ -74,8 +74,18 @@ void test_search_url_with_filters () {
     assert (query.lookup ("tagList") == "jazz");
 }
 
-void test_search_url_omits_empty_filters () {
+void test_search_url_empty_query_with_filter () {
     var filters = new Gradio.SearchFilters ();
+    filters.country = "Ukraine";
+
+    string url = Gradio.RadioBrowser.search_url ("", 10, filters);
+    var query = Soup.Form.decode (url.substring (url.index_of ("?") + 1));
+
+    assert (query.lookup ("name") == "");
+    assert (query.lookup ("country") == "Ukraine");
+}
+
+void test_search_url_omits_empty_filters () {    var filters = new Gradio.SearchFilters ();
     filters.country = "Germany";
     filters.state = "Novorossiya";
 
@@ -110,6 +120,7 @@ int main (string[] args) {
     Test.add_func ("/radio-browser/parse_skips_invalid", test_parse_skips_invalid);
     Test.add_func ("/radio-browser/search_url_unicode", test_search_url_unicode);
     Test.add_func ("/radio-browser/search_url_with_filters", test_search_url_with_filters);
+    Test.add_func ("/radio-browser/search_url_empty_query_with_filter", test_search_url_empty_query_with_filter);
     Test.add_func ("/radio-browser/search_url_omits_empty_filters", test_search_url_omits_empty_filters);
     Test.add_func ("/radio-browser/search_filters_trim", test_search_filters_trim_values);
     Test.add_func ("/radio-browser/station_by_uuid_url", test_station_by_uuid_url);

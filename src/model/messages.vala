@@ -13,6 +13,7 @@ public enum Gradio.MessageKind {
     SEARCH_FAILED,
     ADD_STATION,
     REMOVE_STATION,
+    MOVE_STATION,
     PLAY_STATION,
     TOGGLE_PLAY,
     PLAYER_STATE_CHANGED,
@@ -28,7 +29,6 @@ public enum Gradio.MessageKind {
     CLEAR_FAVICON_CACHE,
     WINDOW_GEOMETRY_CHANGED,
     SET_ICON_SIZE,
-    SET_SORT_MODE,
     SET_SEARCH_SORT_MODE,
     SET_SEARCH_FILTER,
     FAVICON_DISCOVERED
@@ -80,6 +80,20 @@ public class Gradio.RemoveStationMessage : Gradio.Message {
     public string station_id;
     public RemoveStationMessage (string station_id) { this.station_id = station_id; }
     public override MessageKind kind { get { return MessageKind.REMOVE_STATION; } }
+}
+
+public class Gradio.MoveStationMessage : Gradio.Message {
+    public string station_id;
+    public string target_id;
+    public bool after;
+
+    public MoveStationMessage (string station_id, string target_id, bool after) {
+        this.station_id = station_id;
+        this.target_id = target_id;
+        this.after = after;
+    }
+
+    public override MessageKind kind { get { return MessageKind.MOVE_STATION; } }
 }
 
 public class Gradio.PlayStationMessage : Gradio.Message {
@@ -198,14 +212,6 @@ public class Gradio.SetIconSizeMessage : Gradio.Message {
     public override MessageKind kind { get { return MessageKind.SET_ICON_SIZE; } }
 }
 
-public class Gradio.SetSortModeMessage : Gradio.Message {
-    public LibrarySortMode mode;
-
-    public SetSortModeMessage (LibrarySortMode mode) { this.mode = mode; }
-
-    public override MessageKind kind { get { return MessageKind.SET_SORT_MODE; } }
-}
-
 public class Gradio.SetSearchSortModeMessage : Gradio.Message {
     public SearchSortMode mode;
 
@@ -231,6 +237,7 @@ public class Gradio.AppModel {
     public AppConfig config;
     public GLib.GenericArray<RadioStation> search_results = new GLib.GenericArray<RadioStation> ();
     public string search_query = "";
+    public bool search_active = false;
     public bool searching = false;
     public string? search_error = null;
     public uint search_generation = 0;

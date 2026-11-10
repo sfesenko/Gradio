@@ -19,7 +19,6 @@ namespace Gradio {
         public int window_height = DEFAULT_WINDOW_HEIGHT;
         public bool maximized = false;
         public int icon_size = DEFAULT_ICON_SIZE;
-        public LibrarySortMode library_sort = LibrarySortMode.MANUAL;
         public SearchSortMode search_sort = SearchSortMode.RELEVANCE;
         public SearchFilters search_filters = new SearchFilters ();
         public GLib.GenericArray<RadioStation> stations = new GLib.GenericArray<RadioStation> ();
@@ -86,9 +85,6 @@ namespace Gradio {
                 config.maximized = settings.get_boolean_member_with_default ("maximized", config.maximized);
                 config.icon_size = normalize_icon_size (
                     (int) settings.get_int_member_with_default ("icon_size", config.icon_size));
-                config.library_sort = StationSort.library_from_string (
-                    settings.get_string_member_with_default ("sort_mode",
-                        StationSort.library_to_string (config.library_sort)));
                 config.search_sort = StationSort.search_from_string (
                     settings.get_string_member_with_default ("search_sort",
                         StationSort.search_to_string (config.search_sort)));
@@ -135,7 +131,6 @@ namespace Gradio {
             settings.set_int_member ("window_height", window_height);
             settings.set_boolean_member ("maximized", maximized);
             settings.set_int_member ("icon_size", icon_size);
-            settings.set_string_member ("sort_mode", StationSort.library_to_string (library_sort));
             settings.set_string_member ("search_sort", StationSort.search_to_string (search_sort));
 
             var filters = new Json.Object ();
@@ -183,6 +178,44 @@ namespace Gradio {
                 }
             }
             return false;
+        }
+
+        public bool move_station (string id, string target_id, bool after) {
+            if (id == target_id)
+                return false;
+
+            int from = -1;
+            int target = -1;
+            for (uint i = 0; i < stations.length; i++) {
+                if (stations.get (i).id == id)
+                    from = (int) i;
+                if (stations.get (i).id == target_id)
+                    target = (int) i;
+            }
+            if (from < 0 || target < 0)
+                return false;
+
+            var station = stations.get ((uint) from);
+            stations.remove_index ((uint) from);
+
+            target = -1;
+            for (uint i = 0; i < stations.length; i++) {
+                if (stations.get (i).id == target_id) {
+                    target = (int) i;
+                    break;
+                }
+            }
+            if (target < 0)
+                return false;
+
+            int insert_at = target + (after ? 1 : 0);
+            if (insert_at == from) {
+                stations.insert (from, station);
+                return false;
+            }
+
+            stations.insert (insert_at, station);
+            return true;
         }
 
         public bool contains_station (string id) {
