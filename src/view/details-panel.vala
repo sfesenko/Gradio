@@ -3,13 +3,17 @@
 namespace Gradio {
 
     public class DetailsPanel : Gtk.Box {
+        public signal void edit_requested (RadioStation station);
+
         private Elmish.Dispatch<Message> dispatch;
         private RadioStation? station;
         private Gtk.Label name_label;
         private Gtk.Label meta_label;
         private Gtk.Label tags_label;
+        private Gtk.Label orphan_label;
         private Gtk.Label now_playing_label;
         private Gtk.Button vote_button;
+        private Gtk.Button edit_button;
         private Gtk.LinkButton homepage_button;
         private Gtk.Label streams_heading;
         private Gtk.Box streams_box;
@@ -70,6 +74,12 @@ namespace Gradio {
             tags_label.add_css_class ("dim-label");
             append (tags_label);
 
+            orphan_label = new Gtk.Label (_("This station is no longer available in radio-browser."));
+            orphan_label.add_css_class ("dim-label");
+            orphan_label.wrap = true;
+            orphan_label.visible = false;
+            append (orphan_label);
+
             now_playing_label = new Gtk.Label ("") {
                 halign = Gtk.Align.START,
                 wrap = true,
@@ -89,6 +99,17 @@ namespace Gradio {
                     dispatch (new VoteStationMessage (station.id));
             });
             append (vote_button);
+
+            edit_button = new Gtk.Button.with_label (_("Edit")) {
+                halign = Gtk.Align.START,
+                visible = false
+            };
+            edit_button.add_css_class ("pill");
+            edit_button.clicked.connect (() => {
+                if (station != null)
+                    edit_requested (station);
+            });
+            append (edit_button);
 
             streams_heading = new Gtk.Label (_("Streams")) {
                 halign = Gtk.Align.START,
@@ -114,6 +135,8 @@ namespace Gradio {
                 now_playing_label.visible = false;
                 homepage_button.visible = false;
                 vote_button.visible = false;
+                edit_button.visible = false;
+                orphan_label.visible = false;
                 rebuild_streams (null);
                 return;
             }
@@ -144,9 +167,11 @@ namespace Gradio {
 
             bool voted = model.voted_ids.contains (station.id);
             bool pending = model.votes_pending.contains (station.id);
-            vote_button.visible = station.id != "";
+            vote_button.visible = station.id != "" && !station.is_local;
             vote_button.sensitive = !voted && !pending;
             vote_button.label = voted ? _("Voted") : pending ? _("Voting…") : _("Vote");
+            edit_button.visible = station.is_local;
+            orphan_label.visible = station.orphaned;
 
             rebuild_streams (station);
         }

@@ -9,6 +9,15 @@ namespace Gradio {
         BITRATE
     }
 
+    public enum LibrarySortMode {
+        CUSTOM,
+        NAME,
+        COUNTRY,
+        STATE,
+        LANGUAGE,
+        BITRATE
+    }
+
     // Pure search-result ordering helpers. Sorting works on a copy so the
     // radio-browser result order is never lost.
     public class StationSort {
@@ -55,6 +64,114 @@ namespace Gradio {
                     break;
             }
             return result;
+        }
+
+        public static GLib.GenericArray<RadioStation> sort_library (
+                GLib.GenericArray<RadioStation> stations, LibrarySortMode mode, bool descending) {
+            var result = copy (stations);
+            switch (mode) {
+                case LibrarySortMode.NAME:
+                    result.sort (compare_name);
+                    break;
+                case LibrarySortMode.COUNTRY:
+                    result.sort (compare_country);
+                    break;
+                case LibrarySortMode.STATE:
+                    result.sort (compare_state);
+                    break;
+                case LibrarySortMode.LANGUAGE:
+                    result.sort (compare_language);
+                    break;
+                case LibrarySortMode.BITRATE:
+                    result.sort (compare_bitrate_ascending);
+                    break;
+                default:
+                    return result;
+            }
+            if (descending) {
+                var reversed = new GLib.GenericArray<RadioStation> ();
+                for (uint i = result.length; i > 0; i--)
+                    reversed.add (result.get (i - 1));
+                return reversed;
+            }
+            return result;
+        }
+
+        public static string library_sort_to_string (LibrarySortMode mode) {
+            switch (mode) {
+                case LibrarySortMode.NAME:
+                    return "name";
+                case LibrarySortMode.COUNTRY:
+                    return "country";
+                case LibrarySortMode.STATE:
+                    return "state";
+                case LibrarySortMode.LANGUAGE:
+                    return "language";
+                case LibrarySortMode.BITRATE:
+                    return "bitrate";
+                default:
+                    return "custom";
+            }
+        }
+
+        public static LibrarySortMode library_sort_from_string (string value) {
+            switch (value) {
+                case "name":
+                    return LibrarySortMode.NAME;
+                case "country":
+                    return LibrarySortMode.COUNTRY;
+                case "state":
+                    return LibrarySortMode.STATE;
+                case "language":
+                    return LibrarySortMode.LANGUAGE;
+                case "bitrate":
+                    return LibrarySortMode.BITRATE;
+                default:
+                    return LibrarySortMode.CUSTOM;
+            }
+        }
+
+        private static int compare_country (RadioStation a, RadioStation b) {
+            return compare_library (a, b, LibrarySortMode.COUNTRY);
+        }
+
+        private static int compare_state (RadioStation a, RadioStation b) {
+            return compare_library (a, b, LibrarySortMode.STATE);
+        }
+
+        private static int compare_language (RadioStation a, RadioStation b) {
+            return compare_library (a, b, LibrarySortMode.LANGUAGE);
+        }
+
+        private static int compare_bitrate_ascending (RadioStation a, RadioStation b) {
+            return compare_library (a, b, LibrarySortMode.BITRATE);
+        }
+
+        private static int compare_library (RadioStation a, RadioStation b, LibrarySortMode mode) {
+            int result = 0;
+            switch (mode) {
+                case LibrarySortMode.NAME:
+                    result = compare_name (a, b);
+                    break;
+                case LibrarySortMode.COUNTRY:
+                    result = compare_text (a.country, b.country);
+                    break;
+                case LibrarySortMode.STATE:
+                    result = compare_text (a.state, b.state);
+                    break;
+                case LibrarySortMode.LANGUAGE:
+                    result = compare_text (a.language, b.language);
+                    break;
+                case LibrarySortMode.BITRATE:
+                    if (a.bitrate != b.bitrate)
+                        result = a.bitrate < b.bitrate ? -1 : 1;
+                    break;
+                default:
+                    break;
+            }
+            if (result != 0)
+                return result;
+            return compare_name (a, b);
         }
 
         private static GLib.GenericArray<RadioStation> copy (GLib.GenericArray<RadioStation> stations) {

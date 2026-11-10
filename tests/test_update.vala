@@ -22,6 +22,8 @@ class RecordingCommands : Gradio.Commands {
     public string last_playlist_path = "";
     public int last_playlist_count = 0;
     public int filter_option_calls = 0;
+    public int refresh_calls = 0;
+    public int last_refresh_count = 0;
     public string last_vote_id = "";
     public string last_notification = "";
     public string last_query = "";
@@ -108,6 +110,12 @@ class RecordingCommands : Gradio.Commands {
 
     public override Elmish.Cmd<Gradio.Message>? load_filter_options () {
         filter_option_calls++;
+        return dummy ();
+    }
+
+    public override Elmish.Cmd<Gradio.Message>? refresh_library (GLib.GenericArray<RadioStation> stations) {
+        refresh_calls++;
+        last_refresh_count = (int) stations.length;
         return dummy ();
     }
 }
@@ -1063,6 +1071,198 @@ void test_favicon_discovered_ignores_search_only_station () {
     assert (commands.save_calls == 0);
 }
 
+void test_add_local_station_assigns_id_and_saves () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    var station = new RadioStation ();
+    station.name = "Local Jazz";
+    station.url = "https://example.test/jazz";
+
+    var cmd = updateModel (new AddLocalStationMessage (station), model, commands);
+
+    assert (cmd != null);
+    assert (model.config.stations.length == 1);
+    var added = model.config.stations.get (0);
+    assert (added.id.has_prefix ("local-"));
+    assert (added.is_local == true);
+    assert (added.name == "Local Jazz");
+    assert (commands.save_calls == 1);
+}
+
+void test_add_local_station_rejects_invalid () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    var station = new RadioStation ();
+    station.name = "Local Jazz";
+    station.url = "not a url";
+
+    var cmd = updateModel (new AddLocalStationMessage (station), model, commands);
+
+    assert (cmd == null);
+    assert (model.config.stations.length == 0);
+    assert (model.status_message.contains ("URL"));
+}
+
+void test_add_local_station_rejects_duplicate_url () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    var existing = make_station ("u1");
+    existing.url = "https://example.test/jazz";
+    model.config.add_station (existing);
+
+    var station = new RadioStation ();
+    station.name = "Local Jazz";
+    station.url = existing.url;
+
+    var cmd = updateModel (new AddLocalStationMessage (station), model, commands);
+    assert (cmd == null);
+    assert (model.config.stations.length == 1);
+}
+
+void test_update_local_station_copies_fields () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    var existing = new RadioStation ();
+    existing.id = "local-1";
+    existing.is_local = true;
+    existing.name = "Old";
+    existing.url = "https://example.test/old";
+    model.config.add_station (existing);
+
+    var edited = existing.copy ();
+    edited.name = "New";
+    edited.url = "https://example.test/new";
+
+    var cmd = updateModel (new UpdateLocalStationMessage (edited), model, commands);
+    assert (cmd != null);
+    assert (existing.name == "New");
+    assert (existing.url == "https://example.test/new");
+    assert (existing.id == "local-1");
+    assert (commands.save_calls == 1);
+}
+
+void test_update_remote_station_is_rejected () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    var remote = make_station ("u1");
+    model.config.add_station (remote);
+
+    var edited = remote.copy ();
+    edited.name = "Changed";
+
+    var cmd = updateModel (new UpdateLocalStationMessage (edited), model, commands);
+    assert (cmd == null);
+    assert (remote.name == "u1");
+    assert (commands.save_calls == 0);
+}
+
+void test_set_library_sort_saves () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+
+    var cmd = updateModel (new SetLibrarySortMessage (LibrarySortMode.NAME, true),
+        model, commands);
+    assert (cmd != null);
+    assert (model.config.library_sort == LibrarySortMode.NAME);
+    assert (model.config.library_sort_descending == true);
+    assert (commands.save_calls == 1);
+}
+
+void test_refresh_library_starts_command () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    var remote = make_station ("u1");
+    model.config.add_station (remote);
+    var local = new RadioStation ();
+    local.id = "local-1";
+    local.is_local = true;
+    model.config.add_station (local);
+
+    var cmd = updateModel (new RefreshLibraryMessage (), model, commands);
+    assert (cmd != null);
+    assert (commands.refresh_calls == 1);
+    assert (commands.last_refresh_count == 1);
+}
+
+void test_library_refreshed_updates_remote_and_marks_missing () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    var remote = make_station ("u1");
+    remote.name = "Old";
+    model.config.add_station (remote);
+    var gone = make_station ("u2");
+    model.config.add_station (gone);
+    var local = new RadioStation ();
+    local.id = "local-1";
+    local.is_local = true;
+    local.name = "Local";
+    model.config.add_station (local);
+
+    var updated = make_station ("u1");
+    updated.name = "New";
+    var changed = new GLib.GenericArray<RadioStation> ();
+    changed.add (updated);
+
+    var cmd = updateModel (new LibraryRefreshedMessage (changed, { "u2" }), model, commands);
+    assert (cmd != null);
+    assert (remote.name == "New");
+    assert (remote.orphaned == false);
+    assert (gone.orphaned == true);
+    assert (local.name == "Local");
+    assert (local.orphaned == false);
+    assert (commands.save_calls == 1);
+}
+
+void test_add_local_station_trims_fields () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    var station = new RadioStation ();
+    station.name = "  Local Jazz  ";
+    station.url = "  https://example.test/jazz  ";
+
+    var cmd = updateModel (new AddLocalStationMessage (station), model, commands);
+    assert (cmd != null);
+    var added = model.config.stations.get (0);
+    assert (added.name == "Local Jazz");
+    assert (added.url == "https://example.test/jazz");
+    assert (added.original_url == "https://example.test/jazz");
+}
+
+void test_add_remote_duplicate_url_of_local_is_rejected () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    var local = new RadioStation ();
+    local.id = "local-1";
+    local.is_local = true;
+    local.name = "Local Jazz";
+    local.url = "https://example.test/jazz";
+    model.config.add_station (local);
+
+    var remote = make_station ("u1");
+    remote.url = "https://example.test/jazz";
+
+    var cmd = updateModel (new AddStationMessage (remote), model, commands);
+    assert (cmd == null);
+    assert (model.config.stations.length == 1);
+    assert (model.status_message.contains ("Already"));
+}
+
+void test_vote_local_station_is_rejected () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    var local = new RadioStation ();
+    local.id = "local-1";
+    local.is_local = true;
+    local.name = "Local";
+    local.url = "https://example.test/local";
+    model.config.add_station (local);
+
+    var cmd = updateModel (new VoteStationMessage ("local-1"), model, commands);
+    assert (cmd == null);
+    assert (commands.vote_calls == 0);
+    assert (model.votes_pending.size () == 0);
+}
+
 int main (string[] args) {
     Test.init (ref args);
 
@@ -1137,6 +1337,17 @@ int main (string[] args) {
     Test.add_func ("/update/set_search_filter_no_query", test_set_search_filter_without_query_searches_all);
     Test.add_func ("/update/clear_last_filter_stops_search", test_clearing_last_filter_stops_filter_search);
     Test.add_func ("/update/set_search_sort_filter_only", test_set_search_sort_replays_filter_only_search);
+    Test.add_func ("/update/add_local_station", test_add_local_station_assigns_id_and_saves);
+    Test.add_func ("/update/add_local_station_invalid", test_add_local_station_rejects_invalid);
+    Test.add_func ("/update/add_local_station_duplicate", test_add_local_station_rejects_duplicate_url);
+    Test.add_func ("/update/update_local_station", test_update_local_station_copies_fields);
+    Test.add_func ("/update/update_remote_station_rejected", test_update_remote_station_is_rejected);
+    Test.add_func ("/update/set_library_sort", test_set_library_sort_saves);
+    Test.add_func ("/update/refresh_library", test_refresh_library_starts_command);
+    Test.add_func ("/update/library_refreshed", test_library_refreshed_updates_remote_and_marks_missing);
+    Test.add_func ("/update/add_local_station_trims", test_add_local_station_trims_fields);
+    Test.add_func ("/update/add_remote_duplicate_local_url", test_add_remote_duplicate_url_of_local_is_rejected);
+    Test.add_func ("/update/vote_local_rejected", test_vote_local_station_is_rejected);
 
     return Test.run ();
 }

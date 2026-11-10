@@ -79,3 +79,9 @@ test_search_provider = executable('test_search_provider',
   dependencies: [test_deps, lib_core_dep],
 )
 test('search-provider', test_search_provider)
+
+test_station_validation = executable('test_station_validation',
+  'test_station_validation.vala',
+  dependencies: [test_deps, lib_core_dep],
+)
+test('station-validation', test_station_validation)

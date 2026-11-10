@@ -22,6 +22,8 @@ namespace Gradio {
         public bool resume_playback = false;
         public string last_station_id = "";
         public SearchSortMode search_sort = SearchSortMode.RELEVANCE;
+        public LibrarySortMode library_sort = LibrarySortMode.CUSTOM;
+        public bool library_sort_descending = false;
         public SearchFilters search_filters = new SearchFilters ();
         public GLib.GenericArray<RadioStation> stations = new GLib.GenericArray<RadioStation> ();
 
@@ -94,6 +96,11 @@ namespace Gradio {
                 config.search_sort = StationSort.search_from_string (
                     settings.get_string_member_with_default ("search_sort",
                         StationSort.search_to_string (config.search_sort)));
+                config.library_sort = StationSort.library_sort_from_string (
+                    settings.get_string_member_with_default ("library_sort",
+                        StationSort.library_sort_to_string (config.library_sort)));
+                config.library_sort_descending = settings.get_boolean_member_with_default (
+                    "library_sort_descending", config.library_sort_descending);
 
                 var filters_node = settings.get_member ("search_filters");
                 if (filters_node != null && filters_node.get_value_type () == typeof (Json.Object)) {
@@ -140,6 +147,9 @@ namespace Gradio {
             settings.set_boolean_member ("resume_playback", resume_playback);
             settings.set_string_member ("last_station", last_station_id);
             settings.set_string_member ("search_sort", StationSort.search_to_string (search_sort));
+            settings.set_string_member ("library_sort",
+                StationSort.library_sort_to_string (library_sort));
+            settings.set_boolean_member ("library_sort_descending", library_sort_descending);
 
             var filters = new Json.Object ();
             filters.set_string_member ("country", search_filters.country);

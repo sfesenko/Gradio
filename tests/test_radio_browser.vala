@@ -142,6 +142,11 @@ void test_station_by_uuid_url () {
     assert (url == Gradio.RadioBrowser.radio_browser + "/stations/byuuid/abc-123");
 }
 
+void test_stations_by_uuid_body () {
+    string body = Gradio.RadioBrowser.stations_by_uuid_body ({ "a", "b\"c" });
+    assert (body == "{\"uuids\":[\"a\",\"b\\\"c\"]}");
+}
+
 void test_vote_url () {    string url = Gradio.RadioBrowser.vote_url ("abc-123");
     assert (url == Gradio.RadioBrowser.radio_browser + "/vote/abc-123");
 }
@@ -190,6 +195,7 @@ int main (string[] args) {
     Test.add_func ("/radio-browser/search_url_omits_empty_filters", test_search_url_omits_empty_filters);
     Test.add_func ("/radio-browser/search_filters_trim", test_search_filters_trim_values);
     Test.add_func ("/radio-browser/station_by_uuid_url", test_station_by_uuid_url);
+    Test.add_func ("/radio-browser/stations_by_uuid_body", test_stations_by_uuid_body);
     Test.add_func ("/radio-browser/filter_list_url", test_filter_list_url);
     Test.add_func ("/radio-browser/parse_filter_names", test_parse_filter_names);
     Test.add_func ("/radio-browser/parse_filter_names_invalid",

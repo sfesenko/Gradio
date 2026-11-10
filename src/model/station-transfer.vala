@@ -41,6 +41,12 @@ namespace Gradio {
                 var station = RadioStation.from_json_object (element.get_object ());
                 if (station == null || station.id == "" || station.name == "" || station.url == "")
                     continue;
+                // Imported lists are user-owned unless the file explicitly says
+                // the entry came from radio-browser (`"local": false`). Otherwise
+                // a third-party URL would later be refreshed and flagged
+                // unavailable for an id radio-browser does not know.
+                if (!element.get_object ().has_member ("local"))
+                    station.is_local = true;
                 stations.add (station);
             }
             return stations;

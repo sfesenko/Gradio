@@ -16,6 +16,7 @@ namespace Gradio {
         public virtual Elmish.Cmd<Message>? export_stations (GLib.GenericArray<RadioStation> stations, string path) { return null; }
         public virtual Elmish.Cmd<Message>? export_playlist (GLib.GenericArray<RadioStation> stations, string path) { return null; }
         public virtual Elmish.Cmd<Message>? load_filter_options () { return null; }
+        public virtual Elmish.Cmd<Message>? refresh_library (GLib.GenericArray<RadioStation> stations) { return null; }
 
         public static Elmish.Cmd<Message>? chain (Elmish.Cmd<Message>? first, Elmish.Cmd<Message>? second) {
             if (first == null)

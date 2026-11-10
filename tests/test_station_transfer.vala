@@ -64,6 +64,20 @@ void test_parse_skips_invalid_entries () {
     assert (stations.get (0).id == "u1");
 }
 
+void test_parse_marks_third_party_stations_owned () {
+    var stations = parse (
+        "[{\"stationuuid\":\"u1\",\"name\":\"Jazz\",\"url_resolved\":\"https://example.test/jazz\"}]");
+    assert (stations.length == 1);
+    assert (stations.get (0).is_local == true);
+}
+
+void test_parse_keeps_explicit_remote_flag () {
+    var stations = parse (
+        "[{\"stationuuid\":\"u1\",\"name\":\"Jazz\",\"url_resolved\":\"https://example.test/jazz\",\"local\":false}]");
+    assert (stations.length == 1);
+    assert (stations.get (0).is_local == false);
+}
+
 void test_export_round_trip () {
     var stations = new GLib.GenericArray<RadioStation> ();
     stations.add (make_station ("u1", "Jazz", "https://example.test/jazz"));
@@ -143,6 +157,8 @@ int main (string[] args) {
     Test.add_func ("/station-transfer/parse_invalid", test_parse_rejects_invalid_json);
     Test.add_func ("/station-transfer/parse_no_stations", test_parse_rejects_object_without_stations);
     Test.add_func ("/station-transfer/parse_skips_invalid", test_parse_skips_invalid_entries);
+    Test.add_func ("/station-transfer/parse_owned", test_parse_marks_third_party_stations_owned);
+    Test.add_func ("/station-transfer/parse_remote_flag", test_parse_keeps_explicit_remote_flag);
     Test.add_func ("/station-transfer/export_round_trip", test_export_round_trip);
     Test.add_func ("/station-transfer/export_playlist", test_export_playlist);
     Test.add_func ("/station-transfer/export_playlist_flattens",

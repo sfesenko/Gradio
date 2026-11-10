@@ -55,6 +55,14 @@ GStreamer but still need no display.
 generation, the current station, playback state and stream metadata, and the
 details panel selection. Messages are discriminated by `MessageKind`.
 
+`RadioStation` carries `state`, `is_local`, and `orphaned` in addition to the
+radio-browser metadata. Local stations use `local-<uuid>` IDs and are the only
+editable entries; remote stations refresh from radio-browser on startup via the
+batch `refresh_library` command (`/json/stations/byuuid`). A failed batch
+discards the whole refresh so stations are never falsely flagged as orphaned.
+`AppConfig` persists the library order, the selected `LibrarySortMode`, and
+whether the sort is descending.
+
 `updateModel` is pure except for one injected dependency: a `Commands`
 factory. The factory returns `Cmd`s for search, play, stop, volume, and config
 saves. Tests inject a recording fake; production passes `AppRuntime`, which

@@ -168,6 +168,50 @@ namespace Gradio {
             });
         }
 
+        public override Elmish.Cmd<Message>? refresh_library (GLib.GenericArray<RadioStation> stations) {
+            var ids = new GLib.GenericArray<string> ();
+            for (uint i = 0; i < stations.length; i++)
+                ids.add (stations.get (i).id);
+            return new Elmish.Cmd<Message> ((dispatch) => {
+                refresh_library_async.begin (ids);
+            });
+        }
+
+        private async void refresh_library_async (GLib.GenericArray<string> ids) {
+            if (ids.length == 0)
+                return;
+
+            var updated_all = new GLib.GenericArray<RadioStation> ();
+            string[] missing_all = {};
+
+            for (uint offset = 0; offset < ids.length; offset += 100) {
+                string[] batch = {};
+                for (uint i = offset; i < ids.length && i < offset + 100; i++)
+                    batch += ids.get (i);
+
+                try {
+                    var updated = yield RadioBrowser.stations_by_uuid_async (session, batch);
+                    var found = new GLib.HashTable<string, bool> (str_hash, str_equal);
+                    for (uint i = 0; i < updated.length; i++) {
+                        updated_all.add (updated.get (i));
+                        found.set (updated.get (i).id, true);
+                    }
+                    foreach (string id in batch) {
+                        if (!found.contains (id))
+                            missing_all += id;
+                    }
+                } catch (GLib.Error e) {
+                    // A refresh is best-effort. Discard the whole result rather than
+                    // marking stations orphaned because a batch failed.
+                    return;
+                }
+            }
+
+            var target_dispatch = dispatch;
+            if (target_dispatch != null)
+                target_dispatch (new LibraryRefreshedMessage (updated_all, missing_all));
+        }
+
         public override Elmish.Cmd<Message>? notify_error (string message) {
             return new Elmish.Cmd<Message> ((dispatch) => {
                 var app = application;

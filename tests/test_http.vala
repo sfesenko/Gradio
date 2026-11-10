@@ -24,6 +24,12 @@ class HttpFixture : GLib.Object {
         server.add_handler ("/hang", (srv, msg, path, query) => {
             srv.pause_message (msg);
         });
+        server.add_handler ("/echo", (srv, msg, path, query) => {
+            var body = msg.get_request_body ();
+            var bytes = body != null ? body.flatten () : new GLib.Bytes (new uint8[0]);
+            msg.set_status (200, null);
+            msg.set_response ("application/json", Soup.MemoryUse.COPY, bytes.get_data ());
+        });
 
         server.listen_local (0, 0);
         var uri = server.get_uris ().nth_data (0);
@@ -152,6 +158,25 @@ class HttpFixture : GLib.Object {
         assert (error != null);
     }
 
+    public void test_post_echo () {
+        string? result = null;
+        GLib.Error? error = null;
+
+        Gradio.Http.post_string_async.begin (session, base_url + "/echo",
+            "{\"uuids\":[\"a\"]}", "application/json", null, (obj, res) => {
+                try {
+                    result = Gradio.Http.post_string_async.end (res);
+                } catch (GLib.Error e) {
+                    error = e;
+                }
+                loop.quit ();
+            });
+        loop.run ();
+
+        assert (error == null);
+        assert_cmpstr (result, CompareOperator.EQ, "{\"uuids\":[\"a\"]}");
+    }
+
     public void test_bytes_to_string () {
         uint8[] data = { 'a', 'b', 'c' };
         var bytes = new GLib.Bytes (data);
@@ -182,6 +207,7 @@ int main (string[] args) {
     Test.add_func ("/http/url_whitespace", () => run_fixture ((fixture) => fixture.test_url_whitespace ()));
     Test.add_func ("/http/bytes_to_string", () => run_fixture ((fixture) => fixture.test_bytes_to_string ()));
     Test.add_func ("/http/request_timeout", () => run_fixture ((fixture) => fixture.test_request_timeout ()));
+    Test.add_func ("/http/post_echo", () => run_fixture ((fixture) => fixture.test_post_echo ()));
 
     return Test.run ();
 }

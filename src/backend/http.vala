@@ -83,5 +83,25 @@ namespace Gradio {
             var bytes = yield get_bytes_async (session, url, cancellable);
             return bytes_to_string (bytes);
         }
+
+        public static async string post_string_async (Soup.Session session, string url,
+                string body, string content_type = "application/json",
+                GLib.Cancellable? cancellable = null) throws GLib.Error {
+            string normalized = normalize_url (url);
+            if (!is_valid_url (normalized))
+                throw new HttpError.REQUEST_FAILED ("Invalid URL: %s", url);
+
+            var message = new Soup.Message ("POST", normalized);
+            message.set_request_body_from_bytes (content_type, new GLib.Bytes (body.data));
+            var bytes = yield session.send_and_read_async (message, GLib.Priority.DEFAULT,
+                cancellable);
+
+            int status = (int) message.get_status ();
+            if (status < 200 || status >= 300)
+                throw new HttpError.REQUEST_FAILED ("HTTP %d for %s", status,
+                    message.get_uri ().to_string ());
+
+            return bytes_to_string (bytes);
+        }
     }
 }

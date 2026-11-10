@@ -20,6 +20,14 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
     private Gtk.DropDown language_dropdown;
     private Gtk.DropDown tag_dropdown;
     private bool syncing_filters = false;
+    private bool syncing_sort = false;
+    private Gtk.CheckButton sort_custom_button;
+    private Gtk.CheckButton sort_name_button;
+    private Gtk.CheckButton sort_country_button;
+    private Gtk.CheckButton sort_state_button;
+    private Gtk.CheckButton sort_language_button;
+    private Gtk.CheckButton sort_bitrate_button;
+    private Gtk.Switch sort_descending_switch;
     private string filter_signature = "";
     private bool last_adding = false;
     private Gradio.AppModel app_model;
@@ -78,6 +86,7 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
             tooltip_text = _("Menu")
         };
         var menu = new GLib.Menu ();
+        menu.append (_("Add local station…"), "win.add-local-station");
         menu.append (_("Import stations…"), "win.import-stations");
         menu.append (_("Export stations…"), "win.export-stations");
         menu.append (_("Export playlist…"), "win.export-playlist");
@@ -87,11 +96,90 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
         menu_button.set_menu_model (menu);
         header.pack_end (menu_button);
 
+        var sort_button = new Gtk.MenuButton () {
+            icon_name = "view-sort-ascending-symbolic",
+            tooltip_text = _("Sort library")
+        };
+        var sort_box = new Gtk.Box (Gtk.Orientation.VERTICAL, 4) {
+            margin_top = 8,
+            margin_bottom = 8,
+            margin_start = 8,
+            margin_end = 8
+        };
+        sort_custom_button = new Gtk.CheckButton.with_label (_("Custom order"));
+        sort_name_button = new Gtk.CheckButton.with_label (_("Name"));
+        sort_country_button = new Gtk.CheckButton.with_label (_("Country"));
+        sort_state_button = new Gtk.CheckButton.with_label (_("State"));
+        sort_language_button = new Gtk.CheckButton.with_label (_("Language"));
+        sort_bitrate_button = new Gtk.CheckButton.with_label (_("Bitrate"));
+        sort_name_button.set_group (sort_custom_button);
+        sort_country_button.set_group (sort_custom_button);
+        sort_state_button.set_group (sort_custom_button);
+        sort_language_button.set_group (sort_custom_button);
+        sort_bitrate_button.set_group (sort_custom_button);
+        sort_box.append (sort_custom_button);
+        sort_box.append (sort_name_button);
+        sort_box.append (sort_country_button);
+        sort_box.append (sort_state_button);
+        sort_box.append (sort_language_button);
+        sort_box.append (sort_bitrate_button);
+
+        var sort_descending_row = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 8);
+        sort_descending_row.append (new Gtk.Label (_("Descending")) {
+            hexpand = true,
+            xalign = 0
+        });
+        sort_descending_switch = new Gtk.Switch () {
+            valign = Gtk.Align.CENTER
+        };
+        sort_descending_row.append (sort_descending_switch);
+        sort_box.append (new Gtk.Separator (Gtk.Orientation.HORIZONTAL));
+        sort_box.append (sort_descending_row);
+
+        var sort_popover = new Gtk.Popover () { child = sort_box };
+        sort_button.set_popover (sort_popover);
+
+        sort_custom_button.toggled.connect (() => {
+            if (!syncing_sort && sort_custom_button.active)
+                dispatch_library_sort (LibrarySortMode.CUSTOM);
+        });
+        sort_name_button.toggled.connect (() => {
+            if (!syncing_sort && sort_name_button.active)
+                dispatch_library_sort (LibrarySortMode.NAME);
+        });
+        sort_country_button.toggled.connect (() => {
+            if (!syncing_sort && sort_country_button.active)
+                dispatch_library_sort (LibrarySortMode.COUNTRY);
+        });
+        sort_state_button.toggled.connect (() => {
+            if (!syncing_sort && sort_state_button.active)
+                dispatch_library_sort (LibrarySortMode.STATE);
+        });
+        sort_language_button.toggled.connect (() => {
+            if (!syncing_sort && sort_language_button.active)
+                dispatch_library_sort (LibrarySortMode.LANGUAGE);
+        });
+        sort_bitrate_button.toggled.connect (() => {
+            if (!syncing_sort && sort_bitrate_button.active)
+                dispatch_library_sort (LibrarySortMode.BITRATE);
+        });
+        sort_descending_switch.notify["active"].connect (() => {
+            if (syncing_sort || app_model == null)
+                return;
+            dispatch (new SetLibrarySortMessage (app_model.config.library_sort,
+                sort_descending_switch.active));
+        });
+        header.pack_end (sort_button);
+
         set_titlebar (header);
 
         var add_station_action = new GLib.SimpleAction ("add-station", null);
         add_station_action.activate.connect (open_add_view);
         add_action (add_station_action);
+
+        var add_local_action = new GLib.SimpleAction ("add-local-station", null);
+        add_local_action.activate.connect (() => open_station_editor (null));
+        add_action (add_local_action);
 
         var library_action = new GLib.SimpleAction ("library", null);
         library_action.activate.connect (() => dispatch (new SetViewMessage (ViewMode.LIBRARY)));
@@ -180,6 +268,7 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
         library_stack.add_named (scroll, "list");
 
         details_panel = new Gradio.DetailsPanel (dispatch);
+        details_panel.edit_requested.connect ((station) => open_station_editor (station));
         var details_scroll = new Gtk.ScrolledWindow () {
             child = details_panel,
             hscrollbar_policy = Gtk.PolicyType.NEVER,
@@ -198,6 +287,11 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
         page.append (new Gtk.Separator (Gtk.Orientation.VERTICAL));
         page.append (details_revealer);
         return page;
+    }
+
+    private void open_station_editor (RadioStation? station) {
+        var dialog = new StationEditorDialog (this, app_model, dispatch, station);
+        dialog.present ();
     }
 
     private Gtk.Widget build_add_page (Gradio.AppModel model) {
@@ -403,6 +497,25 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
         syncing_filters = false;
     }
 
+    private void dispatch_library_sort (LibrarySortMode mode) {
+        if (syncing_sort || app_model == null)
+            return;
+        dispatch (new SetLibrarySortMessage (mode, sort_descending_switch.active));
+    }
+
+    private void sync_sort_controls (Gradio.AppModel model) {
+        syncing_sort = true;
+        var mode = model.config.library_sort;
+        sort_custom_button.active = mode == LibrarySortMode.CUSTOM;
+        sort_name_button.active = mode == LibrarySortMode.NAME;
+        sort_country_button.active = mode == LibrarySortMode.COUNTRY;
+        sort_state_button.active = mode == LibrarySortMode.STATE;
+        sort_language_button.active = mode == LibrarySortMode.LANGUAGE;
+        sort_bitrate_button.active = mode == LibrarySortMode.BITRATE;
+        sort_descending_switch.active = model.config.library_sort_descending;
+        syncing_sort = false;
+    }
+
     private static string rows_signature (GLib.GenericArray<Gradio.RadioStation> stations,
             bool show_technical_info, int icon_size) {
         var builder = new GLib.StringBuilder ();
@@ -587,10 +700,14 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
         }
         last_adding = adding;
         sync_filter_pickers (model);
+        sync_sort_controls (model);
 
-        var library = model.config.stations;
+        var library = StationSort.sort_library (model.config.stations,
+            model.config.library_sort, model.config.library_sort_descending);
         string lib_sig = rows_signature (library, model.config.show_technical_info,
-            model.config.icon_size);
+            model.config.icon_size) + "|sort:" +
+            StationSort.library_sort_to_string (model.config.library_sort) +
+            (model.config.library_sort_descending ? ":desc" : ":asc");
         if (lib_sig != library_signature) {
             library_signature = lib_sig;
             list_box.remove_all ();
@@ -599,7 +716,9 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
                 var row = new Gradio.StationRow (station, true, model.config.show_technical_info,
                     false, false, false, model.favicon_for (station), model.config.icon_size, dispatch);
                 list_box.append (row);
-                attach_library_drag (row);
+                if (model.config.library_sort == LibrarySortMode.CUSTOM)
+                    attach_library_drag (row);
+                row.set_drag_enabled (model.config.library_sort == LibrarySortMode.CUSTOM);
             }
         }
         for (uint i = 0; i < library.length; i++) {

@@ -308,6 +308,21 @@ void test_resume_playback_defaults_off () {
     cleanup (dir);
 }
 
+void test_library_sort_round_trip () {
+    string dir = make_tmp_dir ();
+    string path = GLib.Path.build_filename (dir, "config.json");
+
+    var config = new Gradio.AppConfig (path);
+    config.library_sort = Gradio.LibrarySortMode.COUNTRY;
+    config.library_sort_descending = true;
+    save_config (config);
+
+    var loaded = load_config (path);
+    assert (loaded.library_sort == Gradio.LibrarySortMode.COUNTRY);
+    assert (loaded.library_sort_descending == true);
+    cleanup (dir);
+}
+
 int main (string[] args) {
     Test.init (ref args);
 
@@ -332,6 +347,7 @@ int main (string[] args) {
     Test.add_func ("/app-config/skips_invalid_station_entries", test_skips_invalid_station_entries);
     Test.add_func ("/app-config/volume_clamped", test_volume_clamped);
     Test.add_func ("/app-config/skips_station_without_id", test_skips_station_without_id);
+    Test.add_func ("/app-config/library_sort_round_trip", test_library_sort_round_trip);
 
     return Test.run ();
 }

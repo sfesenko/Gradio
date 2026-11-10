@@ -64,7 +64,7 @@ namespace Gradio {
                 ellipsize = Pango.EllipsizeMode.END
             };
             title.add_css_class ("heading");
-            secondary_label = new Gtk.Label (station.secondary_text (show_technical_info)) {
+            secondary_label = new Gtk.Label (display_secondary ()) {
                 halign = Gtk.Align.START,
                 ellipsize = Pango.EllipsizeMode.END
             };
@@ -99,6 +99,13 @@ namespace Gradio {
                     dispatch (new AddStationMessage (station));
                 }
             });
+        }
+
+        private string display_secondary () {
+            string secondary = station.secondary_text (show_technical_info);
+            if (station.orphaned)
+                secondary = secondary == "" ? _("Unavailable") : secondary + " • " + _("Unavailable");
+            return secondary;
         }
 
         public void set_favicon (string? path) {
@@ -141,7 +148,7 @@ namespace Gradio {
             if (is_current && playing && stream_title != "")
                 secondary_label.label = stream_title;
             else
-                secondary_label.label = station.secondary_text (show_technical_info);
+                secondary_label.label = display_secondary ();
             if (is_current)
                 add_css_class ("current-station");
             else
@@ -157,6 +164,11 @@ namespace Gradio {
                 add_button.sensitive = !already_added;
             }
             this.already_added = already_added;
+        }
+
+        public void set_drag_enabled (bool enabled) {
+            if (drag_handle != null)
+                drag_handle.visible = enabled;
         }
 
         private Gtk.Box build_actions () {

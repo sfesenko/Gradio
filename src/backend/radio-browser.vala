@@ -118,6 +118,33 @@ namespace Gradio {
             return stations.get (0);
         }
 
+        public static string stations_by_uuid_url () {
+            return radio_browser + "/stations/byuuid";
+        }
+
+        public static string stations_by_uuid_body (string[] ids) {
+            var builder = new Json.Builder ();
+            builder.begin_object ();
+            builder.set_member_name ("uuids");
+            builder.begin_array ();
+            foreach (string id in ids)
+                builder.add_string_value (id);
+            builder.end_array ();
+            builder.end_object ();
+            var generator = new Json.Generator ();
+            generator.set_root (builder.get_root ());
+            size_t length;
+            return generator.to_data (out length);
+        }
+
+        public static async GLib.GenericArray<RadioStation> stations_by_uuid_async (
+                Soup.Session session, string[] ids, GLib.Cancellable? cancellable = null)
+                throws GLib.Error {
+            string contents = yield Http.post_string_async (session, stations_by_uuid_url (),
+                stations_by_uuid_body (ids), "application/json", cancellable);
+            return parse_stations (contents);
+        }
+
         public static async GLib.GenericArray<RadioStation> search_async (Soup.Session session,
             string query, int limit = 50, SearchFilters? filters = null,
             GLib.Cancellable? cancellable = null) throws GLib.Error {

@@ -101,6 +101,11 @@ public Elmish.Cmd<Gradio.Message>? updateModel (Gradio.Message msg, Gradio.AppMo
             var add = msg as AddStationMessage;
             if (add == null)
                 break;
+            if (model.config.find_station_by_url (add.station.url) != null ||
+                    model.config.find_station_by_url (add.station.original_url) != null) {
+                model.status_message = _("Already in library");
+                break;
+            }
             if (model.config.add_station (add.station)) {
                 model.status_message = _("Added %s").printf (add.station.name);
                 return commands.save_config ();
@@ -154,8 +159,13 @@ public Elmish.Cmd<Gradio.Message>? updateModel (Gradio.Message msg, Gradio.AppMo
             if (model.voted_ids.contains (vote.station_id) ||
                     model.votes_pending.contains (vote.station_id))
                 break;
-            if (find_station (model, vote.station_id) == null) {
+            var votable = find_station (model, vote.station_id);
+            if (votable == null) {
                 model.status_message = _("Station not found");
+                break;
+            }
+            if (votable.is_local) {
+                model.status_message = _("Local stations cannot be voted for");
                 break;
             }
             model.votes_pending.set (vote.station_id, true);
@@ -288,6 +298,126 @@ public Elmish.Cmd<Gradio.Message>? updateModel (Gradio.Message msg, Gradio.AppMo
                 default:
                     break;
             }
+            break;
+
+        case MessageKind.ADD_LOCAL_STATION:
+            var add_local = msg as AddLocalStationMessage;
+            if (add_local == null)
+                break;
+            string? validation = StationValidation.validate (add_local.station.name,
+                add_local.station.url, add_local.station.homepage, model.config);
+            if (validation != null) {
+                model.status_message = validation;
+                break;
+            }
+            var local = add_local.station.copy ();
+            local.id = RadioStation.new_local_id ();
+            local.is_local = true;
+            local.orphaned = false;
+            local.name = local.name.strip ();
+            local.url = local.url.strip ();
+            local.original_url = local.original_url.strip ();
+            local.homepage = local.homepage.strip ();
+            local.country = local.country.strip ();
+            local.state = local.state.strip ();
+            local.language = local.language.strip ();
+            local.tags = local.tags.strip ();
+            local.codec = local.codec.strip ();
+            if (local.original_url == "")
+                local.original_url = local.url;
+            model.config.add_station (local);
+            model.status_message = _("Added %s").printf (local.name);
+            return commands.save_config ();
+
+        case MessageKind.UPDATE_LOCAL_STATION:
+            var update_local = msg as UpdateLocalStationMessage;
+            if (update_local == null)
+                break;
+            var existing = model.config.find_station (update_local.station.id);
+            if (existing == null || !existing.is_local) {
+                model.status_message = _("Only local stations can be edited");
+                break;
+            }
+            string? update_validation = StationValidation.validate (update_local.station.name,
+                update_local.station.url, update_local.station.homepage, model.config,
+                existing.id);
+            if (update_validation != null) {
+                model.status_message = update_validation;
+                break;
+            }
+            existing.name = update_local.station.name.strip ();
+            existing.url = update_local.station.url.strip ();
+            existing.original_url = update_local.station.original_url.strip () != ""
+                ? update_local.station.original_url.strip () : existing.url;
+            existing.homepage = update_local.station.homepage.strip ();
+            existing.state = update_local.station.state.strip ();
+            existing.language = update_local.station.language.strip ();
+            existing.country = update_local.station.country.strip ();
+            existing.tags = update_local.station.tags.strip ();
+            existing.codec = update_local.station.codec.strip ();
+            existing.bitrate = update_local.station.bitrate;
+            model.status_message = _("Saved %s").printf (existing.name);
+            return commands.save_config ();
+
+        case MessageKind.SET_LIBRARY_SORT:
+            var library_sort = msg as SetLibrarySortMessage;
+            if (library_sort == null)
+                break;
+            if (library_sort.mode == model.config.library_sort &&
+                    library_sort.descending == model.config.library_sort_descending)
+                break;
+            model.config.library_sort = library_sort.mode;
+            model.config.library_sort_descending = library_sort.descending;
+            return commands.save_config ();
+
+        case MessageKind.REFRESH_LIBRARY:
+            var refresh = new GLib.GenericArray<RadioStation> ();
+            for (uint i = 0; i < model.config.stations.length; i++) {
+                var station = model.config.stations.get (i);
+                if (!station.is_local && station.id != "")
+                    refresh.add (station);
+            }
+            if (refresh.length == 0)
+                break;
+            return commands.refresh_library (refresh);
+
+        case MessageKind.LIBRARY_REFRESHED:
+            var refreshed = msg as LibraryRefreshedMessage;
+            if (refreshed == null)
+                break;
+            bool changed = false;
+            for (uint i = 0; i < refreshed.updated.length; i++) {
+                var incoming = refreshed.updated.get (i);
+                var existing = model.config.find_station (incoming.id);
+                if (existing == null || existing.is_local)
+                    continue;
+                existing.name = incoming.name;
+                existing.url = incoming.url;
+                existing.original_url = incoming.original_url;
+                existing.favicon = incoming.favicon;
+                existing.country = incoming.country;
+                existing.countrycode = incoming.countrycode;
+                existing.state = incoming.state;
+                existing.language = incoming.language;
+                existing.tags = incoming.tags;
+                existing.codec = incoming.codec;
+                existing.bitrate = incoming.bitrate;
+                existing.homepage = incoming.homepage;
+                existing.broken = incoming.broken;
+                existing.votes = incoming.votes;
+                existing.clickcount = incoming.clickcount;
+                existing.orphaned = false;
+                changed = true;
+            }
+            foreach (string missing_id in refreshed.missing_ids) {
+                var existing = model.config.find_station (missing_id);
+                if (existing != null && !existing.is_local && !existing.orphaned) {
+                    existing.orphaned = true;
+                    changed = true;
+                }
+            }
+            if (changed)
+                return commands.save_config ();
             break;
 
         case MessageKind.PLAY_STATION:

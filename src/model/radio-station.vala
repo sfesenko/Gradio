@@ -12,12 +12,15 @@ namespace Gradio {
         public string favicon = "";
         public string country = "";
         public string countrycode = "";
+        public string state = "";
         public string language = "";
         public string tags = "";
         public string codec = "";
         public int bitrate = 0;
         public string homepage = "";
         public bool broken = false;
+        public bool orphaned = false;
+        public bool is_local = false;
         public int votes = 0;
         public int clickcount = 0;
 
@@ -39,6 +42,9 @@ namespace Gradio {
             station.favicon = string_member (obj, "favicon");
             station.country = string_member (obj, "country");
             station.countrycode = string_member (obj, "countrycode");
+            station.state = string_member (obj, "state");
+            station.is_local = obj.get_boolean_member_with_default ("local", false);
+            station.orphaned = obj.get_boolean_member_with_default ("orphaned", false);
             station.language = string_member (obj, "language");
             station.tags = string_member (obj, "tags");
             station.codec = string_member (obj, "codec");
@@ -59,6 +65,9 @@ namespace Gradio {
             obj.set_string_member ("favicon", favicon);
             obj.set_string_member ("country", country);
             obj.set_string_member ("countrycode", countrycode);
+            obj.set_string_member ("state", state);
+            obj.set_boolean_member ("local", is_local);
+            obj.set_boolean_member ("orphaned", orphaned);
             obj.set_string_member ("language", language);
             obj.set_string_member ("tags", tags);
             obj.set_string_member ("codec", codec);
@@ -71,6 +80,33 @@ namespace Gradio {
             var node = new Json.Node (Json.NodeType.OBJECT);
             node.set_object (obj);
             return node;
+        }
+
+        public static string new_local_id () {
+            return "local-" + GLib.Uuid.string_random ();
+        }
+
+        public RadioStation copy () {
+            var result = new RadioStation ();
+            result.id = id;
+            result.name = name;
+            result.url = url;
+            result.original_url = original_url;
+            result.favicon = favicon;
+            result.country = country;
+            result.countrycode = countrycode;
+            result.state = state;
+            result.language = language;
+            result.tags = tags;
+            result.codec = codec;
+            result.bitrate = bitrate;
+            result.homepage = homepage;
+            result.broken = broken;
+            result.orphaned = orphaned;
+            result.is_local = is_local;
+            result.votes = votes;
+            result.clickcount = clickcount;
+            return result;
         }
 
         public string[] stream_urls () {

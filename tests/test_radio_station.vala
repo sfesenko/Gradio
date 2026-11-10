@@ -95,6 +95,46 @@ void test_secondary_text () {
     assert (station.secondary_text (true) == "Germany • MP3 128 kbit/s");
 }
 
+void test_local_fields_round_trip () {
+    var station = new Gradio.RadioStation ();
+    station.id = "local-abc";
+    station.name = "Local Jazz";
+    station.url = "https://example.test/jazz";
+    station.state = "Bavaria";
+    station.is_local = true;
+    station.orphaned = true;
+
+    var parsed = Gradio.RadioStation.from_json_object (station.to_json_node ().get_object ());
+    assert (parsed != null);
+    assert (parsed.state == "Bavaria");
+    assert (parsed.is_local == true);
+    assert (parsed.orphaned == true);
+}
+
+void test_local_id_prefix () {
+    string id = Gradio.RadioStation.new_local_id ();
+    assert (id.has_prefix ("local-"));
+    assert (id.length > "local-".length);
+    assert (Gradio.RadioStation.new_local_id () != id);
+}
+
+void test_copy_preserves_fields () {
+    var station = new Gradio.RadioStation ();
+    station.id = "local-abc";
+    station.name = "Local Jazz";
+    station.url = "https://example.test/jazz";
+    station.state = "Bavaria";
+    station.is_local = true;
+
+    var copy = station.copy ();
+    assert (copy.id == station.id);
+    assert (copy.name == station.name);
+    assert (copy.state == station.state);
+    assert (copy.is_local == true);
+    copy.name = "Changed";
+    assert (station.name == "Local Jazz");
+}
+
 int main (string[] args) {
     Test.init (ref args);
 
@@ -104,6 +144,9 @@ int main (string[] args) {
     Test.add_func ("/radio-station/stream_urls", test_stream_urls);
     Test.add_func ("/radio-station/original_url_round_trip", test_original_url_round_trip);
     Test.add_func ("/radio-station/secondary_text", test_secondary_text);
+    Test.add_func ("/radio-station/local_fields_round_trip", test_local_fields_round_trip);
+    Test.add_func ("/radio-station/local_id_prefix", test_local_id_prefix);
+    Test.add_func ("/radio-station/copy_preserves_fields", test_copy_preserves_fields);
 
     return Test.run ();
 }

@@ -12,6 +12,11 @@ public enum Gradio.MessageKind {
     SEARCH_RESULTS,
     SEARCH_FAILED,
     ADD_STATION,
+    ADD_LOCAL_STATION,
+    UPDATE_LOCAL_STATION,
+    SET_LIBRARY_SORT,
+    REFRESH_LIBRARY,
+    LIBRARY_REFRESHED,
     REMOVE_STATION,
     MOVE_STATION,
     PLAY_STATION,
@@ -91,6 +96,34 @@ public class Gradio.AddStationMessage : Gradio.Message {
     public override MessageKind kind { get { return MessageKind.ADD_STATION; } }
 }
 
+public class Gradio.AddLocalStationMessage : Gradio.Message {
+    public RadioStation station;
+
+    public AddLocalStationMessage (RadioStation station) { this.station = station; }
+
+    public override MessageKind kind { get { return MessageKind.ADD_LOCAL_STATION; } }
+}
+
+public class Gradio.UpdateLocalStationMessage : Gradio.Message {
+    public RadioStation station;
+
+    public UpdateLocalStationMessage (RadioStation station) { this.station = station; }
+
+    public override MessageKind kind { get { return MessageKind.UPDATE_LOCAL_STATION; } }
+}
+
+public class Gradio.SetLibrarySortMessage : Gradio.Message {
+    public LibrarySortMode mode;
+    public bool descending;
+
+    public SetLibrarySortMessage (LibrarySortMode mode, bool descending) {
+        this.mode = mode;
+        this.descending = descending;
+    }
+
+    public override MessageKind kind { get { return MessageKind.SET_LIBRARY_SORT; } }
+}
+
 public class Gradio.RemoveStationMessage : Gradio.Message {
     public string station_id;
     public RemoveStationMessage (string station_id) { this.station_id = station_id; }
@@ -109,6 +142,23 @@ public class Gradio.MoveStationMessage : Gradio.Message {
     }
 
     public override MessageKind kind { get { return MessageKind.MOVE_STATION; } }
+}
+
+public class Gradio.RefreshLibraryMessage : Gradio.Message {
+    public override MessageKind kind { get { return MessageKind.REFRESH_LIBRARY; } }
+}
+
+public class Gradio.LibraryRefreshedMessage : Gradio.Message {
+    public GLib.GenericArray<RadioStation> updated;
+    public string[] missing_ids;
+
+    public LibraryRefreshedMessage (GLib.GenericArray<RadioStation> updated,
+            string[] missing_ids) {
+        this.updated = updated;
+        this.missing_ids = missing_ids;
+    }
+
+    public override MessageKind kind { get { return MessageKind.LIBRARY_REFRESHED; } }
 }
 
 public class Gradio.PlayStationMessage : Gradio.Message {
