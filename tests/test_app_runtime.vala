@@ -242,6 +242,22 @@ void test_export_playlist_writes_m3u () {
     cleanup_dir (dir);
 }
 
+void test_background_commands_without_application_are_noop () {
+    string dir = make_tmp_dir ();
+    var config = new Gradio.AppConfig (GLib.Path.build_filename (dir, "config.json"));
+    var runtime = new Gradio.AppRuntime (config);
+    var background = runtime.background_on_close ();
+    var quit = runtime.quit_application ();
+    var release = runtime.release_background ();
+    assert (background != null);
+    assert (quit != null);
+    assert (release != null);
+    Elmish.Cmd.exec<Gradio.Message> ((msg) => {}, background);
+    Elmish.Cmd.exec<Gradio.Message> ((msg) => {}, quit);
+    Elmish.Cmd.exec<Gradio.Message> ((msg) => {}, release);
+    cleanup_dir (dir);
+}
+
 int main (string[] args) {
     Gst.init (ref args);
     Test.init (ref args);
@@ -256,6 +272,7 @@ int main (string[] args) {
     Test.add_func ("/app-runtime/import_dispatches_stations", test_import_dispatches_stations);
     Test.add_func ("/app-runtime/notify_without_app", test_notify_without_application_is_noop);
     Test.add_func ("/app-runtime/report_click_failure_silent", test_report_click_failure_is_silent);
+    Test.add_func ("/app-runtime/background_noop", test_background_commands_without_application_are_noop);
 
     return Test.run ();
 }

@@ -62,7 +62,8 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
 
         close_request.connect (() => {
             dispatch (new WindowGeometryChangedMessage (get_width (), get_height (), is_maximized ()));
-            return false;
+            dispatch (new WindowCloseRequestedMessage ());
+            return true;
         });
 
         var header = new Gtk.HeaderBar ();

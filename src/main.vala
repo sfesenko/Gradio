@@ -53,19 +53,32 @@ int main (string[] args) {
         }
     );
 
+    bool started = false;
+
     var quit_action = new GLib.SimpleAction ("quit", null);
     quit_action.activate.connect ((parameter) => app.quit ());
     app.add_action (quit_action);
 
     var raise_action = new GLib.SimpleAction ("raise", null);
     raise_action.activate.connect ((parameter) => {
-        var window = app.get_active_window ();
-        if (window != null) {
-            window.present ();
+        unowned GLib.List<Gtk.Window> windows = app.get_windows ();
+        if (windows != null) {
+            var window = windows.data;
             window.set_visible (true);
+            window.present ();
+            if (started)
+                program.dispatch_message (new Gradio.WindowRaisedMessage ());
         }
     });
     app.add_action (raise_action);
+
+    var hide_action = new GLib.SimpleAction ("hide-window", null);
+    hide_action.activate.connect ((parameter) => {
+        unowned GLib.List<Gtk.Window> windows = app.get_windows ();
+        if (windows != null)
+            windows.data.set_visible (false);
+    });
+    app.add_action (hide_action);
 
     var about_action = new GLib.SimpleAction ("about", null);    about_action.activate.connect ((parameter) => {
         var about = new Gtk.AboutDialog ();
@@ -90,7 +103,7 @@ int main (string[] args) {
     app.set_accels_for_action ("win.details", details_accels);
     app.set_accels_for_action ("app.quit", quit_accels);
 
-    app.shutdown.connect (() => runtime.save_now ());
+    app.shutdown.connect (() => runtime.shutdown ());
 
     var search_provider = new Gradio.SearchProvider (config);
     search_provider.station_activated.connect ((station) => {
@@ -107,7 +120,6 @@ int main (string[] args) {
             search_provider.register (connection);
     });
 
-    bool started = false;
     app.activate.connect (() => {
         if (!started) {
             started = true;
@@ -117,6 +129,14 @@ int main (string[] args) {
             program.dispatch_message (new Gradio.DiscoverServerMessage ());
             program.dispatch_message (new Gradio.RequestFilterOptionsMessage ());
             program.dispatch_message (new Gradio.RestoreLastStationMessage ());
+        } else {
+            unowned GLib.List<Gtk.Window> windows = app.get_windows ();
+            if (windows != null) {
+                var window = windows.data;
+                window.set_visible (true);
+                window.present ();
+            }
+            program.dispatch_message (new Gradio.WindowRaisedMessage ());
         }
     });
 

@@ -20,6 +20,12 @@ namespace Gradio {
         public virtual Elmish.Cmd<Message>? discover_server () { return null; }
         public virtual Elmish.Cmd<Message>? discover (uint generation) { return null; }
         public virtual Elmish.Cmd<Message>? report_click (string station_id) { return null; }
+        public virtual Elmish.Cmd<Message>? background_on_close () { return null; }
+        public virtual Elmish.Cmd<Message>? quit_application () { return null; }
+        public virtual Elmish.Cmd<Message>? release_background () { return null; }
+        public virtual Elmish.Cmd<Message>? inhibit_sleep () { return null; }
+        public virtual Elmish.Cmd<Message>? release_sleep () { return null; }
+        public virtual Elmish.Cmd<Message>? notify_now_playing (string station_name, string title) { return null; }
 
         public static Elmish.Cmd<Message>? chain (Elmish.Cmd<Message>? first, Elmish.Cmd<Message>? second) {
             if (first == null)

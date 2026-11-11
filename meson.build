@@ -36,6 +36,7 @@ lib_core_sources = [
   'src/app-runtime.vala',
   'src/model/radio-station.vala',
   'src/model/app-config.vala',
+  'src/model/playback-lifecycle.vala',
   'src/model/station-sort.vala',
   'src/model/search-filters.vala',
   'src/model/station-validation.vala',
@@ -46,6 +47,7 @@ lib_core_sources = [
   'src/backend/player.vala',
   'src/backend/favicon.vala',
   'src/backend/mpris.vala',
+  'src/backend/sleep-inhibitor.vala',
   'src/backend/search-provider.vala',
   'src/app-update.vala',
 ]

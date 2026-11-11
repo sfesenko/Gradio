@@ -40,6 +40,26 @@ namespace Gradio {
             });
             list.append (build_row (_("Resume playback on startup"), resume_toggle));
 
+            var background_toggle = new Gtk.Switch () {
+                active = model.config.background_playback,
+                valign = Gtk.Align.CENTER
+            };
+            background_toggle.state_set.connect ((state) => {
+                dispatch (new SetBackgroundPlaybackMessage (state));
+                return false;
+            });
+            list.append (build_row (_("Keep playing when the window is closed"), background_toggle));
+
+            var notifications_toggle = new Gtk.Switch () {
+                active = model.config.notifications_enabled,
+                valign = Gtk.Align.CENTER
+            };
+            notifications_toggle.state_set.connect ((state) => {
+                dispatch (new SetNotificationsMessage (state));
+                return false;
+            });
+            list.append (build_row (_("Show notifications"), notifications_toggle));
+
             int[] icon_sizes = { 32, 48, 64, 96 };
             var icon_size = new Gtk.DropDown.from_strings ({ "32", "48", "64", "96" });
             uint selected = 0;

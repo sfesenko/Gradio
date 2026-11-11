@@ -9,6 +9,9 @@ namespace Gradio {
         private Gtk.Label metadata_label;
         private Gtk.Label status_label;
         private Gtk.VolumeButton volume_button;
+        private Gtk.MenuButton history_button;
+        private Gtk.Box history_box;
+        private string history_signature = "";
         private bool updating = false;
 
         public PlayerBar (Elmish.Dispatch<Message> dispatch) {
@@ -53,6 +56,22 @@ namespace Gradio {
             status_label.add_css_class ("dim-label");
             append (status_label);
 
+            history_button = new Gtk.MenuButton () {
+                icon_name = "document-open-recent-symbolic",
+                tooltip_text = _("Track history"),
+                visible = false
+            };
+            var history_popover = new Gtk.Popover ();
+            history_box = new Gtk.Box (Gtk.Orientation.VERTICAL, 4) {
+                margin_top = 8,
+                margin_bottom = 8,
+                margin_start = 8,
+                margin_end = 8
+            };
+            history_popover.set_child (history_box);
+            history_button.set_popover (history_popover);
+            append (history_button);
+
             volume_button = new Gtk.VolumeButton ();
             volume_button.set_adjustment (new Gtk.Adjustment (0.8, 0.0, 1.0, 0.01, 0.05, 0.0));
             volume_button.value_changed.connect ((value) => {
@@ -86,6 +105,25 @@ namespace Gradio {
             status_label.label = model.status_message;
             if (volume_button.value != model.config.volume)
                 volume_button.value = model.config.volume;
+
+            string signature = string.joinv ("\n", model.track_history);
+            if (signature != history_signature) {
+                history_signature = signature;
+                Gtk.Widget? child = history_box.get_first_child ();
+                while (child != null) {
+                    var next = child.get_next_sibling ();
+                    history_box.remove (child);
+                    child = next;
+                }
+                foreach (string title in model.track_history) {
+                    history_box.append (new Gtk.Label (title) {
+                        halign = Gtk.Align.START,
+                        ellipsize = Pango.EllipsizeMode.END,
+                        max_width_chars = 40
+                    });
+                }
+            }
+            history_button.visible = model.track_history.length > 0;
 
             updating = false;
         }

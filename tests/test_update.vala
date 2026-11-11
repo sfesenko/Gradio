@@ -35,6 +35,14 @@ class RecordingCommands : Gradio.Commands {
     public uint last_generation = 0;
     public double last_volume = -1;
     public GLib.GenericArray<RadioStation> last_favicon_stations = new GLib.GenericArray<RadioStation> ();
+    public int background_calls = 0;
+    public int quit_calls = 0;
+    public int release_background_calls = 0;
+    public int inhibit_sleep_calls = 0;
+    public int release_sleep_calls = 0;
+    public int now_playing_calls = 0;
+    public string last_now_playing_station = "";
+    public string last_now_playing_title = "";
 
     private Elmish.Cmd<Gradio.Message> dummy () {
         return new Elmish.Cmd<Gradio.Message> ((dispatch) => {});
@@ -138,6 +146,38 @@ class RecordingCommands : Gradio.Commands {
     public override Elmish.Cmd<Gradio.Message>? report_click (string station_id) {
         report_click_calls++;
         last_report_click_id = station_id;
+        return dummy ();
+    }
+
+    public override Elmish.Cmd<Gradio.Message>? background_on_close () {
+        background_calls++;
+        return dummy ();
+    }
+
+    public override Elmish.Cmd<Gradio.Message>? quit_application () {
+        quit_calls++;
+        return dummy ();
+    }
+
+    public override Elmish.Cmd<Gradio.Message>? release_background () {
+        release_background_calls++;
+        return dummy ();
+    }
+
+    public override Elmish.Cmd<Gradio.Message>? inhibit_sleep () {
+        inhibit_sleep_calls++;
+        return dummy ();
+    }
+
+    public override Elmish.Cmd<Gradio.Message>? release_sleep () {
+        release_sleep_calls++;
+        return dummy ();
+    }
+
+    public override Elmish.Cmd<Gradio.Message>? notify_now_playing (string station_name, string title) {
+        now_playing_calls++;
+        last_now_playing_station = station_name;
+        last_now_playing_title = title;
         return dummy ();
     }
 }
@@ -1594,9 +1634,236 @@ void test_clearing_filters_requests_discover_when_empty () {
     assert (model.discover_loading);
 }
 
+void test_close_policy_table () {
+    assert (!PlaybackLifecycle.should_background_on_close (false, false));
+    assert (!PlaybackLifecycle.should_background_on_close (false, true));
+    assert (!PlaybackLifecycle.should_background_on_close (true, false));
+    assert (PlaybackLifecycle.should_background_on_close (true, true));
+}
+
+void test_window_close_transitions () {
+    var hidden = make_model ();
+    var hidden_commands = new RecordingCommands ();
+    hidden.config.background_playback = true;
+    hidden.playing = true;
+    updateModel (new WindowCloseRequestedMessage (), hidden, hidden_commands);
+    assert (hidden.window_hidden);
+    assert (hidden_commands.background_calls == 1);
+    assert (hidden_commands.quit_calls == 0);
+
+    var disabled = make_model ();
+    var disabled_commands = new RecordingCommands ();
+    disabled.playing = true;
+    updateModel (new WindowCloseRequestedMessage (), disabled, disabled_commands);
+    assert (!disabled.window_hidden);
+    assert (disabled_commands.background_calls == 0);
+    assert (disabled_commands.quit_calls == 1);
+
+    var stopped = make_model ();
+    var stopped_commands = new RecordingCommands ();
+    stopped.config.background_playback = true;
+    updateModel (new WindowCloseRequestedMessage (), stopped, stopped_commands);
+    assert (!stopped.window_hidden);
+    assert (stopped_commands.quit_calls == 1);
+}
+
+void test_window_raised_and_setting () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    model.window_hidden = true;
+
+    assert (updateModel (new WindowRaisedMessage (), model, commands) == null);
+    assert (!model.window_hidden);
+
+    var cmd = updateModel (new SetBackgroundPlaybackMessage (true), model, commands);
+    assert (cmd != null);
+    assert (model.config.background_playback);
+    assert (commands.save_calls == 1);
+    updateModel (new SetBackgroundPlaybackMessage (true), model, commands);
+    assert (commands.save_calls == 1);
+}
+
+void test_stop_hidden_vs_visible () {
+    var hidden = make_model ();
+    var hidden_commands = new RecordingCommands ();
+    hidden.playing = true;
+    hidden.window_hidden = true;
+    updateModel (new StopPlaybackMessage (), hidden, hidden_commands);
+    assert (hidden_commands.stop_calls == 1);
+    assert (hidden_commands.release_background_calls == 1);
+    assert (hidden_commands.quit_calls == 1);
+    assert (!hidden.window_hidden);
+
+    var visible = make_model ();
+    var visible_commands = new RecordingCommands ();
+    visible.playing = true;
+    updateModel (new StopPlaybackMessage (), visible, visible_commands);
+    assert (visible_commands.release_background_calls == 1);
+    assert (visible_commands.quit_calls == 0);
+
+    var toggled = make_model ();
+    var toggled_commands = new RecordingCommands ();
+    toggled.current_station = make_station ("u1");
+    toggled.playing = true;
+    toggled.window_hidden = true;
+    updateModel (new TogglePlayMessage (), toggled, toggled_commands);
+    assert (!toggled.playing);
+    assert (toggled_commands.stop_calls == 1);
+    assert (toggled_commands.release_background_calls == 1);
+    assert (toggled_commands.quit_calls == 1);
+}
+
+void test_sleep_transitions () {
+    var play = make_model ();
+    var play_commands = new RecordingCommands ();
+    updateModel (new PlayStationMessage (make_station ("u1")), play, play_commands);
+    assert (play_commands.inhibit_sleep_calls == 1);
+
+    var stop = make_model ();
+    var stop_commands = new RecordingCommands ();
+    stop.playing = true;
+    updateModel (new StopPlaybackMessage (), stop, stop_commands);
+    assert (stop_commands.release_sleep_calls == 1);
+
+    var toggle = make_model ();
+    var toggle_commands = new RecordingCommands ();
+    toggle.current_station = make_station ("u1");
+    toggle.playing = true;
+    updateModel (new TogglePlayMessage (), toggle, toggle_commands);
+    assert (toggle_commands.release_sleep_calls == 1);
+}
+
+void test_player_error_releases_sleep () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    model.playing = true;
+    updateModel (new PlayerErrorMessage ("boom"), model, commands);
+    assert (commands.release_sleep_calls == 1);
+}
+
+void test_sleep_release_without_acquire () {
+    var inhibitor = new Gradio.SleepInhibitor ();
+    inhibitor.release ();
+    assert (!inhibitor.active);
+}
+
+void test_now_playing_dedupes_and_resets () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    updateModel (new PlayStationMessage (make_station ("u1")), model, commands);
+    assert (commands.now_playing_calls == 1);
+    assert (commands.last_now_playing_title == "u1");
+    assert (model.last_notified_title == "u1");
+
+    updateModel (new PlayerMetadataChangedMessage ("Track", 192), model, commands);
+    updateModel (new PlayerMetadataChangedMessage ("Track", 192), model, commands);
+    assert (commands.now_playing_calls == 2);
+    updateModel (new PlayerMetadataChangedMessage ("Next", 192), model, commands);
+    assert (commands.now_playing_calls == 3);
+    assert (commands.last_now_playing_title == "Next");
+}
+
+void test_disabled_notifications_suppress_all () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    model.config.notifications_enabled = false;
+    model.playing = true;
+
+    updateModel (new PlayStationMessage (make_station ("u1")), model, commands);
+    updateModel (new PlayerMetadataChangedMessage ("Track", 192), model, commands);
+    updateModel (new PlayerErrorMessage ("boom"), model, commands);
+    assert (commands.now_playing_calls == 0);
+    assert (commands.notify_calls == 0);
+}
+
+void test_set_notifications_saves () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    var cmd = updateModel (new SetNotificationsMessage (false), model, commands);
+    assert (cmd != null);
+    assert (!model.config.notifications_enabled);
+    assert (commands.save_calls == 1);
+}
+
+void test_track_history_helper () {
+    string[] history = {};
+    history = PlaybackLifecycle.push_track_title (history, "A", 10);
+    history = PlaybackLifecycle.push_track_title (history, "B", 10);
+    history = PlaybackLifecycle.push_track_title (history, "B", 10);
+    assert (history.length == 2 && history[0] == "B" && history[1] == "A");
+
+    for (int i = 0; i < 12; i++)
+        history = PlaybackLifecycle.push_track_title (history, "Track %d".printf (i), 10);
+    assert (history.length == 10);
+    assert (history[0] == "Track 11");
+    assert (history[9] == "Track 2");
+
+    history = PlaybackLifecycle.push_track_title (history, "   ", 10);
+    assert (history.length == 10);
+}
+
+void test_metadata_and_station_change_update_history () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    updateModel (new PlayStationMessage (make_station ("u1")), model, commands);
+    updateModel (new PlayerMetadataChangedMessage ("First", 192), model, commands);
+    updateModel (new PlayerMetadataChangedMessage ("First", 192), model, commands);
+    assert (model.track_history.length == 1);
+
+    updateModel (new PlayStationMessage (make_station ("u2")), model, commands);
+    updateModel (new PlayerMetadataChangedMessage ("Second", 192), model, commands);
+    assert (model.track_history.length == 2);
+    assert (model.track_history[0] == "Second");
+    assert (model.track_history[1] == "First");
+}
+
+void test_player_state_toggles_sleep () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+
+    updateModel (new PlayerStateChangedMessage (true), model, commands);
+    assert (commands.inhibit_sleep_calls == 1);
+
+    updateModel (new PlayerStateChangedMessage (false), model, commands);
+    assert (commands.release_sleep_calls == 1);
+}
+
+void test_metadata_after_stop_is_ignored () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    model.current_station = make_station ("u1");
+    model.playing = true;
+    updateModel (new StopPlaybackMessage (), model, commands);
+
+    updateModel (new PlayerMetadataChangedMessage ("Ghost", 192), model, commands);
+    assert (model.track_history.length == 0);
+    assert (commands.now_playing_calls == 0);
+}
+
+void test_sleep_inhibitor_bounded_timeout () {
+    var inhibitor = new Gradio.SleepInhibitor ();
+    assert (inhibitor.timeout_msec > 0);
+    assert (inhibitor.timeout_msec <= 5000);
+}
+
 int main (string[] args) {
     Test.init (ref args);
 
+    Test.add_func ("/update/player_state_sleep", test_player_state_toggles_sleep);
+    Test.add_func ("/update/metadata_after_stop_ignored", test_metadata_after_stop_is_ignored);
+    Test.add_func ("/update/sleep_inhibitor_bounded_timeout", test_sleep_inhibitor_bounded_timeout);
+    Test.add_func ("/update/track_history_helper", test_track_history_helper);
+    Test.add_func ("/update/track_history_model", test_metadata_and_station_change_update_history);
+    Test.add_func ("/update/now_playing_dedupes", test_now_playing_dedupes_and_resets);
+    Test.add_func ("/update/notifications_disabled", test_disabled_notifications_suppress_all);
+    Test.add_func ("/update/set_notifications", test_set_notifications_saves);
+    Test.add_func ("/update/sleep_transitions", test_sleep_transitions);
+    Test.add_func ("/update/player_error_releases_sleep", test_player_error_releases_sleep);
+    Test.add_func ("/update/sleep_release_without_acquire", test_sleep_release_without_acquire);
+    Test.add_func ("/update/close_policy", test_close_policy_table);
+    Test.add_func ("/update/window_close_transitions", test_window_close_transitions);
+    Test.add_func ("/update/window_raised_and_setting", test_window_raised_and_setting);
+    Test.add_func ("/update/stop_hidden_vs_visible", test_stop_hidden_vs_visible);
     Test.add_func ("/update/defaults", test_defaults);
     Test.add_func ("/update/set_view", test_set_view);
     Test.add_func ("/update/search_requested_empty", test_search_requested_empty);

@@ -62,6 +62,14 @@ private GLib.GenericArray<RadioStation> stations_for_favicons (Gradio.AppModel m
     return result;
 }
 
+private Elmish.Cmd<Gradio.Message>? stop_and_leave_background (Gradio.AppModel model,
+        Gradio.Commands commands, Elmish.Cmd<Gradio.Message>? stop_cmd) {
+    var release = commands.release_background ();
+    var quit = model.window_hidden ? commands.quit_application () : null;
+    model.window_hidden = false;
+    return Gradio.Commands.chain (stop_cmd, Gradio.Commands.chain (release, quit));
+}
+
 public Elmish.Cmd<Gradio.Message>? updateModel (Gradio.Message msg, Gradio.AppModel model, Gradio.Commands commands) {
     switch (msg.kind) {
         case MessageKind.SET_VIEW:
@@ -237,7 +245,35 @@ public Elmish.Cmd<Gradio.Message>? updateModel (Gradio.Message msg, Gradio.AppMo
             model.stream_title = "";
             model.stream_bitrate = 0;
             model.status_message = _("Stopped");
-            return commands.stop ();
+            return stop_and_leave_background (model, commands,
+                Commands.chain (commands.stop (), commands.release_sleep ()));
+
+        case MessageKind.SET_BACKGROUND_PLAYBACK:
+            var background = msg as SetBackgroundPlaybackMessage;
+            if (background == null || background.enabled == model.config.background_playback)
+                break;
+            model.config.background_playback = background.enabled;
+            return commands.save_config ();
+
+        case MessageKind.WINDOW_CLOSE_REQUESTED:
+            if (PlaybackLifecycle.should_background_on_close (
+                    model.config.background_playback, model.playing)) {
+                model.window_hidden = true;
+                return commands.background_on_close ();
+            }
+            model.window_hidden = false;
+            return commands.quit_application ();
+
+        case MessageKind.WINDOW_RAISED:
+            model.window_hidden = false;
+            break;
+
+        case MessageKind.SET_NOTIFICATIONS:
+            var notifications = msg as SetNotificationsMessage;
+            if (notifications == null || notifications.enabled == model.config.notifications_enabled)
+                break;
+            model.config.notifications_enabled = notifications.enabled;
+            return commands.save_config ();
 
         case MessageKind.IMPORT_STATIONS:
             var import = msg as ImportStationsMessage;
@@ -466,11 +502,19 @@ public Elmish.Cmd<Gradio.Message>? updateModel (Gradio.Message msg, Gradio.AppMo
             model.stream_title = "";
             model.stream_bitrate = 0;
             model.status_message = _("Connecting…");
+            model.last_notified_title = "";
             var report = play.station.is_local
                 ? null
                 : commands.report_click (play.station.id);
+            Elmish.Cmd<Message>? notification = null;
+            if (model.config.notifications_enabled) {
+                model.last_notified_title = play.station.name;
+                notification = commands.notify_now_playing (play.station.name, play.station.name);
+            }
             return Commands.chain (commands.save_config (),
-                Commands.chain (commands.play (play.station), report));
+                Commands.chain (commands.play (play.station),
+                    Commands.chain (commands.inhibit_sleep (),
+                        Commands.chain (notification, report))));
 
         case MessageKind.TOGGLE_PLAY:
             if (model.current_station == null)
@@ -479,13 +523,15 @@ public Elmish.Cmd<Gradio.Message>? updateModel (Gradio.Message msg, Gradio.AppMo
             if (model.playing) {
                 model.playback_failed = false;
                 model.status_message = _("Connecting…");
-                return commands.play (model.current_station);
+                return Commands.chain (commands.play (model.current_station),
+                    commands.inhibit_sleep ());
             }
             model.playback_failed = false;
             model.stream_title = "";
             model.stream_bitrate = 0;
             model.status_message = _("Stopped");
-            return commands.stop ();
+            return stop_and_leave_background (model, commands,
+                Commands.chain (commands.stop (), commands.release_sleep ()));
 
         case MessageKind.PLAYER_STATE_CHANGED:
             var state = msg as PlayerStateChangedMessage;
@@ -495,13 +541,14 @@ public Elmish.Cmd<Gradio.Message>? updateModel (Gradio.Message msg, Gradio.AppMo
             if (state.playing) {
                 model.playback_failed = false;
                 model.status_message = _("Connected");
+                return commands.inhibit_sleep ();
             } else {
                 model.stream_title = "";
                 model.stream_bitrate = 0;
                 if (!model.playback_failed)
                     model.status_message = _("Stopped");
+                return commands.release_sleep ();
             }
-            break;
 
         case MessageKind.PLAYER_METADATA_CHANGED:
             var metadata = msg as PlayerMetadataChangedMessage;
@@ -509,6 +556,14 @@ public Elmish.Cmd<Gradio.Message>? updateModel (Gradio.Message msg, Gradio.AppMo
                 break;
             model.stream_title = metadata.title;
             model.stream_bitrate = metadata.bitrate;
+            if (model.playing)
+                model.track_history = PlaybackLifecycle.push_track_title (
+                    model.track_history, metadata.title, PlaybackLifecycle.TRACK_HISTORY_LIMIT);
+            if (model.playing && model.config.notifications_enabled && model.current_station != null &&
+                    metadata.title != "" && metadata.title != model.last_notified_title) {
+                model.last_notified_title = metadata.title;
+                return commands.notify_now_playing (model.current_station.name, metadata.title);
+            }
             break;
 
         case MessageKind.PLAYER_ERROR:
@@ -520,7 +575,10 @@ public Elmish.Cmd<Gradio.Message>? updateModel (Gradio.Message msg, Gradio.AppMo
             model.stream_title = "";
             model.stream_bitrate = 0;
             model.status_message = error.message;
-            return commands.notify_error (error.message);
+            return Commands.chain (commands.release_sleep (),
+                model.config.notifications_enabled
+                    ? commands.notify_error (error.message)
+                    : null);
 
         case MessageKind.SHOW_DETAILS:
             var show = msg as ShowDetailsMessage;

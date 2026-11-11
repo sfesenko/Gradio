@@ -62,7 +62,11 @@ public enum Gradio.MessageKind {
     SERVER_DISCOVERY_FAILED,
     REQUEST_DISCOVER,
     DISCOVER_RESULTS,
-    DISCOVER_FAILED
+    DISCOVER_FAILED,
+    SET_BACKGROUND_PLAYBACK,
+    WINDOW_CLOSE_REQUESTED,
+    WINDOW_RAISED,
+    SET_NOTIFICATIONS
 }
 
 public abstract class Gradio.Message {
@@ -486,6 +490,30 @@ public class Gradio.DiscoverFailedMessage : Gradio.Message {
     public override MessageKind kind { get { return MessageKind.DISCOVER_FAILED; } }
 }
 
+public class Gradio.SetBackgroundPlaybackMessage : Gradio.Message {
+    public bool enabled;
+
+    public SetBackgroundPlaybackMessage (bool enabled) { this.enabled = enabled; }
+
+    public override MessageKind kind { get { return MessageKind.SET_BACKGROUND_PLAYBACK; } }
+}
+
+public class Gradio.WindowCloseRequestedMessage : Gradio.Message {
+    public override MessageKind kind { get { return MessageKind.WINDOW_CLOSE_REQUESTED; } }
+}
+
+public class Gradio.WindowRaisedMessage : Gradio.Message {
+    public override MessageKind kind { get { return MessageKind.WINDOW_RAISED; } }
+}
+
+public class Gradio.SetNotificationsMessage : Gradio.Message {
+    public bool enabled;
+
+    public SetNotificationsMessage (bool enabled) { this.enabled = enabled; }
+
+    public override MessageKind kind { get { return MessageKind.SET_NOTIFICATIONS; } }
+}
+
 public class Gradio.AppModel {
     public ViewMode view = ViewMode.LIBRARY;
     public AppConfig config;
@@ -498,6 +526,9 @@ public class Gradio.AppModel {
     public RadioStation? current_station = null;
     public bool playing = false;
     public bool playback_failed = false;
+    public bool window_hidden = false;
+    public string last_notified_title = "";
+    public string[] track_history = {};
     public string stream_title = "";
     public int stream_bitrate = 0;
     public bool details_visible = false;

@@ -323,10 +323,36 @@ void test_library_sort_round_trip () {
     cleanup (dir);
 }
 
+void test_background_playback_round_trip () {
+    string dir = make_tmp_dir ();
+    string path = GLib.Path.build_filename (dir, "config.json");
+    var config = new Gradio.AppConfig (path);
+    config.background_playback = true;
+    save_config (config);
+    assert (load_config (path).background_playback == true);
+    assert (load_config (GLib.Path.build_filename (dir, "missing.json"))
+        .background_playback == false);
+    cleanup (dir);
+}
+
+void test_notifications_round_trip () {
+    string dir = make_tmp_dir ();
+    string path = GLib.Path.build_filename (dir, "config.json");
+    var config = new Gradio.AppConfig (path);
+    config.notifications_enabled = false;
+    save_config (config);
+    assert (load_config (path).notifications_enabled == false);
+    assert (load_config (GLib.Path.build_filename (dir, "missing.json"))
+        .notifications_enabled == true);
+    cleanup (dir);
+}
+
 int main (string[] args) {
     Test.init (ref args);
 
     Test.add_func ("/app-config/missing_file_returns_empty", test_missing_file_returns_empty);
+    Test.add_func ("/app-config/notifications_round_trip", test_notifications_round_trip);
+    Test.add_func ("/app-config/background_playback_round_trip", test_background_playback_round_trip);
     Test.add_func ("/app-config/window_and_icon_round_trip", test_window_and_icon_round_trip);
     Test.add_func ("/app-config/invalid_window_and_icon", test_invalid_window_and_icon_values_fall_back);
     Test.add_func ("/app-config/normalize_icon_size", test_unknown_icon_size_normalizes_to_default);

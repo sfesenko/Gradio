@@ -35,6 +35,8 @@ namespace Gradio {
         private FaviconCooldown favicon_cooldown = new FaviconCooldown ();
         private int favicon_active = 0;
         private GLib.Application? application = null;
+        private bool background_hold = false;
+        private SleepInhibitor sleep_inhibitor = new SleepInhibitor ();
 
         public AppRuntime (AppConfig config, bool load_failed = false, string? favicon_dir = null) {
             this.config = config;
@@ -123,6 +125,55 @@ namespace Gradio {
 
         public void set_application (GLib.Application application) {
             this.application = application;
+        }
+
+        public override Elmish.Cmd<Message>? background_on_close () {
+            return new Elmish.Cmd<Message> ((dispatch) => {
+                var app = application;
+                if (app == null)
+                    return;
+                app.activate_action ("hide-window", null);
+                if (!background_hold) {
+                    background_hold = true;
+                    app.hold ();
+                }
+            });
+        }
+
+        public override Elmish.Cmd<Message>? release_background () {
+            return new Elmish.Cmd<Message> ((dispatch) => {
+                if (!background_hold)
+                    return;
+                background_hold = false;
+                var app = application;
+                if (app != null)
+                    app.release ();
+            });
+        }
+
+        public override Elmish.Cmd<Message>? quit_application () {
+            return new Elmish.Cmd<Message> ((dispatch) => {
+                var app = application;
+                if (app != null)
+                    app.quit ();
+            });
+        }
+
+        public override Elmish.Cmd<Message>? inhibit_sleep () {
+            return new Elmish.Cmd<Message> ((dispatch) => {
+                sleep_inhibitor.acquire ();
+            });
+        }
+
+        public override Elmish.Cmd<Message>? release_sleep () {
+            return new Elmish.Cmd<Message> ((dispatch) => {
+                sleep_inhibitor.release ();
+            });
+        }
+
+        public void shutdown () {
+            sleep_inhibitor.release ();
+            save_now ();
         }
 
         public override Elmish.Cmd<Message>? vote (string station_id) {
@@ -277,6 +328,21 @@ namespace Gradio {
                 notification.set_icon (new GLib.ThemedIcon ("dialog-error-symbolic"));
                 notification.set_default_action ("app.raise");
                 app.send_notification ("playback-error", notification);
+            });
+        }
+
+        public override Elmish.Cmd<Message>? notify_now_playing (string station_name,
+                string title) {
+            return new Elmish.Cmd<Message> ((dispatch) => {
+                var app = application;
+                if (app == null)
+                    return;
+                var notification = new GLib.Notification (
+                    station_name != "" ? station_name : _("Now playing"));
+                notification.set_body (title);
+                notification.set_icon (new GLib.ThemedIcon ("media-playback-start-symbolic"));
+                notification.set_default_action ("app.raise");
+                app.send_notification ("now-playing", notification);
             });
         }
 

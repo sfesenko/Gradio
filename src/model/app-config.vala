@@ -20,6 +20,8 @@ namespace Gradio {
         public bool maximized = false;
         public int icon_size = DEFAULT_ICON_SIZE;
         public bool resume_playback = false;
+        public bool background_playback = false;
+        public bool notifications_enabled = true;
         public string last_station_id = "";
         public SearchSortMode search_sort = SearchSortMode.RELEVANCE;
         public LibrarySortMode library_sort = LibrarySortMode.CUSTOM;
@@ -91,6 +93,10 @@ namespace Gradio {
                     (int) settings.get_int_member_with_default ("icon_size", config.icon_size));
                 config.resume_playback = settings.get_boolean_member_with_default (
                     "resume_playback", config.resume_playback);
+                config.background_playback = settings.get_boolean_member_with_default (
+                    "background_playback", config.background_playback);
+                config.notifications_enabled = settings.get_boolean_member_with_default (
+                    "notifications_enabled", config.notifications_enabled);
                 config.last_station_id = settings.get_string_member_with_default (
                     "last_station", config.last_station_id);
                 config.search_sort = StationSort.search_from_string (
@@ -145,6 +151,8 @@ namespace Gradio {
             settings.set_boolean_member ("maximized", maximized);
             settings.set_int_member ("icon_size", icon_size);
             settings.set_boolean_member ("resume_playback", resume_playback);
+            settings.set_boolean_member ("background_playback", background_playback);
+            settings.set_boolean_member ("notifications_enabled", notifications_enabled);
             settings.set_string_member ("last_station", last_station_id);
             settings.set_string_member ("search_sort", StationSort.search_to_string (search_sort));
             settings.set_string_member ("library_sort",
