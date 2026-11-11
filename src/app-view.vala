@@ -332,37 +332,36 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
 
         box.append (search_row);
 
-        var filters_grid = new Gtk.Grid () {
+        var filters_row = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 6) {
             margin_start = 12,
             margin_end = 12,
             margin_bottom = 12,
-            row_spacing = 6,
-            column_spacing = 6,
-            column_homogeneous = true
+            homogeneous = true
         };
 
         country_dropdown = build_filter_dropdown (SearchFilterKind.COUNTRY,
-            _("Filter by country"));
-        filters_grid.attach (filter_field (_("Country"), country_dropdown), 0, 0, 1, 1);
+            _("Country"), _("Filter by country"));
+        filters_row.append (country_dropdown);
 
         var state_entry = new Gtk.Entry () {
-            placeholder_text = _("Any"),
+            placeholder_text = _("State"),
             hexpand = true,
             text = model.config.search_filters.state,
             tooltip_text = _("Filter by state")
         };
         state_entry.activate.connect (() => dispatch (
             new SetSearchFilterMessage (SearchFilterKind.STATE, state_entry.text)));
-        filters_grid.attach (filter_field (_("State"), state_entry), 1, 0, 1, 1);
+        filters_row.append (state_entry);
 
         language_dropdown = build_filter_dropdown (SearchFilterKind.LANGUAGE,
-            _("Filter by language"));
-        filters_grid.attach (filter_field (_("Language"), language_dropdown), 0, 1, 1, 1);
+            _("Language"), _("Filter by language"));
+        filters_row.append (language_dropdown);
 
-        tag_dropdown = build_filter_dropdown (SearchFilterKind.TAG, _("Filter by tag"));
-        filters_grid.attach (filter_field (_("Tag"), tag_dropdown), 1, 1, 1, 1);
+        tag_dropdown = build_filter_dropdown (SearchFilterKind.TAG,
+            _("Tag"), _("Filter by tag"));
+        filters_row.append (tag_dropdown);
 
-        box.append (filters_grid);
+        box.append (filters_row);
 
         add_stack = new Gtk.Stack () {
             transition_type = Gtk.StackTransitionType.CROSSFADE,
@@ -466,23 +465,63 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
         return box;
     }
 
-    private static Gtk.Widget filter_field (string caption, Gtk.Widget control) {
-        var box = new Gtk.Box (Gtk.Orientation.VERTICAL, 2);
-        var label = new Gtk.Label (caption) {
-            halign = Gtk.Align.START
-        };
-        label.add_css_class ("dim-label");
-        label.add_css_class ("caption");
-        box.append (label);
-        box.append (control);
-        return box;
+    private static Gtk.ListItemFactory plain_value_factory () {
+        var factory = new Gtk.SignalListItemFactory ();
+        factory.setup.connect ((obj) => {
+            var item = obj as Gtk.ListItem;
+            item.child = new Gtk.Label ("") {
+                halign = Gtk.Align.START
+            };
+        });
+        factory.bind.connect ((obj) => {
+            var item = obj as Gtk.ListItem;
+            var label = item.child as Gtk.Label;
+            if (label == null)
+                return;
+            var string_object = item.item as Gtk.StringObject;
+            label.label = string_object != null ? string_object.string : "";
+        });
+        return factory;
     }
 
-    private Gtk.DropDown build_filter_dropdown (SearchFilterKind field, string tooltip) {
+    // The selected value is shown as inlay caption text when nothing is
+    // filtered, mirroring the placeholder of a Gtk.Entry.
+    private static Gtk.ListItemFactory inlay_caption_factory (string caption) {
+        var factory = new Gtk.SignalListItemFactory ();
+        factory.setup.connect ((obj) => {
+            var item = obj as Gtk.ListItem;
+            var label = new Gtk.Label (caption) {
+                halign = Gtk.Align.START
+            };
+            label.add_css_class ("dim-label");
+            item.child = label;
+        });
+        factory.bind.connect ((obj) => {
+            var item = obj as Gtk.ListItem;
+            var label = item.child as Gtk.Label;
+            if (label == null)
+                return;
+            var string_object = item.item as Gtk.StringObject;
+            string value = string_object != null ? string_object.string : "";
+            if (value == "" || value == _("Any")) {
+                label.label = caption;
+                label.add_css_class ("dim-label");
+            } else {
+                label.label = value;
+                label.remove_css_class ("dim-label");
+            }
+        });
+        return factory;
+    }
+
+    private Gtk.DropDown build_filter_dropdown (SearchFilterKind field,
+            string caption, string tooltip) {
         var dropdown = new Gtk.DropDown.from_strings ({ _("Any") }) {
             hexpand = true,
             tooltip_text = tooltip
         };
+        dropdown.factory = inlay_caption_factory (caption);
+        dropdown.list_factory = plain_value_factory ();
         dropdown.enable_search = true;
         dropdown.notify["selected"].connect (() => {
             if (syncing_filters)
