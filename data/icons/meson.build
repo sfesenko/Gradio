@@ -3,7 +3,7 @@ icon_sizes = ['16x16', '22x22', '24x24', '32x32', '48x48', '256x256', '512x512']
 
 foreach size : icon_sizes
   install_data(
-    join_paths('hicolor', size, 'apps', 'de.haeckerfelix.gradio.png'),
+    join_paths('hicolor', size, 'apps', 'io.github.sfesenko.gradio.png'),
     install_dir: join_paths(icondir, size, 'apps')
   )
   install_data(
@@ -14,10 +14,10 @@ endforeach
 
 scalable_dir = join_paths('hicolor', 'scalable', 'apps')
 install_data(
-  join_paths(scalable_dir, 'de.haeckerfelix.gradio.svg'),
+  join_paths(scalable_dir, 'io.github.sfesenko.gradio.svg'),
   install_dir: join_paths(get_option('datadir'), 'icons', scalable_dir)
 )
 install_data(
-  join_paths(scalable_dir, 'de.haeckerfelix.gradio-symbolic.svg'),
+  join_paths(scalable_dir, 'io.github.sfesenko.gradio-symbolic.svg'),
   install_dir: join_paths(get_option('datadir'), 'icons', scalable_dir)
 )

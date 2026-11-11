@@ -79,7 +79,7 @@ tabs, tray icon, and multi-select remain out of scope.
 **Flatpak** — builds the local tree:
 
 ```bash
-flatpak-builder --user --install build-flatpak de.haeckerfelix.gradio.json
+flatpak-builder --user --install build-flatpak io.github.sfesenko.gradio.json
 ```
 
 ## License

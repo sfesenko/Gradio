@@ -65,7 +65,7 @@ namespace Gradio {
     public class MprisServer : GLib.Object, MprisRootIface, MprisPlayerIface {
         public const string BUS_NAME = "org.mpris.MediaPlayer2.gradio";
         public const string OBJECT_PATH = "/org/mpris/MediaPlayer2";
-        public const string TRACK_PREFIX = "/de/haeckerfelix/gradio/track/";
+        public const string TRACK_PREFIX = "/io/github/sfesenko/gradio/track/";
 
         private Elmish.Dispatch<Message> dispatch;
         private GLib.Application app;
@@ -161,7 +161,7 @@ namespace Gradio {
         public bool can_raise { get { return true; } }
         public bool has_track_list { get { return false; } }
         public string identity { owned get { return "Gradio"; } }
-        public string desktop_entry { owned get { return "de.haeckerfelix.gradio"; } }
+        public string desktop_entry { owned get { return "io.github.sfesenko.gradio"; } }
         public string[] supported_uri_schemes { owned get { return uri_schemes; } }
         public string[] supported_mime_types { owned get { return no_mime_types; } }
 

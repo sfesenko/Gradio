@@ -34,7 +34,7 @@ namespace Gradio {
         public bool register (GLib.DBusConnection connection) {
             try {
                 connection.register_object<SearchProviderIface> (
-                    "/de/haeckerfelix/gradio/SearchProvider", this);
+                    "/io/github/sfesenko/gradio/SearchProvider", this);
                 return true;
             } catch (GLib.Error e) {
                 return false;

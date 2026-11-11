@@ -24,7 +24,7 @@ int main (string[] args) {
         model.status_message = load_error;
 
     var app = new Gtk.Application (
-        "de.haeckerfelix.gradio",
+        "io.github.sfesenko.gradio",
         ApplicationFlags.DEFAULT_FLAGS
     );
     runtime.set_application (app);
@@ -73,7 +73,7 @@ int main (string[] args) {
         about.set_version ("8.0.0");
         about.set_license_type (Gtk.License.GPL_3_0);
         about.set_comments (_("Listen to internet radio stations."));
-        about.set_website ("https://github.com/haecker-felix/gradio");
+        about.set_website ("https://github.com/sfesenko/Gradio");
         about.set_authors ({ "Sergii Fesenko" });
         about.present ();
     });

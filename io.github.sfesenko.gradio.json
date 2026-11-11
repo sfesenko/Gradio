@@ -1,5 +1,5 @@
 {
-    "app-id": "de.haeckerfelix.gradio",
+    "app-id": "io.github.sfesenko.gradio",
     "runtime": "org.gnome.Platform",
     "runtime-version": "48",
     "sdk": "org.gnome.Sdk",

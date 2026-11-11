@@ -1,6 +1,6 @@
 # List of source files containing translatable strings.
-data/de.haeckerfelix.gradio.desktop.in
-data/de.haeckerfelix.gradio.appdata.xml.in
+data/io.github.sfesenko.gradio.desktop.in
+data/io.github.sfesenko.gradio.appdata.xml.in
 src/main.vala
 src/app-view.vala
 src/view/details-panel.vala

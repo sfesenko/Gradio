@@ -1,11 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop">
-  <id>de.haeckerfelix.gradio.desktop</id>
+  <id>io.github.sfesenko.gradio.desktop</id>
   <name>Gradio</name>
   <summary>Find and listen to internet radio stations</summary>
   <translation type="gettext">gradio</translation>
-  <developer_name>Felix Häcker</developer_name>
-  <update_contact>haeckerfelix@gnome.org</update_contact>
+  <developer_name>Sergii Fesenko</developer_name>
   <metadata_license>CC0</metadata_license>
   <project_license>GPL-3.0+</project_license>
   <content_rating type="oars-1.1">
@@ -19,24 +18,8 @@
     </p>
   </description>
 
-  <screenshots>
-    <screenshot type="default" height="568" width="818">
-      <image>https://raw.githubusercontent.com/haecker-felix/gradio-appdata/master/screenshot_1.png</image>
-    </screenshot>
-    <screenshot height="568" width="818">
-      <image>https://raw.githubusercontent.com/haecker-felix/gradio-appdata/master/screenshot_2.png</image>
-    </screenshot>
-    <screenshot height="568" width="818">
-      <image>https://raw.githubusercontent.com/haecker-felix/gradio-appdata/master/screenshot_3.png</image>
-    </screenshot>
-    <screenshot height="568" width="818">
-      <image>https://raw.githubusercontent.com/haecker-felix/gradio-appdata/master/screenshot_4.png</image>
-    </screenshot>
-  </screenshots>
-
-  <url type="homepage">https://github.com/haecker-felix/Gradio</url>
-  <url type="bugtracker">https://github.com/haecker-felix/Gradio/issues</url>
-  <url type="donation">https://de.liberapay.com/haecker-felix</url>
+  <url type="homepage">https://github.com/sfesenko/Gradio</url>
+  <url type="bugtracker">https://github.com/sfesenko/Gradio/issues</url>
 
   <kudos>
     <kudo>AppMenu</kudo>
