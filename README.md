@@ -3,6 +3,7 @@ A GTK4 app for finding and listening to internet radio stations.
 
 ![Gradio icon](data/icons/hicolor/256x256/apps/io.github.sfesenko.gradio.png)
 
+[![CI](https://github.com/sfesenko/Gradio/actions/workflows/ci.yml/badge.svg)](https://github.com/sfesenko/Gradio/actions/workflows/ci.yml)
 [![GitHub release](https://img.shields.io/github/release/sfesenko/Gradio.svg)](https://github.com/sfesenko/Gradio/releases/)
 [![License: GPL v3](https://img.shields.io/badge/License-GPL%20v3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
@@ -12,15 +13,11 @@ A GTK4 app for finding and listening to internet radio stations.
 ## General Information
 * **Build**
   ```bash
-  meson setup builddir
-  meson compile -C builddir
-  meson test -C builddir
-  ./builddir/gradio
+  meson setup _build
+  meson compile -C _build
+  meson test -C _build
+  ./_build/gradio
   ```
-  Arch Linux: `./scripts/build-package.sh`
 
 * **License**
   GNU General Public License, Version 3. See [LICENSE.md](LICENSE.md).
-
-* **Bugs**
-  To report bugs, use the GitHub [bugtracker](https://github.com/sfesenko/Gradio/issues).

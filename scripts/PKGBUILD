@@ -2,14 +2,26 @@
 # source=() is empty, so prepare() copies the tree into $srcdir; makepkg -C
 # wipes only that copy.
 
-pkgname=gradio-gtk4
+pkgname=gradio
 pkgver=8.0.0
 pkgrel=1
-pkgdesc="GTK4/elmish rewrite of the Gradio internet radio player"
+pkgdesc="Internet radio player for GTK4 with Google Cast support"
 arch=('x86_64')
 url="https://github.com/sfesenko/Gradio"
 license=('GPL-3.0-or-later')
-depends=('gtk4' 'glib2' 'libsoup3' 'json-glib' 'gst-plugins-base' 'gst-plugins-good' 'gst-plugins-bad')
+depends=(
+    'gtk4'
+    'glib2'
+    'libsoup3'
+    'json-glib'
+    'gstreamer'
+    'gdk-pixbuf2'
+    'hicolor-icon-theme'
+
+    'gst-plugins-base'
+    'gst-plugins-good'
+    'gst-plugins-bad'
+)
 makedepends=('meson' 'ninja' 'vala' 'gettext')
 source=()
 sha256sums=()
@@ -44,6 +56,7 @@ prepare() {
     tar -C "$source_dir" \
         --exclude-vcs \
         --exclude='./builddir' \
+        --exclude='./_build' \
         --exclude='./build-*' \
         --exclude='./scripts/dist' \
         --exclude='./scripts/pkg' \
