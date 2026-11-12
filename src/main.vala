@@ -97,10 +97,12 @@ int main (string[] args) {
         var about = new Gtk.AboutDialog ();
         about.set_program_name (_("Gradio"));
         about.set_version (VERSION);
+        about.set_logo_icon_name ("io.github.sfesenko.gradio");
         about.set_license_type (Gtk.License.GPL_3_0);
         about.set_comments (_("Listen to internet radio stations."));
         about.set_website ("https://github.com/sfesenko/Gradio");
-        about.set_authors ({ "Sergii Fesenko" });
+        about.set_copyright ("© 2016–2019 Felix Häcker\n© 2026 Sergii Fesenko");
+        about.set_authors ({ "Felix Häcker", "Sergii Fesenko" });
         about.present ();
     });
     app.add_action (about_action);

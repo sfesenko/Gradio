@@ -1,11 +1,6 @@
-# Builds from the LIVE work tree — uncommitted and untracked files are
-# included. Run via ./scripts/build-package.sh (recommended) or from this
-# directory with `makepkg`.
-#
-# Safety: makepkg -C wipes $srcdir/$pkgdir, which only ever contain a
-# throwaway COPY of the tree — the developer's checkout is never touched.
-# A guard in prepare() refuses to run when $srcdir would land inside the
-# source tree (e.g. `makepkg -p scripts/PKGBUILD` from the repo root).
+# Builds from the current work tree, including uncommitted changes.
+# source=() is empty, so prepare() copies the tree into $srcdir; makepkg -C
+# wipes only that copy.
 
 pkgname=gradio-gtk4
 pkgver=8.0.0
@@ -14,13 +9,12 @@ pkgdesc="GTK4/elmish rewrite of the Gradio internet radio player"
 arch=('x86_64')
 url="https://github.com/sfesenko/Gradio"
 license=('GPL-3.0-or-later')
-depends=('gtk4' 'glib2' 'libsoup3' 'json-glib' 'gst-plugins-base' 'gst-plugins-good' 'gst-plugins-bad' 'gst-plugins-ugly' 'gst-libav')
+depends=('gtk4' 'glib2' 'libsoup3' 'json-glib' 'gst-plugins-base' 'gst-plugins-good' 'gst-plugins-bad')
 makedepends=('meson' 'ninja' 'vala' 'gettext')
 source=()
 sha256sums=()
 
-# prepare() populates $srcdir because source=() is empty — we build from the live work tree
-# (including uncommitted changes) via tar copy to $srcdir/$pkgname so makepkg -C only wipes the copy.
+# Copy the work tree into $srcdir/$pkgname.
 prepare() {
     local source_dir
     if [[ -n "${GRADIO_SOURCE_DIR:-}" ]]; then
@@ -28,8 +22,6 @@ prepare() {
     elif [[ -n "${PKGBUILD_DIR:-}" ]]; then
         source_dir="$PKGBUILD_DIR/.."
     elif [[ -n "${startdir:-}" ]]; then
-        # Fallback when PKGBUILD_DIR is not set (direct makepkg run)
-        # startdir is the directory containing the PKGBUILD (scripts/ or scripts/dist/)
         if [[ "$(basename "$startdir")" == "dist" ]]; then
             source_dir="$startdir/../.."
         else
@@ -40,20 +32,13 @@ prepare() {
     fi
     source_dir="$(realpath "$source_dir")"
 
-    # The one genuinely dangerous layout: $srcdir overlapping real sources
-    # (e.g. a PKGBUILD copied into the repo root makes $srcdir == <repo>/src),
-    # where `makepkg -C` would wipe them. Refuse if that ever happens;
-    # scripts/ (or the wrapper) is safe because its $srcdir is generated and
-    # excluded from the copy.
+    # Refuse to run if $srcdir overlaps the real sources.
     if [[ "$(realpath "$startdir")" == "$source_dir" ]] \
        || [[ -n "$(find "$srcdir" -maxdepth 1 -name '*.vala' 2>/dev/null)" ]]; then
-        error "Refusing to build: \$srcdir ($srcdir) contains real sources,"
-        error "which makepkg -C would wipe."
-        error "Run makepkg from scripts/ or use scripts/build-package.sh."
+        error "Refusing to build: \$srcdir ($srcdir) contains real sources."
         return 1
     fi
 
-    # Fresh copy of the work tree (excludes VCS dirs and build artifacts).
     rm -rf "$srcdir/$pkgname"
     mkdir -p "$srcdir/$pkgname"
     tar -C "$source_dir" \
