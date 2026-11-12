@@ -43,5 +43,5 @@ jobs:
       - name: Check POTFILES drift
         run: |
           meson compile -C builddir gradio-pot
-          # The generation timestamp always differs; ignore just that line.
-          git diff -I '^"POT-Creation-Date:' --exit-code po/gradio.pot
+          # Ignore the timestamp and gettext version-specific location lines.
+          git diff -I '^"POT-Creation-Date:' -I '^#: ' --exit-code po/gradio.pot
