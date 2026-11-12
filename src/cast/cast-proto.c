@@ -1,8 +1,6 @@
 #include <glib.h>
 #include <stdlib.h>
 #include <string.h>
-#include <protobuf-c/protobuf-c.h>
-#include "cast.pb-c.h"
 
 typedef struct {
     int protocol_version;

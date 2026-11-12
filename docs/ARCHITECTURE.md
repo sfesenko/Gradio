@@ -321,8 +321,8 @@ other. The cast layer is GTK-free and lives in `src/cast/`:
 - `mdns.vala` — raw mDNS query/parser over `GSocket` (PTR/SRV/TXT/A), no Avahi.
 - `cast-connection.vala` — TLS to port 8009, 4-byte length-prefixed protobuf
   frames, asynchronous reads/writes, and `close_async` teardown.
-- `cast-proto.c` / `cast.proto` — protobuf wire encoding; `protoc` generates
-  `cast.pb-c.c/h` at build time and `libprotobuf-c` is linked.
+- `cast-proto.c` — manual protobuf wire encoding; `cast.proto` documents the
+  message schema.
 - `cast-service.vala` — Cast v2 commands: mDNS discovery, LAUNCH of the
   Default Media Receiver, media LOAD, PING/PONG, and STOP.
 

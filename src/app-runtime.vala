@@ -5,10 +5,12 @@ namespace Gradio {
     private class FaviconRequest : GLib.Object {
         public string station_id;
         public string url;
+        public uint generation;
 
-        public FaviconRequest (string station_id, string url) {
+        public FaviconRequest (string station_id, string url, uint generation) {
             this.station_id = station_id;
             this.url = url;
+            this.generation = generation;
         }
     }
 
@@ -33,6 +35,7 @@ namespace Gradio {
             new GLib.HashTable<string, GLib.GenericArray<string>> (str_hash, str_equal);
         private FaviconCooldown favicon_cooldown = new FaviconCooldown ();
         private int favicon_active = 0;
+        private uint favicon_generation = 0;
         private GLib.Application? application = null;
         private bool background_hold = false;
         private SleepInhibitor sleep_inhibitor = new SleepInhibitor ();
@@ -121,6 +124,10 @@ namespace Gradio {
 
         public override Elmish.Cmd<Message>? clear_favicon_cache () {
             return new Elmish.Cmd<Message> ((dispatch) => {
+                favicon_generation++;
+                favicon_queue = new GLib.GenericArray<FaviconRequest> ();
+                favicon_inflight.remove_all ();
+                favicon_homepages.remove_all ();
                 favicon_cache.clear_async (() => {});
                 favicon_cooldown.clear ();
                 favicon_backfilled.remove_all ();
@@ -397,6 +404,7 @@ namespace Gradio {
             if (favicon_cooldown.is_blocked ("u:" + url, GLib.get_monotonic_time ()))
                 return;
 
+            uint generation = favicon_generation;
             var waiting = favicon_inflight.lookup (url);
             if (waiting != null) {
                 waiting.add (station_id);
@@ -408,6 +416,8 @@ namespace Gradio {
             favicon_inflight.set (url, ids);
 
             favicon_cache.lookup_async (url, (cached) => {
+                if (generation != favicon_generation)
+                    return;
                 if (cached != null) {
                     favicon_inflight.remove (url);
                     for (uint i = 0; i < ids.length; i++) {
@@ -418,7 +428,7 @@ namespace Gradio {
                     }
                     return;
                 }
-                favicon_queue.add (new FaviconRequest (station_id, url));
+                favicon_queue.add (new FaviconRequest (station_id, url, generation));
                 pump_favicons ();
             });
         }
@@ -430,13 +440,16 @@ namespace Gradio {
                 var request = favicon_queue.get (0);
                 favicon_queue.remove_index (0);
                 favicon_active++;
-                fetch_favicon.begin (request.url);
+                fetch_favicon.begin (request.url, request.generation);
             }
         }
 
         private async void backfill_favicon (string station_id, string homepage) {
+            uint generation = favicon_generation;
             try {
                 var updated = yield RadioBrowser.station_by_uuid_async (session, station_id);
+                if (generation != favicon_generation)
+                    return;
                 if (updated != null && updated.favicon != "" &&
                         Http.is_valid_url (updated.favicon)) {
                     request_icon_url (station_id, updated.favicon);
@@ -445,10 +458,13 @@ namespace Gradio {
             } catch (GLib.Error e) {
             }
 
+            if (generation != favicon_generation)
+                return;
             resolve_homepage_favicon.begin (station_id, homepage);
         }
 
         private async void resolve_homepage_favicon (string station_id, string homepage) {
+            uint generation = favicon_generation;
             string key = "h:" + homepage;
             int64 now = GLib.get_monotonic_time ();
             if (favicon_cooldown.is_blocked (key, now))
@@ -467,11 +483,15 @@ namespace Gradio {
             bool html_failed = false;
             try {
                 string html = yield Http.get_string_async (session, homepage);
+                if (generation != favicon_generation)
+                    return;
                 if (html.length <= 512 * 1024)
-                    icon_url = FaviconResolver.icon_url_from_html (html, homepage);
+                    icon_url = yield parse_icon_url_async (html, homepage);
             } catch (GLib.Error e) {
                 html_failed = true;
             }
+            if (generation != favicon_generation)
+                return;
             favicon_homepages.remove (homepage);
 
             if (icon_url == null)
@@ -488,39 +508,64 @@ namespace Gradio {
                 request_icon_url (waiters.get (i), icon_url);
         }
 
-        private async void fetch_favicon (string url) {
+        private async string? parse_icon_url_async (string html, string homepage) {
+            string? icon_url = null;
+            var loop = new GLib.MainLoop ();
+            BackgroundTask.run (() => {
+                icon_url = FaviconResolver.icon_url_from_html (html, homepage);
+                return true;
+            }, () => {
+                loop.quit ();
+            });
+            loop.run ();
+            return icon_url;
+        }
+
+        private async void fetch_favicon (string url, uint generation) {
             try {
                 var bytes = yield Http.get_bytes_async (session, url);
                 unowned uint8[]? data = bytes.get_data ();
                 if (data != null) {
+                    if (generation != favicon_generation) {
+                        finish_favicon (url, "", generation);
+                        return;
+                    }
                     var payload = data;
                     favicon_cache.store_async (url, payload, (stored) => {
+                        if (generation != favicon_generation) {
+                            finish_favicon (url, "", generation);
+                            return;
+                        }
                         if (stored == null || stored == "")
                             favicon_cooldown.record_failure ("u:" + url,
                                 GLib.get_monotonic_time ());
-                        finish_favicon (url, stored ?? "");
+                        finish_favicon (url, stored ?? "", generation);
                     });
                     return;
                 }
             } catch (GLib.Error e) {
             }
 
-            favicon_cooldown.record_failure ("u:" + url, GLib.get_monotonic_time ());
-            finish_favicon (url, "");
+            if (generation == favicon_generation)
+                favicon_cooldown.record_failure ("u:" + url,
+                    GLib.get_monotonic_time ());
+            finish_favicon (url, "", generation);
         }
 
-        private void finish_favicon (string url, string path) {
+        private void finish_favicon (string url, string path, uint generation) {
             favicon_active--;
-            unowned GLib.GenericArray<string>? ids = favicon_inflight.lookup (url);
-            if (ids != null) {
-                for (uint i = 0; i < ids.length; i++) {
-                    if (dispatch != null) {
-                        if (path != "")
-                            dispatch (new FaviconDiscoveredMessage (ids.get (i), url));
-                        dispatch (new FaviconLoadedMessage (ids.get (i), url, path));
+            if (generation == favicon_generation) {
+                unowned GLib.GenericArray<string>? ids = favicon_inflight.lookup (url);
+                if (ids != null) {
+                    for (uint i = 0; i < ids.length; i++) {
+                        if (dispatch != null) {
+                            if (path != "")
+                                dispatch (new FaviconDiscoveredMessage (ids.get (i), url));
+                            dispatch (new FaviconLoadedMessage (ids.get (i), url, path));
+                        }
                     }
+                    favicon_inflight.remove (url);
                 }
-                favicon_inflight.remove (url);
             }
             pump_favicons ();
         }

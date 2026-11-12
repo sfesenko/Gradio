@@ -32,7 +32,7 @@ namespace Gradio {
         private double _volume = 0.8;
         private RadioStation? current = null;
         private uint replay_id = 0;
-        private bool suppress_stop_state = false;
+        private uint suppress_stop_count = 0;
 
         private Thread<bool>? worker = null;
         private GLib.Mutex lock = GLib.Mutex ();
@@ -58,9 +58,7 @@ namespace Gradio {
             cancel_replay ();
 
             if (!Http.is_valid_url (station.url)) {
-                suppress_stop_state = true;
                 stop ();
-                suppress_stop_state = false;
                 playback_error (_("Invalid stream URL"));
                 return;
             }
@@ -68,7 +66,7 @@ namespace Gradio {
             // Tear down the previous stream before switching URIs so two
             // stations never play at once.
             current = station;
-            suppress_stop_state = true;
+            suppress_stop_count++;
             enqueue (new PlayerCommand (PlayerCommandKind.PLAY, station.url));
         }
 
@@ -169,11 +167,11 @@ namespace Gradio {
                     Gst.State old_state, new_state, pending;
                     msg.parse_state_changed (out old_state, out new_state, out pending);
                     if (new_state == Gst.State.PLAYING) {
-                        suppress_stop_state = false;
+                        suppress_stop_count = 0;
                         state_changed (true);
                     } else if (new_state == Gst.State.NULL) {
-                        if (suppress_stop_state)
-                            suppress_stop_state = false;
+                        if (suppress_stop_count > 0)
+                            suppress_stop_count--;
                         else
                             state_changed (false);
                     }
@@ -193,12 +191,12 @@ namespace Gradio {
                     GLib.Error error;
                     string debug;
                     msg.parse_error (out error, out debug);
-                    suppress_stop_state = true;
+                    suppress_stop_count++;
                     playback_error (error.message);
                     stop ();
                     break;
                 case Gst.MessageType.EOS:
-                    suppress_stop_state = true;
+                    suppress_stop_count++;
                     playback_reconnecting (_("Reconnecting…"));
                     enqueue (new PlayerCommand (PlayerCommandKind.STOP));
                     schedule_replay ();
@@ -206,7 +204,7 @@ namespace Gradio {
                 case Gst.MessageType.ELEMENT:
                     unowned Gst.Structure structure = msg.get_structure ();
                     if (structure != null && structure.get_name () == "missing-plugin") {
-                        suppress_stop_state = true;
+                        suppress_stop_count++;
                         playback_error (_("A required codec is missing."));
                         stop ();
                     }

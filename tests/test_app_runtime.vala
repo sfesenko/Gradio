@@ -226,6 +226,23 @@ void test_config_store_latest_snapshot_wins () {
     cleanup_dir (dir);
 }
 
+void test_config_store_flush_waits_for_async () {
+    string dir = make_tmp_dir ();
+    string path = GLib.Path.build_filename (dir, "config.json");
+    var config = new Gradio.AppConfig (path);
+    var store = new Gradio.ConfigStore (config);
+
+    config.volume = 0.1;
+    store.save ();
+    config.volume = 0.9;
+    store.flush_sync ();
+    wait_for_save ();
+
+    var loaded = load_config (path);
+    assert (loaded.volume == 0.9);
+    cleanup_dir (dir);
+}
+
 void test_config_store_reports_failure () {
     string dir = make_tmp_dir ();
     string blocker = GLib.Path.build_filename (dir, "blocker");
@@ -411,6 +428,7 @@ int main (string[] args) {
     Test.add_func ("/app-runtime/save_schedules_write", test_save_schedules_write);
     Test.add_func ("/app-runtime/config_store_writes_async", test_config_store_writes_async);
     Test.add_func ("/app-runtime/config_store_latest_snapshot_wins", test_config_store_latest_snapshot_wins);
+    Test.add_func ("/app-runtime/config_store_flush_waits_for_async", test_config_store_flush_waits_for_async);
     Test.add_func ("/app-runtime/config_store_reports_failure", test_config_store_reports_failure);
     Test.add_func ("/app-runtime/volume_schedules_save", test_volume_schedules_save);
     Test.add_func ("/app-runtime/save_failure_dispatches_error", test_save_failure_dispatches_error);

@@ -15,8 +15,7 @@ no shared git history with it; it is a deliberate rewrite.
 ## Build
 
 Requirements: `meson`, `ninja`, `vala`, `gtk4` (≥ 4.12), `libsoup-3.0`,
-`json-glib`, `gstreamer`, `gettext`, `protobuf-c` (and `protoc` with the
-protobuf-c plugin at build time), and the GStreamer plugin sets
+`json-glib`, `gstreamer`, `gettext`, and the GStreamer plugin sets
 `gst-plugins-base`, `gst-plugins-good`, `gst-plugins-bad`, `gst-plugins-ugly`,
 `gst-libav` for common stream codecs.
 

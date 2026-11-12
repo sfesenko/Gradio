@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 namespace Gradio {
-    [CCode (lower_case_c_prefix = "cast_", cheader_filename = "cast.pb-c.h")]
+    [CCode (lower_case_c_prefix = "cast_")]
     private struct CastMessage {
         public int protocol_version;
         public string source_id;

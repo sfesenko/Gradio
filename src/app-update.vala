@@ -1132,8 +1132,11 @@ private Elmish.Cmd<Gradio.Message>? update_cast_devices_discovered (Gradio.Messa
     if (discovered == null)
         return null;
     model.cast_devices = discovered.devices;
-    model.cast_status = model.cast_devices.length > 0
-        ? CastStatus.READY : CastStatus.IDLE;
+    if (model.cast_status != CastStatus.PLAYING &&
+            model.cast_status != CastStatus.CONNECTING) {
+        model.cast_status = model.cast_devices.length > 0
+            ? CastStatus.READY : CastStatus.IDLE;
+    }
     model.cast_error = "";
     return null;
 }

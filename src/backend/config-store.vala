@@ -61,6 +61,22 @@ namespace Gradio {
             if (load_failed && !dirty)
                 return false;
 
+            // Shutdown-only: let any in-flight async write finish first so the
+            // backup/save order stays deterministic.
+            if (writing) {
+                var loop = new GLib.MainLoop ();
+                int64 deadline = GLib.get_monotonic_time () +
+                    2 * GLib.TimeSpan.SECOND;
+                GLib.Timeout.add (10, () => {
+                    if (!writing || GLib.get_monotonic_time () >= deadline) {
+                        loop.quit ();
+                        return false;
+                    }
+                    return true;
+                });
+                loop.run ();
+            }
+
             if (backup_pending) {
                 backup_pending = false;
                 string backup = path + ".corrupt";

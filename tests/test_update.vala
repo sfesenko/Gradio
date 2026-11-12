@@ -2286,6 +2286,17 @@ void test_cast_devices_discovered () {
     assert (model.cast_status == CastStatus.READY);
 }
 
+void test_cast_devices_discovered_preserves_playing () {
+    var model = make_model ();
+    var commands = new CastRecordingCommands ();
+    var devices = new CastDevice[] { make_cast_device ("id-1", "Kitchen") };
+    model.playback_target = PlaybackTarget.CAST;
+    model.cast_status = CastStatus.PLAYING;
+    updateModel (new CastDevicesDiscoveredMessage (devices), model, commands);
+    assert (model.cast_devices.length == 1);
+    assert (model.cast_status == CastStatus.PLAYING);
+}
+
 void test_cast_discovery_failed () {
     var model = make_model ();
     var commands = new CastRecordingCommands ();
@@ -2480,6 +2491,7 @@ void test_stop_playback_cast_target_stops_cast () {
 void register_cast_tests () {
     Test.add_func ("/update/cast/discover", test_cast_discover_starts_command);
     Test.add_func ("/update/cast/discovered", test_cast_devices_discovered);
+    Test.add_func ("/update/cast/discovered_preserves_playing", test_cast_devices_discovered_preserves_playing);
     Test.add_func ("/update/cast/discovery_failed", test_cast_discovery_failed);
     Test.add_func ("/update/cast/select", test_select_cast_device);
     Test.add_func ("/update/cast/to_selected", test_cast_to_selected_starts_command);
