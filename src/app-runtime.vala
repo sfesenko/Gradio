@@ -15,14 +15,16 @@ namespace Gradio {
     public class AppRuntime : Gradio.Commands {
         private const int FAVICON_CONCURRENCY = 4;
 
-        public Elmish.Dispatch<Message>? dispatch { get; private set; }
+        private unowned Elmish.Dispatch<Message>? dispatch;
         public AppConfig config { get; private set; }
         public Player player { get; private set; }
         public FaviconCache favicon_cache { get; private set; }
 
-        private Soup.Session session;        private uint save_id = 0;
+        private Soup.Session session;
+        private uint save_id = 0;
         private bool signals_connected = false;
         private bool load_failed;
+        private bool read_only;
         private bool dirty = false;
         private bool backup_pending;
         private GLib.GenericArray<FaviconRequest> favicon_queue = new GLib.GenericArray<FaviconRequest> ();
@@ -30,17 +32,19 @@ namespace Gradio {
             new GLib.HashTable<string, GLib.GenericArray<string>> (str_hash, str_equal);
         private GLib.HashTable<string, bool> favicon_backfilled =
             new GLib.HashTable<string, bool> (str_hash, str_equal);
-        private GLib.HashTable<string, bool> favicon_homepages =
-            new GLib.HashTable<string, bool> (str_hash, str_equal);
+        private GLib.HashTable<string, GLib.GenericArray<string>> favicon_homepages =
+            new GLib.HashTable<string, GLib.GenericArray<string>> (str_hash, str_equal);
         private FaviconCooldown favicon_cooldown = new FaviconCooldown ();
         private int favicon_active = 0;
         private GLib.Application? application = null;
         private bool background_hold = false;
         private SleepInhibitor sleep_inhibitor = new SleepInhibitor ();
 
-        public AppRuntime (AppConfig config, bool load_failed = false, string? favicon_dir = null) {
+        public AppRuntime (AppConfig config, bool load_failed = false,
+                bool read_only = false, string? favicon_dir = null) {
             this.config = config;
             this.load_failed = load_failed;
+            this.read_only = read_only;
             this.backup_pending = load_failed;
             session = new Soup.Session ();
             session.set_user_agent ("gradio-gtk4");
@@ -53,19 +57,20 @@ namespace Gradio {
             this.dispatch = dispatch;
             if (!signals_connected) {
                 player.state_changed.connect ((playing) => {
-                    var target = this.dispatch;
-                    if (target != null)
-                        target (new PlayerStateChangedMessage (playing));
+                    if (this.dispatch != null)
+                        this.dispatch (new PlayerStateChangedMessage (playing));
                 });
                 player.metadata_changed.connect ((title, bitrate) => {
-                    var target = this.dispatch;
-                    if (target != null)
-                        target (new PlayerMetadataChangedMessage (title, bitrate));
+                    if (this.dispatch != null)
+                        this.dispatch (new PlayerMetadataChangedMessage (title, bitrate));
                 });
                 player.playback_error.connect ((message) => {
-                    var target = this.dispatch;
-                    if (target != null)
-                        target (new PlayerErrorMessage (message));
+                    if (this.dispatch != null)
+                        this.dispatch (new PlayerErrorMessage (message));
+                });
+                player.playback_reconnecting.connect ((message) => {
+                    if (this.dispatch != null)
+                        this.dispatch (new PlayerReconnectingMessage (message));
                 });
                 signals_connected = true;
             }
@@ -161,8 +166,12 @@ namespace Gradio {
 
         public override Elmish.Cmd<Message>? inhibit_sleep () {
             return new Elmish.Cmd<Message> ((dispatch) => {
-                sleep_inhibitor.acquire ();
+                inhibit_sleep_async.begin ();
             });
+        }
+
+        private async void inhibit_sleep_async () {
+            yield sleep_inhibitor.acquire_async ();
         }
 
         public override Elmish.Cmd<Message>? release_sleep () {
@@ -256,30 +265,28 @@ namespace Gradio {
         }
 
         private async void discover_mode_async (DiscoverMode mode, uint generation) {
-            var target = dispatch;
             try {
                 int limit = mode == DiscoverMode.POPULAR
                     ? RadioBrowser.DISCOVER_POPULAR_LIMIT
                     : RadioBrowser.DISCOVER_NEW_LIMIT;
                 var stations = yield RadioBrowser.discover_async (session, mode,
                     Locale.region_code (), limit);
-                if (target != null)
-                    target (new DiscoverResultsMessage (mode, stations, generation));
+                if (dispatch != null)
+                    dispatch (new DiscoverResultsMessage (mode, stations, generation));
             } catch (GLib.Error e) {
-                if (target != null)
-                    target (new DiscoverFailedMessage (mode, e.message, generation));
+                if (dispatch != null)
+                    dispatch (new DiscoverFailedMessage (mode, e.message, generation));
             }
         }
 
         private async void discover_server_async () {
-            var target = dispatch;
             try {
                 string? discovered_base = yield RadioBrowser.discover_server_async (session);
-                if (target != null && discovered_base != null)
-                    target (new ServerDiscoveredMessage (discovered_base));
+                if (dispatch != null && discovered_base != null)
+                    dispatch (new ServerDiscoveredMessage (discovered_base));
             } catch (GLib.Error e) {
-                if (target != null)
-                    target (new ServerDiscoveryFailedMessage (e.message));
+                if (dispatch != null)
+                    dispatch (new ServerDiscoveryFailedMessage (e.message));
             }
         }
 
@@ -313,9 +320,8 @@ namespace Gradio {
                 }
             }
 
-            var target_dispatch = dispatch;
-            if (target_dispatch != null)
-                target_dispatch (new LibraryRefreshedMessage (updated_all, missing_all));
+            if (dispatch != null)
+                dispatch (new LibraryRefreshedMessage (updated_all, missing_all));
         }
 
         public override Elmish.Cmd<Message>? notify_error (string message) {
@@ -339,7 +345,8 @@ namespace Gradio {
                     return;
                 var notification = new GLib.Notification (
                     station_name != "" ? station_name : _("Now playing"));
-                notification.set_body (title);
+                notification.set_body (title != "" && title != station_name
+                    ? title : _("Playing"));
                 notification.set_icon (new GLib.ThemedIcon ("media-playback-start-symbolic"));
                 notification.set_default_action ("app.raise");
                 app.send_notification ("now-playing", notification);
@@ -410,10 +417,9 @@ namespace Gradio {
 
         private void dispatch_cached_favicon (string station_id, string url, string path) {
             GLib.Idle.add (() => {
-                var target = this.dispatch;
-                if (target != null) {
-                    target (new FaviconDiscoveredMessage (station_id, url));
-                    target (new FaviconLoadedMessage (station_id, url, path));
+                if (this.dispatch != null) {
+                    this.dispatch (new FaviconDiscoveredMessage (station_id, url));
+                    this.dispatch (new FaviconLoadedMessage (station_id, url, path));
                 }
                 return false;
             });
@@ -447,10 +453,16 @@ namespace Gradio {
             int64 now = GLib.get_monotonic_time ();
             if (favicon_cooldown.is_blocked (key, now))
                 return;
-            if (favicon_homepages.contains (homepage))
-                return;
 
-            favicon_homepages.set (homepage, true);
+            var waiters = favicon_homepages.lookup (homepage);
+            if (waiters != null) {
+                waiters.add (station_id);
+                return;
+            }
+
+            waiters = new GLib.GenericArray<string> ();
+            waiters.add (station_id);
+            favicon_homepages.set (homepage, waiters);
             string? icon_url = null;
             bool html_failed = false;
             try {
@@ -472,7 +484,8 @@ namespace Gradio {
             if (html_failed)
                 favicon_cooldown.record_failure (key, now);
 
-            request_icon_url (station_id, icon_url);
+            for (uint i = 0; i < waiters.length; i++)
+                request_icon_url (waiters.get (i), icon_url);
         }
 
         private async void fetch_favicon (string url) {
@@ -498,11 +511,10 @@ namespace Gradio {
             unowned GLib.GenericArray<string>? ids = favicon_inflight.lookup (url);
             if (ids != null) {
                 for (uint i = 0; i < ids.length; i++) {
-                    var target = dispatch;
-                    if (target != null) {
+                    if (dispatch != null) {
                         if (path != "")
-                            target (new FaviconDiscoveredMessage (ids.get (i), url));
-                        target (new FaviconLoadedMessage (ids.get (i), url, path));
+                            dispatch (new FaviconDiscoveredMessage (ids.get (i), url));
+                        dispatch (new FaviconLoadedMessage (ids.get (i), url, path));
                     }
                 }
                 favicon_inflight.remove (url);
@@ -511,6 +523,10 @@ namespace Gradio {
         }
 
         public void save_now () {
+            // A config written by a newer version is preserved untouched: we
+            // cannot represent its settings, so overwriting it would lose data.
+            if (read_only)
+                return;
             if (load_failed && !dirty)
                 return;
 
@@ -526,9 +542,8 @@ namespace Gradio {
             try {
                 config.save ();
             } catch (GLib.Error e) {
-                var target = dispatch;
-                if (target != null)
-                    target (new ConfigSaveFailedMessage (e.message));
+                if (dispatch != null)
+                    dispatch (new ConfigSaveFailedMessage (e.message));
             }
         }
 
@@ -543,52 +558,48 @@ namespace Gradio {
         }
 
         private async void import_async (string path) {
-            var target = dispatch;
             try {
                 string contents;
                 GLib.FileUtils.get_contents (path, out contents);
                 var stations = StationTransfer.parse (contents);
-                if (target != null)
-                    target (new StationsImportedMessage (stations));
+                if (dispatch != null)
+                    dispatch (new StationsImportedMessage (stations));
             } catch (GLib.Error e) {
-                if (target != null)
-                    target (new ImportFailedMessage (e.message));
+                if (dispatch != null)
+                    dispatch (new ImportFailedMessage (e.message));
             }
         }
 
         private async void export_async (GLib.GenericArray<RadioStation> stations, string path) {
-            var target = dispatch;
             try {
                 string data = StationTransfer.export_json (stations);
                 GLib.FileUtils.set_contents (path, data);
-                if (target != null)
-                    target (new ExportSucceededMessage (path, (int) stations.length));
+                if (dispatch != null)
+                    dispatch (new ExportSucceededMessage (path, (int) stations.length));
             } catch (GLib.Error e) {
-                if (target != null)
-                    target (new ExportFailedMessage (e.message));
+                if (dispatch != null)
+                    dispatch (new ExportFailedMessage (e.message));
             }
         }
 
         private async void export_playlist_async (GLib.GenericArray<RadioStation> stations,
                 string path) {
-            var target = dispatch;
             try {
                 string data = StationTransfer.export_m3u (stations);
                 GLib.FileUtils.set_contents (path, data);
-                if (target != null)
-                    target (new ExportSucceededMessage (path, (int) stations.length));
+                if (dispatch != null)
+                    dispatch (new ExportSucceededMessage (path, (int) stations.length));
             } catch (GLib.Error e) {
-                if (target != null)
-                    target (new ExportFailedMessage (e.message));
+                if (dispatch != null)
+                    dispatch (new ExportFailedMessage (e.message));
             }
         }
 
         private async void load_filter_names_async (SearchFilterKind field, string endpoint) {
-            var target = dispatch;
             try {
                 var names = yield RadioBrowser.filter_names_async (session, endpoint);
-                if (target != null)
-                    target (new FilterOptionsLoadedMessage (field, names));
+                if (dispatch != null)
+                    dispatch (new FilterOptionsLoadedMessage (field, names));
             } catch (GLib.Error e) {
                 // Filter lists are a convenience: fall back to the entries the
                 // user already has instead of reporting an error.
@@ -596,30 +607,28 @@ namespace Gradio {
         }
 
         private async void vote_async (string station_id) {
-            var target = dispatch;
             try {
                 var result = yield RadioBrowser.vote_async (session, station_id);
-                if (target == null)
+                if (dispatch == null)
                     return;
                 if (result.ok)
-                    target (new VoteSucceededMessage (station_id, result.station));
+                    dispatch (new VoteSucceededMessage (station_id, result.station));
                 else
-                    target (new VoteFailedMessage (station_id, _("Voting failed")));
+                    dispatch (new VoteFailedMessage (station_id, _("Voting failed")));
             } catch (GLib.Error e) {
-                if (target != null)
-                    target (new VoteFailedMessage (station_id, e.message));
+                if (dispatch != null)
+                    dispatch (new VoteFailedMessage (station_id, e.message));
             }
         }
 
-        private async void search_async (string query, uint generation) {            try {
+        private async void search_async (string query, uint generation) {
+            try {
                 var stations = yield RadioBrowser.search_async (session, query, 50, config.search_filters);
-                var target = dispatch;
-                if (target != null)
-                    target (new SearchResultsMessage (stations, generation));
+                if (dispatch != null)
+                    dispatch (new SearchResultsMessage (stations, generation));
             } catch (GLib.Error e) {
-                var target = dispatch;
-                if (target != null)
-                    target (new SearchFailedMessage (e.message, generation));
+                if (dispatch != null)
+                    dispatch (new SearchFailedMessage (e.message, generation));
             }
         }
     }

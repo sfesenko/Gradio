@@ -7,9 +7,6 @@ namespace Gradio {
             Object (transient_for: parent, modal: true, title: _("Preferences"), default_width: 360);
 
             var header = new Gtk.HeaderBar ();
-            var close = new Gtk.Button.with_label (_("Close"));
-            close.clicked.connect (() => this.close ());
-            header.pack_end (close);
             set_titlebar (header);
 
             var list = new Gtk.ListBox () {
@@ -59,6 +56,26 @@ namespace Gradio {
                 return false;
             });
             list.append (build_row (_("Show notifications"), notifications_toggle));
+
+            var status_bar_toggle = new Gtk.Switch () {
+                active = model.config.show_status_bar,
+                valign = Gtk.Align.CENTER
+            };
+            status_bar_toggle.state_set.connect ((state) => {
+                dispatch (new SetShowStatusBarMessage (state));
+                return false;
+            });
+            list.append (build_row (_("Show app feedback in the status bar"), status_bar_toggle));
+
+            var player_in_header_toggle = new Gtk.Switch () {
+                active = model.config.player_in_header,
+                valign = Gtk.Align.CENTER
+            };
+            player_in_header_toggle.state_set.connect ((state) => {
+                dispatch (new SetPlayerInHeaderMessage (state));
+                return false;
+            });
+            list.append (build_row (_("Player in the header bar"), player_in_header_toggle));
 
             int[] icon_sizes = { 32, 48, 64, 96 };
             var icon_size = new Gtk.DropDown.from_strings ({ "32", "48", "64", "96" });

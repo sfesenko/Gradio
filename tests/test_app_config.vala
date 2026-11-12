@@ -152,6 +152,20 @@ void test_invalid_json () {
     cleanup (dir);
 }
 
+void test_newer_format_version_is_rejected () {
+    string dir = make_tmp_dir ();
+    string path = write_file (dir, "config.json", "{\"version\": 99}");
+
+    bool threw = false;
+    try {
+        Gradio.AppConfig.load (path);
+    } catch (GLib.Error e) {
+        threw = true;
+    }
+    assert (threw);
+    cleanup (dir);
+}
+
 void test_duplicate_station () {
     string dir = make_tmp_dir ();
     var config = new Gradio.AppConfig (GLib.Path.build_filename (dir, "config.json"));
@@ -266,6 +280,16 @@ void test_skips_station_without_id () {
     cleanup (dir);
 }
 
+void test_skips_station_without_name_or_url () {
+    string dir = make_tmp_dir ();
+    string path = write_file (dir, "config.json",
+        "{\"version\":1,\"stations\":[{\"stationuuid\":\"u1\"},{\"stationuuid\":\"u2\",\"name\":\"No URL\"},{\"stationuuid\":\"u3\",\"url_resolved\":\"https://example.test/no-name\"}]}");
+
+    var config = load_config (path);
+    assert (config.stations.length == 0);
+    cleanup (dir);
+}
+
 void test_search_filters_round_trip () {
     string dir = make_tmp_dir ();
     string path = GLib.Path.build_filename (dir, "config.json");
@@ -347,11 +371,37 @@ void test_notifications_round_trip () {
     cleanup (dir);
 }
 
+void test_status_bar_round_trip () {
+    string dir = make_tmp_dir ();
+    string path = GLib.Path.build_filename (dir, "config.json");
+    var config = new Gradio.AppConfig (path);
+    config.show_status_bar = false;
+    save_config (config);
+    assert (load_config (path).show_status_bar == false);
+    assert (load_config (GLib.Path.build_filename (dir, "missing.json"))
+        .show_status_bar == true);
+    cleanup (dir);
+}
+
+void test_player_in_header_round_trip () {
+    string dir = make_tmp_dir ();
+    string path = GLib.Path.build_filename (dir, "config.json");
+    var config = new Gradio.AppConfig (path);
+    config.player_in_header = true;
+    save_config (config);
+    assert (load_config (path).player_in_header == true);
+    assert (load_config (GLib.Path.build_filename (dir, "missing.json"))
+        .player_in_header == false);
+    cleanup (dir);
+}
+
 int main (string[] args) {
     Test.init (ref args);
 
     Test.add_func ("/app-config/missing_file_returns_empty", test_missing_file_returns_empty);
     Test.add_func ("/app-config/notifications_round_trip", test_notifications_round_trip);
+    Test.add_func ("/app-config/status_bar_round_trip", test_status_bar_round_trip);
+    Test.add_func ("/app-config/player_in_header_round_trip", test_player_in_header_round_trip);
     Test.add_func ("/app-config/background_playback_round_trip", test_background_playback_round_trip);
     Test.add_func ("/app-config/window_and_icon_round_trip", test_window_and_icon_round_trip);
     Test.add_func ("/app-config/invalid_window_and_icon", test_invalid_window_and_icon_values_fall_back);
@@ -363,6 +413,7 @@ int main (string[] args) {
     Test.add_func ("/app-config/round_trip", test_round_trip);
     Test.add_func ("/app-config/empty_file", test_empty_file);
     Test.add_func ("/app-config/invalid_json", test_invalid_json);
+    Test.add_func ("/app-config/newer_version", test_newer_format_version_is_rejected);
     Test.add_func ("/app-config/duplicate_station", test_duplicate_station);
     Test.add_func ("/app-config/remove_station", test_remove_station);
     Test.add_func ("/app-config/move_station_after", test_move_station_after_target);
@@ -373,6 +424,7 @@ int main (string[] args) {
     Test.add_func ("/app-config/skips_invalid_station_entries", test_skips_invalid_station_entries);
     Test.add_func ("/app-config/volume_clamped", test_volume_clamped);
     Test.add_func ("/app-config/skips_station_without_id", test_skips_station_without_id);
+    Test.add_func ("/app-config/skips_station_without_name_or_url", test_skips_station_without_name_or_url);
     Test.add_func ("/app-config/library_sort_round_trip", test_library_sort_round_trip);
 
     return Test.run ();

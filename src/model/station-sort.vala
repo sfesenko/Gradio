@@ -86,7 +86,9 @@ namespace Gradio {
                     result.sort (compare_bitrate_ascending);
                     break;
                 default:
-                    return result;
+                    // CUSTOM keeps the stored order; the Descending switch
+                    // still applies so it does not become a dead control.
+                    break;
             }
             if (descending) {
                 var reversed = new GLib.GenericArray<RadioStation> ();

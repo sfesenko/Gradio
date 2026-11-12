@@ -17,7 +17,7 @@ Assume existing project has `src/model/messages.vala`, `src/app-update.vala`, `s
 
 ### 1. Model — add per-view context (only for the retained-native view)
 
-Do **not** replace `AppModel`; add a `BookContext`-like object per resource:
+Do **not** replace `AppModel`; add one context object per retained-native resource:
 
 ```vala
 // src/model/my-context.vala (new, GLib.Object for notify_property)
@@ -57,7 +57,7 @@ vadj.value_changed.connect (() => {
 });
 ```
 
-Other views (`src/components/counter/` etc.) stay plain half-elmish — `updateView` per-message, no coalescing.
+Other views (`src/app-view.vala` and `src/view/`) stay plain half-elmish — `updateView` per-message, no coalescing.
 
 ### 3. Keep `lib_core` GTK-free
 

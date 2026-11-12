@@ -20,7 +20,6 @@ namespace Gradio {
         public const string tags_path = "/tags";
 
         public const string radio_station_search = radio_browser + search_path;
-        public const string countries_endpoint = radio_browser + countries_path;
         public const string languages_endpoint = radio_browser + languages_path;
         public const string tags_endpoint = radio_browser + tags_path;
 
@@ -97,14 +96,6 @@ namespace Gradio {
 
         // Filter pickers are filled from the reference endpoints. The station
         // count order puts the most useful values first.
-        public static string filter_list_url (string endpoint) {
-            var params = new GLib.HashTable<string, string> (str_hash, str_equal);
-            params.insert ("hidebroken", "true");
-            params.insert ("order", "stationcount");
-            params.insert ("reverse", "true");
-            return Http.url_with_query (endpoint, params);
-        }
-
         private static GLib.HashTable<string, string> filter_list_params () {
             var params = new GLib.HashTable<string, string> (str_hash, str_equal);
             params.insert ("hidebroken", "true");
@@ -135,13 +126,6 @@ namespace Gradio {
                     names += name;
             }
             return names;
-        }
-
-        public static async string[] load_names_async (Soup.Session session, string endpoint,
-            GLib.Cancellable? cancellable = null) throws GLib.Error {
-            string contents = yield Http.get_string_async (session,
-                filter_list_url (endpoint), cancellable);
-            return parse_names (contents);
         }
 
         public static async string[] filter_names_async (Soup.Session session, string path,
@@ -293,6 +277,8 @@ namespace Gradio {
 
         public static string server_base_for_host (string hostname) throws GLib.Error {
             string host = hostname.strip ();
+            while (host.has_suffix ("."))
+                host = host.substring (0, host.length - 1);
             if (host == "")
                 throw new GLib.FileError.FAILED ("empty hostname");
             return "https://" + host + "/json";

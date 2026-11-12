@@ -15,7 +15,7 @@ no shared git history with it; it is a deliberate rewrite.
 
 ## Build
 
-Requirements: `meson`, `ninja`, `vala`, `gtk4` (≥ 4.10), `libsoup-3.0`,
+Requirements: `meson`, `ninja`, `vala`, `gtk4` (≥ 4.12), `libsoup-3.0`,
 `json-glib`, `gstreamer`, `gettext`, and the GStreamer plugin sets
 `gst-plugins-base`, `gst-plugins-good`, `gst-plugins-bad`, `gst-plugins-ugly`,
 `gst-libav` for common stream codecs.
@@ -31,16 +31,21 @@ meson test -C builddir        # headless — no display needed
 
 Gradio is a usable single-list radio player:
 
-- One library list; `+` opens a radio-browser name search
+- One library list; `+` opens the Add view with radio-browser search and
+  Discover lists (popular and recently added stations)
 - Blank name with any filter browses everything matching that filter
 - Add stays in search and marks results as added; Back returns to the list
 - GStreamer playback with play/stop, volume, and stream metadata
-- Slide-in station details with homepage, stream URL, and remove
+- Background playback: closing the window keeps the stream alive while the
+  app holds a background slot, and sleep is inhibited during playback
+- Slide-in station details with homepage, stream URLs, session track history,
+  and voting; removal is on the library row
 - Station icons cached under `~/.cache/gradio/favicons/`, with homepage icon
-  discovery and an RSS fallback
+  discovery via HTML `<link rel="icon">` and `/favicon.ico`
 - Drag stations to reorder the library; search-result sorting stays on the search tab
 - Library sorting by name, country, state, language, or bitrate (ascending or
-  descending); Custom order keeps drag-and-drop reordering
+  descending); Custom order keeps drag-and-drop reordering and reverses it
+  when descending is on
 - Add and edit local stations that are not in radio-browser; remote stations
   stay read-only
 - Remote station metadata refreshes on startup; stations missing upstream get
@@ -48,23 +53,23 @@ Gradio is a usable single-list radio player:
 - Persisted country, state, language, and tag search filters; country,
   language, and tag are searchable pickers filled from radio-browser
 - Window geometry and station-icon size are remembered
-- Preferences for technical information, resuming the last station on startup,
-  and clearing the icon cache
-- Vote for stations from the details panel
+- Preferences for technical information, notifications, background playback,
+  status bar, player-in-header placement, station-icon size, resuming the last
+  station on startup, and clearing the icon cache
 - Import and export the station library as JSON, or export an M3U playlist
 - MPRIS 2.2 controls, media keys, and the GNOME media widget
 - GNOME Shell search over the local library
-- Desktop notifications for playback errors
+- Desktop notifications for now-playing changes and playback errors
 - JSON config at `~/.config/gradio/config.json` (`XDG_CONFIG_HOME` honored);
   cache lives at `~/.cache/gradio/`
 - Headless core tests for the model, config, HTTP, search, player, and runtime
 
 Gradio keeps the extras that fit the single-list design: import/export (JSON and
-M3U), MPRIS, the GNOME Shell search provider, playback-error notifications,
-voting, filter pickers, and optional resume of the last station. Discover
-presets, background playback, and a codec installer are dropped; common
-GStreamer codec packages are regular dependencies. Collections, headerbar
-tabs, tray icon, and multi-select remain out of scope.
+M3U), MPRIS, the GNOME Shell search provider, notifications, voting, filter
+pickers, Discover presets, background playback, and optional resume of the
+last station. A codec installer is not included; common GStreamer codec
+packages are regular dependencies. Collections, headerbar tabs, tray icon,
+and multi-select remain out of scope.
 
 ## Packaging
 
@@ -74,12 +79,6 @@ tabs, tray icon, and multi-select remain out of scope.
 ./scripts/build-package.sh              # → scripts/dist/*.pkg.tar.zst
 ./scripts/build-package.sh -C           # clean build
 ./scripts/build-package.sh -i           # install after building
-```
-
-**Flatpak** — builds the local tree:
-
-```bash
-flatpak-builder --user --install build-flatpak io.github.sfesenko.gradio.json
 ```
 
 ## License

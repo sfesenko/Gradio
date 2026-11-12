@@ -5,7 +5,7 @@ namespace Gradio {
     public class DetailsPanel : Gtk.Box {
         public signal void edit_requested (RadioStation station);
 
-        private Elmish.Dispatch<Message> dispatch;
+        private unowned Elmish.Dispatch<Message> dispatch;
         private RadioStation? station;
         private Gtk.Label name_label;
         private Gtk.Label meta_label;
@@ -17,6 +17,7 @@ namespace Gradio {
         private Gtk.LinkButton homepage_button;
         private Gtk.Label streams_heading;
         private Gtk.Box streams_box;
+        private string streams_signature = "";
 
         public DetailsPanel (Elmish.Dispatch<Message> dispatch) {
             Object (orientation: Gtk.Orientation.VERTICAL, spacing: 8);
@@ -177,6 +178,11 @@ namespace Gradio {
         }
 
         private void rebuild_streams (RadioStation? station) {
+            string signature = station == null ? "" : station.stream_signature ();
+            if (signature == streams_signature)
+                return;
+            streams_signature = signature;
+
             Gtk.Widget? child = streams_box.get_first_child ();
             while (child != null) {
                 var next = child.get_next_sibling ();

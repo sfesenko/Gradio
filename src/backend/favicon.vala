@@ -64,10 +64,8 @@ namespace Gradio {
                     return null;
             }
 
-            try {
-                GLib.DirUtils.create_with_parents (directory, 0700);
-            } catch (GLib.Error e) {
-            }
+            // Best effort: a failed mkdir will surface as a failed save below.
+            GLib.DirUtils.create_with_parents (directory, 0700);
 
             string path = path_for (url);
             string temp = path + ".tmp";
@@ -98,6 +96,9 @@ namespace Gradio {
     // with `u:` for icon URLs and `h:` for homepages.
     public class FaviconCooldown : GLib.Object {
         public const int64 TTL_USEC = 3600000000;
+        // Bound the negative cache over long sessions; dropping it only means
+        // failed icons may be retried, which is harmless.
+        public const uint MAX_ENTRIES = 512;
 
         private GLib.HashTable<string, int64?> failures =
             new GLib.HashTable<string, int64?> (str_hash, str_equal);
@@ -114,6 +115,8 @@ namespace Gradio {
         }
 
         public void record_failure (string key, int64 now) {
+            if (failures.size () >= MAX_ENTRIES)
+                failures.remove_all ();
             failures.set (key, now);
         }
 

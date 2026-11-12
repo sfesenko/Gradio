@@ -55,6 +55,26 @@ void test_result_meta () {
     assert (meta.lookup ("description").get_string () == "Germany");
 }
 
+void test_result_metas_keep_ids_aligned () {
+    var provider = new SearchProvider (make_config ());
+    var loop = new GLib.MainLoop ();
+    GLib.HashTable<string, GLib.Variant>[] metas = {};
+    provider.get_result_metas.begin ({ "u1", "missing" }, (obj, res) => {
+        try {
+            metas = provider.get_result_metas.end (res);
+        } catch (GLib.Error e) {
+            assert_not_reached ();
+        }
+        loop.quit ();
+    });
+    loop.run ();
+
+    assert (metas.length == 2);
+    assert (metas[0].lookup ("id").get_string () == "u1");
+    assert (metas[1].lookup ("id").get_string () == "missing");
+    assert (metas[1].lookup ("name").get_string () == "");
+}
+
 int main (string[] args) {
     Test.init (ref args);
 
@@ -64,6 +84,7 @@ int main (string[] args) {
     Test.add_func ("/search-provider/match_empty", test_match_no_terms);
     Test.add_func ("/search-provider/match_country", test_match_ignores_country);
     Test.add_func ("/search-provider/result_meta", test_result_meta);
+    Test.add_func ("/search-provider/result_metas_aligned", test_result_metas_keep_ids_aligned);
 
     return Test.run ();
 }

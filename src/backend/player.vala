@@ -6,6 +6,7 @@ namespace Gradio {
         public signal void state_changed (bool playing);
         public signal void metadata_changed (string title, int bitrate);
         public signal void playback_error (string message);
+        public signal void playback_reconnecting (string message);
 
         private Gst.Element playbin;
         private double _volume = 0.8;
@@ -29,6 +30,7 @@ namespace Gradio {
             if (!Http.is_valid_url (station.url)) {
                 suppress_stop_state = true;
                 stop ();
+                suppress_stop_state = false;
                 playback_error (_("Invalid stream URL"));
                 return;
             }
@@ -44,6 +46,7 @@ namespace Gradio {
                 suppress_stop_state = true;
                 playback_error (_("Could not start playback"));
                 stop ();
+                suppress_stop_state = false;
             }
         }
 
@@ -111,7 +114,7 @@ namespace Gradio {
                     break;
                 case Gst.MessageType.EOS:
                     suppress_stop_state = true;
-                    playback_error (_("End of stream"));
+                    playback_reconnecting (_("Reconnecting…"));
                     playbin.set_state (Gst.State.NULL);
                     schedule_replay ();
                     break;

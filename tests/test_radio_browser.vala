@@ -106,15 +106,6 @@ void test_search_filters_trim_values () {
     assert (filters.tag == "jazz, soul");
 }
 
-void test_filter_list_url () {
-    string url = Gradio.RadioBrowser.filter_list_url (Gradio.RadioBrowser.countries_endpoint);
-    assert (url.has_prefix (Gradio.RadioBrowser.countries_endpoint + "?"));
-    var query = Soup.Form.decode (url.substring (url.index_of ("?") + 1));
-    assert (query.lookup ("hidebroken") == "true");
-    assert (query.lookup ("order") == "stationcount");
-    assert (query.lookup ("reverse") == "true");
-}
-
 void test_parse_filter_names () {
     try {
         var names = Gradio.RadioBrowser.parse_names (
@@ -199,14 +190,6 @@ void test_search_url_uses_api_base () {
     Gradio.RadioBrowser.api_base = "https://radio.test/json";
     string url = Gradio.RadioBrowser.search_url ("jazz", 5);
     assert (url.has_prefix ("https://radio.test/json/stations/search?"));
-    Gradio.RadioBrowser.api_base = Gradio.RadioBrowser.radio_browser;
-}
-
-void test_filter_list_url_uses_api_base () {
-    Gradio.RadioBrowser.api_base = "https://radio.test/json";
-    string url = Gradio.RadioBrowser.filter_list_url (
-        Gradio.RadioBrowser.api_url (Gradio.RadioBrowser.countries_path));
-    assert (url.has_prefix ("https://radio.test/json/countries?"));
     Gradio.RadioBrowser.api_base = Gradio.RadioBrowser.radio_browser;
 }
 
@@ -353,7 +336,6 @@ int main (string[] args) {
     Test.add_func ("/radio-browser/search_filters_trim", test_search_filters_trim_values);
     Test.add_func ("/radio-browser/station_by_uuid_url", test_station_by_uuid_url);
     Test.add_func ("/radio-browser/stations_by_uuid_body", test_stations_by_uuid_body);
-    Test.add_func ("/radio-browser/filter_list_url", test_filter_list_url);
     Test.add_func ("/radio-browser/parse_filter_names", test_parse_filter_names);
     Test.add_func ("/radio-browser/parse_filter_names_invalid",
         test_parse_filter_names_rejects_non_array);
@@ -364,7 +346,6 @@ int main (string[] args) {
     Test.add_func ("/radio-browser/parse_vote_invalid", test_parse_vote_invalid_json);
     Test.add_func ("/radio-browser/api_url", test_api_url);
     Test.add_func ("/radio-browser/search_url_uses_api_base", test_search_url_uses_api_base);
-    Test.add_func ("/radio-browser/filter_list_url_uses_api_base", test_filter_list_url_uses_api_base);
     Test.add_func ("/radio-browser/vote_uuid_urls_use_api_base", test_vote_and_uuid_urls_use_api_base);
     Test.add_func ("/radio-browser/server_base_for_host", test_server_base_for_host);
     Test.add_func ("/radio-browser/ordered_candidates", test_ordered_candidates);

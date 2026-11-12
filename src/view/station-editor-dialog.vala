@@ -13,7 +13,7 @@ namespace Gradio {
         private Gtk.Label error_label;
         private RadioStation? station;
         private AppModel model;
-        private Elmish.Dispatch<Message> dispatch;
+        private unowned Elmish.Dispatch<Message> dispatch;
 
         public StationEditorDialog (Gtk.Window parent, AppModel model,
                 Elmish.Dispatch<Message> dispatch, RadioStation? station) {
@@ -100,12 +100,17 @@ namespace Gradio {
             result.id = station == null ? "" : station.id;
             result.name = name_entry.text;
             result.url = url_entry.text;
-            result.original_url = result.url;
+            result.original_url = station != null && station.original_url != ""
+                ? station.original_url : result.url;
             result.homepage = homepage_entry.text;
             result.country = country_entry.text;
             result.state = state_entry.text;
             result.language = language_entry.text;
             result.tags = tags_entry.text;
+            // The editor does not display these, so keep the stored values
+            // instead of resetting them on save.
+            result.codec = station == null ? "" : station.codec;
+            result.bitrate = station == null ? 0 : station.bitrate;
 
             string? error = StationValidation.validate (result.name, result.url,
                 result.homepage, model.config, station == null ? null : station.id);

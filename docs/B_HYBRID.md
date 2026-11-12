@@ -12,7 +12,7 @@ All three must hold; otherwise stay half-elmish:
 2. Rebuilding it from `model` in `updateView` would recreate/lose state every message.
 3. Events arrive at continuous rate (`value_changed`, `motion`, etc.) — coalescing needed.
 
-**Stay half-elmish:** `Counter`, notes-store, any state fully derived from `model`.
+**Stay half-elmish:** `StationRow`, the library list, any state fully derived from `model`.
 **Adopt B+hybrid:** `WebKit.WebView`, `Shumate.Map`, `DrawingArea+GestureDrag`, `GStreamer` — widget owns state not reconstructible from `model`.
 
 ## Pattern per-view
@@ -20,11 +20,11 @@ All three must hold; otherwise stay half-elmish:
 Add a per-view context, keep the loop:
 
 ```vala
-// Model: one context per resource (e.g. per book/window)
-private App.BookContext _empty_book = new App.BookContext ();
-private App.BookContext? _active_ctx = null;
-public App.BookContext current_ctx { get { return _active_ctx ?? _empty_book; } }
-public void set_active (App.BookContext? ctx) {
+// Model: one context per resource (e.g. per retained-native view)
+private App.MyContext _empty_ctx = new App.MyContext ();
+private App.MyContext? _active_ctx = null;
+public App.MyContext current_ctx { get { return _active_ctx ?? _empty_ctx; } }
+public void set_active (App.MyContext? ctx) {
     if (_active_ctx != null && _active_ctx != ctx) { /* flush/coalesce */ }
     _active_ctx = ctx;
     notify_property ("current_ctx");

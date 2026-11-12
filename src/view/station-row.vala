@@ -7,7 +7,7 @@ namespace Gradio {
         public bool library_row { get; private set; }
         public Gtk.Widget? drag_handle { get; private set; }
 
-        private Elmish.Dispatch<Message> dispatch;
+        private unowned Elmish.Dispatch<Message> dispatch;
         private bool is_current;
         private bool playing;
         private bool already_added;
@@ -121,21 +121,10 @@ namespace Gradio {
             }
 
             try {
-                var pixbuf = new Gdk.Pixbuf.from_file (next);
-                int width = pixbuf.get_width ();
-                int height = pixbuf.get_height ();
-                if (width <= 0 || height <= 0)
-                    throw new GLib.FileError.FAILED ("empty favicon");
-
-                double ratio = double.min ((double) icon_size / width, (double) icon_size / height);
-                int scaled_width = int.max (1, (int) (width * ratio));
-                int scaled_height = int.max (1, (int) (height * ratio));
-                var scaled = pixbuf.scale_simple (scaled_width, scaled_height,
-                    Gdk.InterpType.BILINEAR);
-                if (scaled == null)
-                    throw new GLib.FileError.FAILED ("could not scale favicon");
-
-                station_icon.set_from_paintable (Gdk.Texture.for_pixbuf (scaled));
+                // Favicons are cached at <= FaviconCache.MAX_SIZE, so load the
+                // texture as-is and let Gtk.Image scale it to pixel_size.
+                station_icon.set_from_paintable (Gdk.Texture.from_filename (next));
+                station_icon.pixel_size = icon_size;
             } catch (GLib.Error e) {
                 station_icon.set_from_icon_name ("application-rss+xml-symbolic");
                 station_icon.pixel_size = icon_size;
@@ -199,10 +188,33 @@ namespace Gradio {
                 icon_name = "user-trash-symbolic",
                 tooltip_text = _("Remove from library")
             };
-            remove.clicked.connect (() => dispatch (new RemoveStationMessage (station.id)));
+            remove.clicked.connect (() => on_remove_clicked ());
             actions.append (remove);
 
             return actions;
+        }
+
+        private void on_remove_clicked () {
+            // Remote stations can be added again from search; locally created
+            // ones exist only in the config and would be lost permanently.
+            if (!station.is_local) {
+                dispatch (new RemoveStationMessage (station.id));
+                return;
+            }
+
+            var dialog = new Gtk.AlertDialog (_("Remove %s?").printf (station.name));
+            dialog.detail = _("This locally created station cannot be restored.");
+            dialog.buttons = { _("Cancel"), _("Remove") };
+            dialog.cancel_button = 0;
+            dialog.default_button = 0;
+            dialog.modal = true;
+            dialog.choose.begin (get_root () as Gtk.Window, null, (obj, res) => {
+                try {
+                    if (dialog.choose.end (res) == 1)
+                        dispatch (new RemoveStationMessage (station.id));
+                } catch (GLib.Error e) {
+                }
+            });
         }
     }
 }

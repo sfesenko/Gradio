@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            appstream \
+            desktop-file-utils \
+            gettext \
+            libgdk-pixbuf-2.0-dev \
+            libglib2.0-dev \
+            libgstreamer-plugins-base1.0-dev \
+            libgstreamer1.0-dev \
+            libgtk-4-dev \
+            libjson-glib-dev \
+            libsoup-3.0-dev \
+            meson \
+            ninja-build \
+            valac
+
+      - name: Configure
+        run: meson setup builddir
+
+      - name: Compile
+        run: meson compile -C builddir
+
+      - name: Test
+        run: meson test -C builddir --print-errorlogs
+
+      - name: Validate appstream metadata
+        run: appstreamcli validate --no-net builddir/data/io.github.sfesenko.gradio.appdata.xml
+
+      - name: Check POTFILES drift
+        run: |
+          meson compile -C builddir gradio-pot
+          # The generation timestamp always differs; ignore just that line.
+          git diff -I '^"POT-Creation-Date:' --exit-code po/gradio.pot

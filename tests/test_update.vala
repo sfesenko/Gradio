@@ -442,6 +442,60 @@ void test_move_station_noop_does_not_save () {
     assert (commands.save_calls == 0);
 }
 
+void test_library_order_tracks_library_and_sort () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    var a = make_station ("a");
+    a.name = "Alpha";
+    var b = make_station ("b");
+    b.name = "Beta";
+    var c = make_station ("c");
+    c.name = "Charlie";
+
+    updateModel (new AddStationMessage (b), model, commands);
+    updateModel (new AddStationMessage (c), model, commands);
+    updateModel (new AddStationMessage (a), model, commands);
+
+    // Custom order follows config.stations.
+    assert (model.library_order.get (0).id == "b");
+    assert (model.library_order.get (1).id == "c");
+    assert (model.library_order.get (2).id == "a");
+
+    // Unrelated messages reuse the cached order.
+    updateModel (new SetVolumeMessage (0.5), model, commands);
+    assert (model.library_order.get (0).id == "b");
+
+    updateModel (new SetLibrarySortMessage (LibrarySortMode.NAME, false), model, commands);
+    assert (model.library_order.get (0).id == "a");
+    assert (model.library_order.get (1).id == "b");
+    assert (model.library_order.get (2).id == "c");
+
+    updateModel (new SetLibrarySortMessage (LibrarySortMode.NAME, true), model, commands);
+    assert (model.library_order.get (0).id == "c");
+
+    updateModel (new SetLibrarySortMessage (LibrarySortMode.CUSTOM, false), model, commands);
+    updateModel (new MoveStationMessage ("a", "c", false), model, commands);
+    assert (model.library_order.get (0).id == "b");
+    assert (model.library_order.get (1).id == "a");
+    assert (model.library_order.get (2).id == "c");
+}
+
+void test_library_order_updates_after_local_edit () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    var local = make_station ("local-1");
+    local.name = "Zulu";
+    local.is_local = true;
+    updateModel (new AddLocalStationMessage (local), model, commands);
+    updateModel (new SetLibrarySortMessage (LibrarySortMode.NAME, false), model, commands);
+
+    var edited = model.config.stations.get (0).copy ();
+    edited.name = "Alpha";
+    updateModel (new UpdateLocalStationMessage (edited), model, commands);
+
+    assert (model.library_order.get (0).name == "Alpha");
+}
+
 void test_vote_starts_command () {
     var model = make_model ();
     var commands = new RecordingCommands ();
@@ -584,6 +638,21 @@ void test_export_success_reports_status () {
     assert (model.status_message == "Exported 3 stations");
 }
 
+void test_player_status_and_app_feedback_stay_separate () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+
+    model.status_message = "keep me";
+    updateModel (new PlayerStateChangedMessage (true), model, commands);
+    assert (model.player_status == "");
+    assert (model.status_message == "keep me");
+
+    model.player_status = "keep me too";
+    updateModel (new ExportSucceededMessage ("/tmp/out.json", 3), model, commands);
+    assert (model.status_message == "Exported 3 stations");
+    assert (model.player_status == "keep me too");
+}
+
 void test_export_failure_reports_status () {
     var model = make_model ();
     var commands = new RecordingCommands ();
@@ -611,6 +680,7 @@ void test_remove_current_station () {
 
     Elmish.Cmd.exec<Gradio.Message> ((message) => {}, cmd);
     assert (commands.stop_calls == 1);
+    assert (commands.release_sleep_calls == 1);
     assert (commands.save_calls == 1);
 }
 
@@ -623,7 +693,7 @@ void test_play_station () {
     assert (cmd != null);
     assert (model.current_station == station);
     assert (model.playing == true);
-    assert (model.status_message == "Connecting…");
+    assert (model.player_status == "Connecting…");
     assert (commands.play_calls == 1);
     assert (model.config.last_station_id == "u1");
     assert (commands.save_calls == 1);
@@ -772,22 +842,37 @@ void test_toggle_play () {
     assert (commands.stop_calls == 1);
 }
 
+void test_toggle_pause_is_not_a_stop () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    model.current_station = make_station ("u1");
+    model.playing = true;
+
+    updateModel (new TogglePlayMessage (), model, commands);
+    assert (model.playing == false);
+    assert (model.playback_stopped == false);
+
+    updateModel (new StopPlaybackMessage (), model, commands);
+    assert (model.playback_stopped == true);
+}
+
 void test_player_state () {
     var model = make_model ();
     var commands = new RecordingCommands ();
 
     updateModel (new PlayerStateChangedMessage (true), model, commands);
     assert (model.playing == true);
-    assert (model.status_message == "Connected");
+    assert (model.player_status == "");
 
     updateModel (new PlayerStateChangedMessage (false), model, commands);
     assert (model.playing == false);
-    assert (model.status_message == "Stopped");
+    assert (model.player_status == "");
 }
 
 void test_player_metadata () {
     var model = make_model ();
     var commands = new RecordingCommands ();
+    model.playing = true;
 
     updateModel (new PlayerMetadataChangedMessage ("Track", 192), model, commands);
     assert (model.stream_title == "Track");
@@ -803,7 +888,7 @@ void test_player_error () {
 
     updateModel (new PlayerErrorMessage ("boom"), model, commands);
     assert (model.playing == false);
-    assert (model.status_message == "boom");
+    assert (model.player_status == "boom");
     assert (model.stream_title == "");
     assert (model.stream_bitrate == 0);
 }
@@ -816,7 +901,7 @@ void test_error_survives_stopped_state () {
     updateModel (new PlayerErrorMessage ("boom"), model, commands);
     updateModel (new PlayerStateChangedMessage (false), model, commands);
     assert (model.playing == false);
-    assert (model.status_message == "boom");
+    assert (model.player_status == "boom");
 }
 
 void test_play_clears_error_state () {
@@ -827,7 +912,7 @@ void test_play_clears_error_state () {
 
     updateModel (new PlayStationMessage (make_station ("u1")), model, commands);
     updateModel (new PlayerStateChangedMessage (false), model, commands);
-    assert (model.status_message == "Stopped");
+    assert (model.player_status == "");
 }
 
 void test_stop_clears_metadata () {
@@ -938,6 +1023,17 @@ void test_favicon_loaded_rejects_stale_url () {
 
     assert (model.favicons.size () == 0);
     assert (model.favicon_for (station) == null);
+}
+
+void test_favicon_loaded_stores_for_discover_station () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    var station = make_station ("d1");
+    model.discover_popular.add (station);
+
+    updateModel (new FaviconLoadedMessage ("d1", station.favicon, "/cache/d1.png"), model, commands);
+
+    assert (model.favicon_for (station) == "/cache/d1.png");
 }
 
 void test_favicon_loaded_ignores_unknown_station () {
@@ -1054,7 +1150,7 @@ void test_set_icon_size () {
     assert (model.config.icon_size == 48);
 }
 
-void test_set_search_sort_mode_reruns_search () {
+void test_set_search_sort_mode_saves_without_search () {
     var model = make_model ();
     var commands = new RecordingCommands ();
     model.search_query = "jazz";
@@ -1064,14 +1160,14 @@ void test_set_search_sort_mode_reruns_search () {
 
     assert (model.config.search_sort == SearchSortMode.VOTES);
     assert (commands.save_calls == 1);
-    assert (commands.search_calls == 1);
-    assert (commands.last_query == "jazz");
-    assert (model.search_generation == 5);
+    assert (commands.search_calls == 0);
+    assert (model.search_generation == 4);
 }
 
 void test_set_search_filter_reruns_search () {
     var model = make_model ();
     var commands = new RecordingCommands ();
+    model.view = ViewMode.ADD_STATION;
     model.search_query = "jazz";
     model.search_generation = 2;
 
@@ -1086,6 +1182,7 @@ void test_set_search_filter_reruns_search () {
 void test_set_search_filter_without_query_searches_all () {
     var model = make_model ();
     var commands = new RecordingCommands ();
+    model.view = ViewMode.ADD_STATION;
     model.search_generation = 2;
 
     updateModel (new SetSearchFilterMessage (SearchFilterKind.TAG, "jazz"), model, commands);
@@ -1098,9 +1195,23 @@ void test_set_search_filter_without_query_searches_all () {
     assert (model.search_generation == 3);
 }
 
+void test_set_search_filter_outside_add_view_only_saves () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    model.view = ViewMode.LIBRARY;
+
+    updateModel (new SetSearchFilterMessage (SearchFilterKind.COUNTRY, "Germany"), model, commands);
+
+    assert (model.config.search_filters.country == "Germany");
+    assert (commands.save_calls == 1);
+    assert (commands.search_calls == 0);
+    assert (model.search_active == false);
+}
+
 void test_clearing_last_filter_stops_filter_search () {
     var model = make_model ();
     var commands = new RecordingCommands ();
+    model.view = ViewMode.ADD_STATION;
     model.config.search_filters.country = "Ukraine";
     model.search_active = true;
     model.search_results.add (make_station ("u1"));
@@ -1118,7 +1229,7 @@ void test_clearing_last_filter_stops_filter_search () {
     assert (model.search_generation == 3);
 }
 
-void test_set_search_sort_replays_filter_only_search () {
+void test_set_search_sort_filter_only_saves () {
     var model = make_model ();
     var commands = new RecordingCommands ();
     model.config.search_filters.country = "Ukraine";
@@ -1128,9 +1239,8 @@ void test_set_search_sort_replays_filter_only_search () {
     updateModel (new SetSearchSortModeMessage (SearchSortMode.CLICKS), model, commands);
 
     assert (commands.save_calls == 1);
-    assert (commands.search_calls == 1);
-    assert (commands.last_query == "");
-    assert (model.search_generation == 5);
+    assert (commands.search_calls == 0);
+    assert (model.search_generation == 4);
 }
 
 void test_favicon_discovered_sets_empty_source () {
@@ -1230,17 +1340,24 @@ void test_update_local_station_copies_fields () {
     existing.is_local = true;
     existing.name = "Old";
     existing.url = "https://example.test/old";
+    existing.codec = "MP3";
+    existing.bitrate = 128;
     model.config.add_station (existing);
 
     var edited = existing.copy ();
     edited.name = "New";
     edited.url = "https://example.test/new";
+    edited.codec = "";
+    edited.bitrate = 0;
 
     var cmd = updateModel (new UpdateLocalStationMessage (edited), model, commands);
     assert (cmd != null);
     assert (existing.name == "New");
     assert (existing.url == "https://example.test/new");
     assert (existing.id == "local-1");
+    assert (existing.codec == "MP3");
+    assert (existing.bitrate == 128);
+    assert (existing.original_url == "https://example.test/new");
     assert (commands.save_calls == 1);
 }
 
@@ -1314,6 +1431,7 @@ void test_library_refreshed_updates_remote_and_marks_missing () {
     assert (local.name == "Local");
     assert (local.orphaned == false);
     assert (commands.save_calls == 1);
+    assert (commands.favicon_calls == 1);
 }
 
 void test_add_local_station_trims_fields () {
@@ -1621,6 +1739,7 @@ void test_set_view_add_searches_when_filters_present () {
 void test_clearing_filters_requests_discover_when_empty () {
     var model = make_model ();
     var commands = new RecordingCommands ();
+    model.view = ViewMode.ADD_STATION;
     model.config.search_filters.country = "Ukraine";
     model.search_active = true;
 
@@ -1741,8 +1860,51 @@ void test_player_error_releases_sleep () {
     assert (commands.release_sleep_calls == 1);
 }
 
+void test_player_error_hidden_leaves_background () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    model.playing = true;
+    model.window_hidden = true;
+    updateModel (new PlayerErrorMessage ("boom"), model, commands);
+    assert (commands.release_sleep_calls == 1);
+    assert (commands.release_background_calls == 1);
+    assert (commands.quit_calls == 1);
+    assert (!model.window_hidden);
+}
+
+void test_player_reconnecting_is_not_an_error () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    model.playing = true;
+    model.window_hidden = true;
+
+    updateModel (new PlayerReconnectingMessage ("Reconnecting…"), model, commands);
+
+    assert (!model.playing);
+    assert (!model.playback_failed);
+    assert (model.player_status == "Reconnecting…");
+    assert (commands.notify_calls == 0);
+    assert (commands.release_sleep_calls == 1);
+    assert (commands.release_background_calls == 0);
+    assert (commands.quit_calls == 0);
+    assert (model.window_hidden);
+}
+
 void test_sleep_release_without_acquire () {
     var inhibitor = new Gradio.SleepInhibitor ();
+    inhibitor.release ();
+    assert (!inhibitor.active);
+}
+
+void test_sleep_acquire_returns_real_descriptor () {
+    var inhibitor = new Gradio.SleepInhibitor ();
+    inhibitor.timeout_msec = 500;
+    if (!inhibitor.acquire ()) {
+        Test.skip ("system bus or login1 inhibitor unavailable");
+        return;
+    }
+    assert (inhibitor.active);
+    assert (inhibitor.handle > 2);
     inhibitor.release ();
     assert (!inhibitor.active);
 }
@@ -1751,16 +1913,23 @@ void test_now_playing_dedupes_and_resets () {
     var model = make_model ();
     var commands = new RecordingCommands ();
     updateModel (new PlayStationMessage (make_station ("u1")), model, commands);
-    assert (commands.now_playing_calls == 1);
-    assert (commands.last_now_playing_title == "u1");
-    assert (model.last_notified_title == "u1");
+    // Switching stations is not a track change: stay quiet until metadata arrives.
+    assert (commands.now_playing_calls == 0);
+    assert (model.last_notified_title == "");
 
     updateModel (new PlayerMetadataChangedMessage ("Track", 192), model, commands);
+    assert (commands.now_playing_calls == 1);
+    assert (commands.last_now_playing_title == "Track");
     updateModel (new PlayerMetadataChangedMessage ("Track", 192), model, commands);
-    assert (commands.now_playing_calls == 2);
+    assert (commands.now_playing_calls == 1);
     updateModel (new PlayerMetadataChangedMessage ("Next", 192), model, commands);
-    assert (commands.now_playing_calls == 3);
+    assert (commands.now_playing_calls == 2);
     assert (commands.last_now_playing_title == "Next");
+
+    // A later station switch resets dedupe so its first track notifies again.
+    updateModel (new PlayStationMessage (make_station ("u2")), model, commands);
+    updateModel (new PlayerMetadataChangedMessage ("Track", 192), model, commands);
+    assert (commands.now_playing_calls == 3);
 }
 
 void test_disabled_notifications_suppress_all () {
@@ -1782,6 +1951,24 @@ void test_set_notifications_saves () {
     var cmd = updateModel (new SetNotificationsMessage (false), model, commands);
     assert (cmd != null);
     assert (!model.config.notifications_enabled);
+    assert (commands.save_calls == 1);
+}
+
+void test_set_show_status_bar_saves () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    var cmd = updateModel (new SetShowStatusBarMessage (false), model, commands);
+    assert (cmd != null);
+    assert (!model.config.show_status_bar);
+    assert (commands.save_calls == 1);
+}
+
+void test_set_player_in_header_saves () {
+    var model = make_model ();
+    var commands = new RecordingCommands ();
+    var cmd = updateModel (new SetPlayerInHeaderMessage (true), model, commands);
+    assert (cmd != null);
+    assert (model.config.player_in_header);
     assert (commands.save_calls == 1);
 }
 
@@ -1836,6 +2023,8 @@ void test_metadata_after_stop_is_ignored () {
     updateModel (new StopPlaybackMessage (), model, commands);
 
     updateModel (new PlayerMetadataChangedMessage ("Ghost", 192), model, commands);
+    assert (model.stream_title == "");
+    assert (model.stream_bitrate == 0);
     assert (model.track_history.length == 0);
     assert (commands.now_playing_calls == 0);
 }
@@ -1844,6 +2033,26 @@ void test_sleep_inhibitor_bounded_timeout () {
     var inhibitor = new Gradio.SleepInhibitor ();
     assert (inhibitor.timeout_msec > 0);
     assert (inhibitor.timeout_msec <= 5000);
+}
+
+void test_sleep_acquire_async_returns_real_descriptor () {
+    var inhibitor = new Gradio.SleepInhibitor ();
+    inhibitor.timeout_msec = 500;
+    var loop = new GLib.MainLoop ();
+    bool acquired = false;
+    inhibitor.acquire_async.begin (null, (obj, res) => {
+        acquired = inhibitor.acquire_async.end (res);
+        loop.quit ();
+    });
+    loop.run ();
+    if (!acquired) {
+        Test.skip ("system bus or login1 inhibitor unavailable");
+        return;
+    }
+    assert (inhibitor.active);
+    assert (inhibitor.handle > 2);
+    inhibitor.release ();
+    assert (!inhibitor.active);
 }
 
 int main (string[] args) {
@@ -1857,9 +2066,15 @@ int main (string[] args) {
     Test.add_func ("/update/now_playing_dedupes", test_now_playing_dedupes_and_resets);
     Test.add_func ("/update/notifications_disabled", test_disabled_notifications_suppress_all);
     Test.add_func ("/update/set_notifications", test_set_notifications_saves);
+    Test.add_func ("/update/set_show_status_bar", test_set_show_status_bar_saves);
+    Test.add_func ("/update/set_player_in_header", test_set_player_in_header_saves);
     Test.add_func ("/update/sleep_transitions", test_sleep_transitions);
     Test.add_func ("/update/player_error_releases_sleep", test_player_error_releases_sleep);
+    Test.add_func ("/update/player_error_hidden_leaves_background", test_player_error_hidden_leaves_background);
+    Test.add_func ("/update/player_reconnecting", test_player_reconnecting_is_not_an_error);
     Test.add_func ("/update/sleep_release_without_acquire", test_sleep_release_without_acquire);
+    Test.add_func ("/update/sleep_acquire_real_descriptor", test_sleep_acquire_returns_real_descriptor);
+    Test.add_func ("/update/sleep_acquire_async_real_descriptor", test_sleep_acquire_async_returns_real_descriptor);
     Test.add_func ("/update/close_policy", test_close_policy_table);
     Test.add_func ("/update/window_close_transitions", test_window_close_transitions);
     Test.add_func ("/update/window_raised_and_setting", test_window_raised_and_setting);
@@ -1880,6 +2095,8 @@ int main (string[] args) {
     Test.add_func ("/update/remove_station", test_remove_station);
     Test.add_func ("/update/move_station", test_move_station_reorders_and_saves);
     Test.add_func ("/update/move_station_noop", test_move_station_noop_does_not_save);
+    Test.add_func ("/update/library_order_tracks", test_library_order_tracks_library_and_sort);
+    Test.add_func ("/update/library_order_local_edit", test_library_order_updates_after_local_edit);
     Test.add_func ("/update/vote_starts_command", test_vote_starts_command);
     Test.add_func ("/update/vote_unknown_station", test_vote_unknown_station_is_ignored);
     Test.add_func ("/update/vote_duplicate", test_vote_duplicate_is_ignored);
@@ -1893,8 +2110,11 @@ int main (string[] args) {
     Test.add_func ("/update/import_failure", test_import_failure_reports_status);
     Test.add_func ("/update/export_starts_command", test_export_starts_command);
     Test.add_func ("/update/export_success", test_export_success_reports_status);
+    Test.add_func ("/update/player_status_split", test_player_status_and_app_feedback_stay_separate);
     Test.add_func ("/update/export_failure", test_export_failure_reports_status);
     Test.add_func ("/update/play_station", test_play_station);
+    Test.add_func ("/update/play_remote_reports_click", test_play_remote_reports_click);
+    Test.add_func ("/update/play_local_does_not_report_click", test_play_local_does_not_report_click);
     Test.add_func ("/update/restore_last_station", test_restore_last_station_plays_when_enabled);
     Test.add_func ("/update/restore_last_station_disabled", test_restore_last_station_needs_setting);
     Test.add_func ("/update/restore_last_station_unknown", test_restore_last_station_unknown_id_is_noop);
@@ -1904,6 +2124,7 @@ int main (string[] args) {
     Test.add_func ("/update/request_filter_options", test_request_filter_options_starts_command);
     Test.add_func ("/update/filter_options_loaded", test_filter_options_loaded_sets_names);
     Test.add_func ("/update/toggle_play", test_toggle_play);
+    Test.add_func ("/update/toggle_pause_not_stop", test_toggle_pause_is_not_a_stop);
     Test.add_func ("/update/player_state", test_player_state);
     Test.add_func ("/update/player_metadata", test_player_metadata);
     Test.add_func ("/update/player_error", test_player_error);
@@ -1918,6 +2139,7 @@ int main (string[] args) {
     Test.add_func ("/update/request_favicons", test_request_favicons_loads_library_and_results);
     Test.add_func ("/update/favicon_loaded", test_favicon_loaded_stores_for_known_station);
     Test.add_func ("/update/favicon_stale_url", test_favicon_loaded_rejects_stale_url);
+    Test.add_func ("/update/favicon_discover_station", test_favicon_loaded_stores_for_discover_station);
     Test.add_func ("/update/favicon_unknown_station", test_favicon_loaded_ignores_unknown_station);
     Test.add_func ("/update/favicon_failure", test_favicon_failure_uses_fallback);
     Test.add_func ("/update/favicon_no_source", test_favicon_loaded_ignores_station_without_favicon);
@@ -1930,11 +2152,12 @@ int main (string[] args) {
     Test.add_func ("/update/window_geometry", test_window_geometry_changed);
     Test.add_func ("/update/window_geometry_invalid", test_window_geometry_rejects_invalid_size);
     Test.add_func ("/update/set_icon_size", test_set_icon_size);
-    Test.add_func ("/update/set_search_sort_mode", test_set_search_sort_mode_reruns_search);
+    Test.add_func ("/update/set_search_sort_mode", test_set_search_sort_mode_saves_without_search);
     Test.add_func ("/update/set_search_filter", test_set_search_filter_reruns_search);
     Test.add_func ("/update/set_search_filter_no_query", test_set_search_filter_without_query_searches_all);
+    Test.add_func ("/update/set_search_filter_outside_add", test_set_search_filter_outside_add_view_only_saves);
     Test.add_func ("/update/clear_last_filter_stops_search", test_clearing_last_filter_stops_filter_search);
-    Test.add_func ("/update/set_search_sort_filter_only", test_set_search_sort_replays_filter_only_search);
+    Test.add_func ("/update/set_search_sort_filter_only", test_set_search_sort_filter_only_saves);
     Test.add_func ("/update/add_local_station", test_add_local_station_assigns_id_and_saves);
     Test.add_func ("/update/add_local_station_invalid", test_add_local_station_rejects_invalid);
     Test.add_func ("/update/add_local_station_duplicate", test_add_local_station_rejects_duplicate_url);

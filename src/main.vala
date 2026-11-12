@@ -12,14 +12,20 @@ int main (string[] args) {
 
     Gradio.AppConfig config;
     string? load_error = null;
+    bool read_only = false;
     try {
         config = Gradio.AppConfig.load (Gradio.AppConfig.default_path ());
+    } catch (Gradio.ConfigError e) {
+        config = new Gradio.AppConfig ();
+        load_error = e.message;
+        read_only = true;
     } catch (GLib.Error e) {
         config = new Gradio.AppConfig ();
         load_error = e.message;
     }
 
-    var runtime = new Gradio.AppRuntime (config, load_error != null);    var model = new Gradio.AppModel (config);
+    var runtime = new Gradio.AppRuntime (config, load_error != null && !read_only, read_only);
+    var model = new Gradio.AppModel (config);
     if (load_error != null)
         model.status_message = load_error;
 
@@ -80,10 +86,11 @@ int main (string[] args) {
     });
     app.add_action (hide_action);
 
-    var about_action = new GLib.SimpleAction ("about", null);    about_action.activate.connect ((parameter) => {
+    var about_action = new GLib.SimpleAction ("about", null);
+    about_action.activate.connect ((parameter) => {
         var about = new Gtk.AboutDialog ();
         about.set_program_name (_("Gradio"));
-        about.set_version ("8.0.0");
+        about.set_version (VERSION);
         about.set_license_type (Gtk.License.GPL_3_0);
         about.set_comments (_("Listen to internet radio stations."));
         about.set_website ("https://github.com/sfesenko/Gradio");

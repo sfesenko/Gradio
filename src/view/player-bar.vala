@@ -3,16 +3,17 @@
 namespace Gradio {
 
     public class PlayerBar : Gtk.Box {
-        private Elmish.Dispatch<Message> dispatch;
+        private unowned Elmish.Dispatch<Message> dispatch;
         private Gtk.Button play_button;
+        private Gtk.Box text_box;
         private Gtk.Label station_label;
         private Gtk.Label metadata_label;
-        private Gtk.Label status_label;
         private Gtk.VolumeButton volume_button;
         private Gtk.MenuButton history_button;
         private Gtk.Box history_box;
         private string history_signature = "";
         private bool updating = false;
+        private bool playing = false;
 
         public PlayerBar (Elmish.Dispatch<Message> dispatch) {
             Object (orientation: Gtk.Orientation.HORIZONTAL, spacing: 12);
@@ -27,10 +28,15 @@ namespace Gradio {
                 tooltip_text = _("Play"),
                 sensitive = false
             };
-            play_button.clicked.connect (() => dispatch (new TogglePlayMessage ()));
+            play_button.clicked.connect (() => {
+                if (playing)
+                    dispatch (new StopPlaybackMessage ());
+                else
+                    dispatch (new TogglePlayMessage ());
+            });
             append (play_button);
 
-            var text = new Gtk.Box (Gtk.Orientation.VERTICAL, 2) {
+            text_box = new Gtk.Box (Gtk.Orientation.VERTICAL, 2) {
                 hexpand = true,
                 valign = Gtk.Align.CENTER
             };
@@ -44,17 +50,9 @@ namespace Gradio {
                 ellipsize = Pango.EllipsizeMode.END
             };
             metadata_label.add_css_class ("dim-label");
-            text.append (station_label);
-            text.append (metadata_label);
-            append (text);
-
-            status_label = new Gtk.Label ("") {
-                halign = Gtk.Align.END,
-                valign = Gtk.Align.CENTER,
-                ellipsize = Pango.EllipsizeMode.END
-            };
-            status_label.add_css_class ("dim-label");
-            append (status_label);
+            text_box.append (station_label);
+            text_box.append (metadata_label);
+            append (text_box);
 
             history_button = new Gtk.MenuButton () {
                 icon_name = "document-open-recent-symbolic",
@@ -81,9 +79,44 @@ namespace Gradio {
             append (volume_button);
         }
 
+        public void set_compact (bool compact) {
+            margin_top = compact ? 2 : 8;
+            margin_bottom = compact ? 2 : 8;
+            margin_start = compact ? 6 : 12;
+            margin_end = compact ? 6 : 12;
+            station_label.max_width_chars = compact ? 28 : -1;
+            metadata_label.max_width_chars = compact ? 36 : -1;
+        }
+
+        // Header mode splits the bar: the text goes to the left of the header
+        // bar, the controls to the right (play, volume, history). The widgets
+        // stay owned by this bar, so their state and signals survive the move.
+        public void place_in_header (Gtk.Box text_host, Gtk.Box controls_host) {
+            text_box.unparent ();
+            text_host.append (text_box);
+            play_button.unparent ();
+            controls_host.append (play_button);
+            volume_button.unparent ();
+            controls_host.append (volume_button);
+            history_button.unparent ();
+            controls_host.append (history_button);
+        }
+
+        public void restore_to_bar () {
+            text_box.unparent ();
+            play_button.unparent ();
+            volume_button.unparent ();
+            history_button.unparent ();
+            append (play_button);
+            append (text_box);
+            append (history_button);
+            append (volume_button);
+        }
+
         public void update (AppModel model) {
             updating = true;
 
+            playing = model.playing;
             bool has_station = model.current_station != null;
             play_button.sensitive = has_station;
             play_button.icon_name = model.playing
@@ -94,15 +127,21 @@ namespace Gradio {
             var station = model.current_station;
             if (station != null) {
                 station_label.label = station.name;
-                metadata_label.label = model.stream_title != ""
-                    ? model.stream_title
-                    : station.secondary_text (model.config.show_technical_info);
+                // Transient playback states ("Connecting…", "Reconnecting…",
+                // errors) use the track-name line: nothing is playing yet, so
+                // that line is free. Steady playback keeps the technical info.
+                if (model.stream_title != "")
+                    metadata_label.label = model.stream_title;
+                else if (model.player_status != "")
+                    metadata_label.label = model.player_status;
+                else
+                    metadata_label.label = station.secondary_text (
+                        model.config.show_technical_info);
             } else {
                 station_label.label = "";
                 metadata_label.label = "";
             }
 
-            status_label.label = model.status_message;
             if (volume_button.value != model.config.volume)
                 volume_button.value = model.config.volume;
 

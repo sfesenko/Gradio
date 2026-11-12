@@ -23,7 +23,6 @@ subdir('po')
 gnome.post_install(
   gtk_update_icon_cache: true,
   update_desktop_database: true,
-  glib_compile_schemas: true,
 )
 
 
@@ -76,6 +75,7 @@ lib_core_dep = declare_dependency(
 config_data = configuration_data()
 config_data.set_quoted('LOCALEDIR', join_paths(get_option('prefix'), get_option('localedir')))
 config_data.set_quoted('GETTEXT_PACKAGE', meson.project_name())
+config_data.set_quoted('VERSION', meson.project_version())
 config_file = configure_file(
     input: 'src/Config.vala.in',
     output: '@BASENAME@',
@@ -96,7 +96,7 @@ executable(
   ],
   vala_args: [ '--target-glib=2.76' ],
   dependencies: [
-    dependency('gtk4', version: '>= 4.10'),
+    dependency('gtk4', version: '>= 4.12'),
     lib_core_dep,
   ],
   install: true,

@@ -4,6 +4,10 @@ using Json;
 
 namespace Gradio {
 
+    public errordomain ConfigError {
+        NEWER_VERSION
+    }
+
     public class AppConfig : GLib.Object {
         public const int FORMAT_VERSION = 1;
         public const int DEFAULT_WINDOW_WIDTH = 900;
@@ -22,6 +26,8 @@ namespace Gradio {
         public bool resume_playback = false;
         public bool background_playback = false;
         public bool notifications_enabled = true;
+        public bool show_status_bar = true;
+        public bool player_in_header = false;
         public string last_station_id = "";
         public SearchSortMode search_sort = SearchSortMode.RELEVANCE;
         public LibrarySortMode library_sort = LibrarySortMode.CUSTOM;
@@ -68,6 +74,14 @@ namespace Gradio {
                 throw new GLib.FileError.FAILED ("invalid config root");
 
             var obj = root.get_object ();
+            int64 version = obj.get_int_member_with_default ("version", FORMAT_VERSION);
+            if (version > FORMAT_VERSION)
+                throw new ConfigError.NEWER_VERSION (
+                    "config format version %lld is newer than supported %d".printf (
+                        (long) version, FORMAT_VERSION));
+            // Older versions load with defaults for missing members; add
+            // explicit migrations here when FORMAT_VERSION is bumped.
+
             var settings_node = obj.get_member ("settings");
             var settings = settings_node != null && settings_node.get_value_type () == typeof (Json.Object)
                 ? settings_node.get_object () : null;
@@ -97,6 +111,10 @@ namespace Gradio {
                     "background_playback", config.background_playback);
                 config.notifications_enabled = settings.get_boolean_member_with_default (
                     "notifications_enabled", config.notifications_enabled);
+                config.show_status_bar = settings.get_boolean_member_with_default (
+                    "show_status_bar", config.show_status_bar);
+                config.player_in_header = settings.get_boolean_member_with_default (
+                    "player_in_header", config.player_in_header);
                 config.last_station_id = settings.get_string_member_with_default (
                     "last_station", config.last_station_id);
                 config.search_sort = StationSort.search_from_string (
@@ -127,7 +145,8 @@ namespace Gradio {
                     if (element == null || element.get_value_type () != typeof (Json.Object))
                         continue;
                     var station = RadioStation.from_json_object (element.get_object ());
-                    if (station == null || station.id == "")
+                    if (station == null || station.id == "" || station.name == "" ||
+                            station.url == "")
                         continue;
                     config.add_station (station);
                 }
@@ -153,6 +172,8 @@ namespace Gradio {
             settings.set_boolean_member ("resume_playback", resume_playback);
             settings.set_boolean_member ("background_playback", background_playback);
             settings.set_boolean_member ("notifications_enabled", notifications_enabled);
+            settings.set_boolean_member ("show_status_bar", show_status_bar);
+            settings.set_boolean_member ("player_in_header", player_in_header);
             settings.set_string_member ("last_station", last_station_id);
             settings.set_string_member ("search_sort", StationSort.search_to_string (search_sort));
             settings.set_string_member ("library_sort",

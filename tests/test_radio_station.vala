@@ -72,6 +72,17 @@ void test_stream_urls () {
     assert (urls[0] == station.url);
 }
 
+void test_stream_signature_tracks_tech_info () {
+    var station = new Gradio.RadioStation ();
+    station.url = "https://example.test/stream";
+    station.codec = "MP3";
+    station.bitrate = 128;
+    string first = station.stream_signature ();
+    assert (first == station.stream_signature ());
+    station.bitrate = 192;
+    assert (station.stream_signature () != first);
+}
+
 void test_original_url_round_trip () {
     var station = new Gradio.RadioStation ();
     station.id = "u4";
@@ -142,6 +153,7 @@ int main (string[] args) {
     Test.add_func ("/radio-station/from_json_minimal", test_from_json_minimal);
     Test.add_func ("/radio-station/round_trip", test_round_trip);
     Test.add_func ("/radio-station/stream_urls", test_stream_urls);
+    Test.add_func ("/radio-station/stream_signature", test_stream_signature_tracks_tech_info);
     Test.add_func ("/radio-station/original_url_round_trip", test_original_url_round_trip);
     Test.add_func ("/radio-station/secondary_text", test_secondary_text);
     Test.add_func ("/radio-station/local_fields_round_trip", test_local_fields_round_trip);

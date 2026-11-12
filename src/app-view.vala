@@ -1,14 +1,25 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 public class Gradio.MainView : Gtk.ApplicationWindow {
-    private Elmish.Dispatch<Gradio.Message> dispatch;
+    private unowned Elmish.Dispatch<Gradio.Message> dispatch;
     private Gtk.Stack stack;
     private Gtk.Stack library_stack;
     private Gtk.ListBox list_box;
     private Gtk.Button add_button;
     private Gtk.Button back_button;
     private Gtk.Label title_label;
+    private Gtk.Label subtitle_label;
+    private Gtk.Box title_box;
+    private Gtk.HeaderBar header;
+    private Gtk.Box header_text_area;
+    private Gtk.Box header_controls_area;
+    private Gtk.Label empty_title;
+    private Gtk.Box player_area;
+    private bool placement_initialized = false;
+    private bool player_in_header_active = false;
     private Gradio.PlayerBar player_bar;
+    private Gtk.Box status_bar;
+    private Gtk.Label status_label;
     private Gradio.DetailsPanel details_panel;
     private Gtk.Revealer details_revealer;
     private Gtk.SearchEntry search_entry;
@@ -66,7 +77,7 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
             return true;
         });
 
-        var header = new Gtk.HeaderBar ();
+        header = new Gtk.HeaderBar ();
 
         add_button = new Gtk.Button () {
             icon_name = "list-add-symbolic",
@@ -83,9 +94,35 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
         back_button.clicked.connect (() => dispatch (new SetViewMessage (ViewMode.LIBRARY)));
         header.pack_start (back_button);
 
-        title_label = new Gtk.Label (_("Gradio"));
+        header_text_area = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 6) {
+            valign = Gtk.Align.CENTER,
+            visible = false
+        };
+        header_text_area.append (new Gtk.Separator (Gtk.Orientation.VERTICAL) {
+            margin_top = 4,
+            margin_bottom = 4
+        });
+        header.pack_start (header_text_area);
+
+        title_box = new Gtk.Box (Gtk.Orientation.VERTICAL, 0) {
+            halign = Gtk.Align.CENTER,
+            valign = Gtk.Align.CENTER
+        };
+        title_label = new Gtk.Label (_("Gradio")) {
+            ellipsize = Pango.EllipsizeMode.END,
+            max_width_chars = 48
+        };
         title_label.add_css_class ("title-4");
-        header.set_title_widget (title_label);
+        subtitle_label = new Gtk.Label ("") {
+            ellipsize = Pango.EllipsizeMode.END,
+            max_width_chars = 48,
+            visible = false
+        };
+        subtitle_label.add_css_class ("dim-label");
+        subtitle_label.add_css_class ("caption");
+        title_box.append (title_label);
+        title_box.append (subtitle_label);
+        header.set_title_widget (title_box);
 
         var menu_button = new Gtk.MenuButton () {
             icon_name = "open-menu-symbolic",
@@ -177,6 +214,15 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
         });
         header.pack_end (sort_button);
 
+        header_controls_area = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 6) {
+            valign = Gtk.Align.CENTER,
+            visible = false
+        };
+        // Packed last, so it sits left of the sort and menu buttons.
+        header.pack_end (header_controls_area);
+
+        empty_title = new Gtk.Label ("");
+
         set_titlebar (header);
 
         var add_station_action = new GLib.SimpleAction ("add-station", null);
@@ -225,13 +271,59 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
 
         player_bar = new Gradio.PlayerBar (dispatch);
 
+        player_area = new Gtk.Box (Gtk.Orientation.VERTICAL, 0);
+        player_area.append (new Gtk.Separator (Gtk.Orientation.HORIZONTAL));
+        player_area.append (player_bar);
+
+        status_bar = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 0) {
+            margin_top = 4,
+            margin_bottom = 4,
+            margin_start = 12,
+            margin_end = 12,
+            visible = false
+        };
+        status_label = new Gtk.Label ("") {
+            halign = Gtk.Align.START,
+            hexpand = true,
+            xalign = 0,
+            ellipsize = Pango.EllipsizeMode.END
+        };
+        status_label.add_css_class ("dim-label");
+        status_bar.append (status_label);
+
         var root = new Gtk.Box (Gtk.Orientation.VERTICAL, 0);
         root.append (stack);
-        root.append (new Gtk.Separator (Gtk.Orientation.HORIZONTAL));
-        root.append (player_bar);
+        root.append (player_area);
+        root.append (status_bar);
         set_child (root);
 
+        apply_player_placement (model.config.player_in_header);
         update (new Gradio.SetViewMessage (model.view), model);
+    }
+
+    private void apply_player_placement (bool header_mode) {
+        if (placement_initialized && header_mode == player_in_header_active)
+            return;
+        placement_initialized = true;
+        player_in_header_active = header_mode;
+
+        player_bar.unparent ();
+        if (header_mode) {
+            header.set_title_widget (empty_title);
+            header_text_area.visible = true;
+            header_controls_area.visible = true;
+            player_area.visible = false;
+            player_bar.set_compact (true);
+            player_bar.place_in_header (header_text_area, header_controls_area);
+        } else {
+            header.set_title_widget (title_box);
+            header_text_area.visible = false;
+            header_controls_area.visible = false;
+            player_area.visible = true;
+            player_bar.set_compact (false);
+            player_bar.restore_to_bar ();
+            player_area.append (player_bar);
+        }
     }
 
     private Gtk.Widget build_library_page () {
@@ -351,6 +443,10 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
         };
         state_entry.activate.connect (() => dispatch (
             new SetSearchFilterMessage (SearchFilterKind.STATE, state_entry.text)));
+        var state_focus = new Gtk.EventControllerFocus ();
+        state_focus.leave.connect (() => dispatch (
+            new SetSearchFilterMessage (SearchFilterKind.STATE, state_entry.text)));
+        state_entry.add_controller (state_focus);
         filters_row.append (state_entry);
 
         language_dropdown = build_filter_dropdown (SearchFilterKind.LANGUAGE,
@@ -785,7 +881,18 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
         stack.set_visible_child_name (adding ? "add" : "library");
         add_button.visible = !adding;
         back_button.visible = adding;
-        title_label.label = adding ? _("Add station") : _("Gradio");
+        apply_player_placement (model.config.player_in_header);
+        if (adding) {
+            title_label.label = _("Add station");
+            subtitle_label.visible = false;
+        } else if (model.current_station != null) {
+            title_label.label = _("Gradio: %s").printf (model.current_station.name);
+            subtitle_label.label = model.stream_title;
+            subtitle_label.visible = model.stream_title != "";
+        } else {
+            title_label.label = _("Gradio");
+            subtitle_label.visible = false;
+        }
 
         if (adding && !last_adding) {
             search_entry.text = "";
@@ -798,8 +905,7 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
         sync_filter_pickers (model);
         sync_sort_controls (model);
 
-        var library = StationSort.sort_library (model.config.stations,
-            model.config.library_sort, model.config.library_sort_descending);
+        var library = model.library_order;
         string lib_sig = rows_signature (library, model.config.show_technical_info,
             model.config.icon_size) + "|sort:" +
             StationSort.library_sort_to_string (model.config.library_sort) +
@@ -929,5 +1035,8 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
         details_revealer.reveal_child = model.details_visible;
         details_panel.update (model.details_station, model);
         player_bar.update (model);
+
+        status_label.label = model.status_message;
+        status_bar.visible = model.config.show_status_bar && model.status_message != "";
     }
 }

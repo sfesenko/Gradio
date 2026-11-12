@@ -121,6 +121,11 @@ namespace Gradio {
             return { original_url, url };
         }
 
+        public string stream_signature () {
+            string[] urls = stream_urls ();
+            return string.joinv ("\x1f", urls) + "\x1e" + tech_info ();
+        }
+
         public string tech_info () {
             if (codec != "" && bitrate > 0)
                 return "%s %d kbit/s".printf (codec, bitrate);

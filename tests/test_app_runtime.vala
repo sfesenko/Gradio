@@ -141,6 +141,34 @@ void test_user_save_after_load_failure_backs_up_and_writes () {
     cleanup_dir (dir);
 }
 
+void test_newer_config_is_preserved_read_only () {
+    string dir = make_tmp_dir ();
+    string path = GLib.Path.build_filename (dir, "config.json");
+    string original = "{\"version\": 2, \"stations\": [{\"stationuuid\":\"f1\",\"name\":\"Future FM\",\"url_resolved\":\"https://example.test/future\"}]}";
+    GLib.FileUtils.set_contents (path, original);
+
+    bool newer = false;
+    try {
+        Gradio.AppConfig.load (path);
+    } catch (Gradio.ConfigError e) {
+        newer = true;
+    }
+    assert (newer);
+
+    var config = new Gradio.AppConfig (path);
+    var runtime = new Gradio.AppRuntime (config, false, true);
+    runtime.attach ((msg) => {});
+    var cmd = runtime.save_config ();
+    Elmish.Cmd.exec<Gradio.Message> ((msg) => {}, cmd);
+    runtime.save_now ();
+
+    string contents;
+    GLib.FileUtils.get_contents (path, out contents);
+    assert (contents == original);
+    assert (!GLib.FileUtils.test (path + ".corrupt", GLib.FileTest.EXISTS));
+    cleanup_dir (dir);
+}
+
 void test_export_writes_stations () {
     string dir = make_tmp_dir ();
     string path = GLib.Path.build_filename (dir, "export.json");
@@ -267,6 +295,7 @@ int main (string[] args) {
     Test.add_func ("/app-runtime/save_failure_dispatches_error", test_save_failure_dispatches_error);
     Test.add_func ("/app-runtime/corrupt_config_survives_shutdown", test_corrupt_config_survives_shutdown);
     Test.add_func ("/app-runtime/user_save_after_load_failure_backs_up", test_user_save_after_load_failure_backs_up_and_writes);
+    Test.add_func ("/app-runtime/newer_config_read_only", test_newer_config_is_preserved_read_only);
     Test.add_func ("/app-runtime/export_writes_stations", test_export_writes_stations);
     Test.add_func ("/app-runtime/export_playlist_writes_m3u", test_export_playlist_writes_m3u);
     Test.add_func ("/app-runtime/import_dispatches_stations", test_import_dispatches_stations);

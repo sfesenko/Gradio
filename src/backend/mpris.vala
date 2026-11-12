@@ -67,7 +67,7 @@ namespace Gradio {
         public const string OBJECT_PATH = "/org/mpris/MediaPlayer2";
         public const string TRACK_PREFIX = "/io/github/sfesenko/gradio/track/";
 
-        private Elmish.Dispatch<Message> dispatch;
+        private unowned Elmish.Dispatch<Message> dispatch;
         private GLib.Application app;
         private GLib.DBusConnection? connection = null;
         private uint owner_id = 0;
@@ -104,8 +104,7 @@ namespace Gradio {
         }
 
         public void update (AppModel model) {
-            if (model.playing)
-                stopped = false;
+            stopped = model.playback_stopped;
             string new_status = playback_status_for (model.playing,
                 model.current_station != null, stopped);
             bool new_has_station = model.current_station != null;
@@ -188,9 +187,10 @@ namespace Gradio {
         public double volume {
             get { return current_volume; }
             set {
-                double clamped = value.clamp (0.0, 1.0);
-                current_volume = clamped;
-                dispatch (new SetVolumeMessage (clamped));
+                if (value != value || value < 0.0 || value > 1.0)
+                    return;
+                current_volume = value;
+                dispatch (new SetVolumeMessage (value));
             }
         }
 
@@ -201,6 +201,8 @@ namespace Gradio {
         }
 
         public void pause () throws GLib.Error {
+            // Live radio cannot buffer, so "pause" tears down the pipeline and
+            // resuming reconnects. The model still reports Paused over MPRIS.
             stopped = false;
             if (playing)
                 dispatch (new TogglePlayMessage ());
@@ -261,10 +263,11 @@ namespace Gradio {
             if (station != null) {
                 dict.insert_value ("mpris:trackid",
                     new GLib.Variant.object_path (track_id_for (station.id)));
-                string title = stream_title != "" ? stream_title : station.name;
+                bool has_stream_title = stream_title != "";
+                string title = has_stream_title ? stream_title : station.name;
                 dict.insert_value ("xesam:title", new GLib.Variant.string (title));
-                if (station.country != "")
-                    dict.insert_value ("xesam:artist", new GLib.Variant.strv ({ station.country }));
+                if (has_stream_title && station.name != "")
+                    dict.insert_value ("xesam:artist", new GLib.Variant.strv ({ station.name }));
                 if (station.url != "")
                     dict.insert_value ("xesam:url", new GLib.Variant.string (station.url));
             }

@@ -77,6 +77,16 @@ void test_library_sort_custom_preserves_order () {
     assert (sorted.get (1).id == "a");
 }
 
+void test_library_sort_custom_descending_reverses () {
+    var stations = new GLib.GenericArray<RadioStation> ();
+    stations.add (station_with ("b", "Beta", "DE", "", "german", 128));
+    stations.add (station_with ("a", "Alpha", "AT", "", "german", 64));
+
+    var sorted = StationSort.sort_library (stations, LibrarySortMode.CUSTOM, true);
+    assert (sorted.get (0).id == "a");
+    assert (sorted.get (1).id == "b");
+}
+
 void test_library_sort_name_ascending_and_descending () {
     var stations = new GLib.GenericArray<RadioStation> ();
     stations.add (station_with ("b", "beta", "DE", "", "german", 128));
@@ -111,6 +121,7 @@ int main (string[] args) {
     Test.add_func ("/station-sort/search_bitrate", test_search_bitrate_sort_is_descending);
     Test.add_func ("/station-sort/mode_conversion", test_mode_conversion_round_trips);
     Test.add_func ("/station-sort/library_custom", test_library_sort_custom_preserves_order);
+    Test.add_func ("/station-sort/library_custom_descending", test_library_sort_custom_descending_reverses);
     Test.add_func ("/station-sort/library_name", test_library_sort_name_ascending_and_descending);
     Test.add_func ("/station-sort/library_fields", test_library_sort_country_state_language_bitrate);
     return Test.run ();

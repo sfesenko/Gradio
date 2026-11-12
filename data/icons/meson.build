@@ -6,6 +6,8 @@ foreach size : icon_sizes
     join_paths('hicolor', size, 'apps', 'io.github.sfesenko.gradio.png'),
     install_dir: join_paths(icondir, size, 'apps')
   )
+  # Legacy app-id alias, kept so existing .desktop files and shell docks
+  # that still reference "gradio" resolve the icon.
   install_data(
     join_paths('hicolor', size, 'apps', 'gradio.png'),
     install_dir: join_paths(icondir, size, 'apps')

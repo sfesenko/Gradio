@@ -61,11 +61,21 @@ editable entries; remote stations refresh from radio-browser on startup via the
 batch `refresh_library` command (`/json/stations/byuuid`). A failed batch
 discards the whole refresh so stations are never falsely flagged as orphaned.
 `AppConfig` persists the library order, the selected `LibrarySortMode`, and
-whether the sort is descending.
+whether the sort is descending. `AppModel.library_order` caches the sorted
+view; `config.stations` remains in custom order and is never overwritten by a
+sort. The cache is rebuilt only when the library revision or sort settings
+change, so unrelated messages (metadata ticks, volume, favicon loads) do not
+re-sort. Station lookup is still a linear scan (`find_station`), which is
+deliberately simple at current library sizes; if a library grows enough for
+that to matter, add an id→station hash index while keeping `library_order` as
+the derived display order.
 
-`updateModel` is pure except for one injected dependency: a `Commands`
-factory. The factory returns `Cmd`s for search, play, stop, volume, and config
-saves. Tests inject a recording fake; production passes `AppRuntime`, which
+`updateModel` is a thin dispatcher: `update_model` switches on `MessageKind`,
+calls a pure `update_<case>` helper, and `updateModel` refreshes the library
+order cache afterwards. Each helper mutates only `model` and returns a `Cmd`
+or `null`; no helper performs IO or touches widgets. The injected `Commands`
+factory returns `Cmd`s for search, play, stop, volume, and config saves. Tests
+inject a recording fake; production passes `AppRuntime`, which
 owns the `Soup.Session`, the GStreamer `Player`, and the debounced config
 writer (500 ms, atomic replace). Player signals and async search results are
 dispatched back through the long-lived dispatch captured by `attach`.
@@ -251,7 +261,7 @@ per interaction outweighs the testability gain.
 
 | Stay half-elmish | Adopt B+hybrid |
 |---|---|
-| `Counter` `src/components/counter/` · notes-store — state fully in `model`, `updateView` pure-ish | `WebKit.WebView` · `Shumate.Map` · `GStreamer` · `DrawingArea+GestureDrag` — widget owns `BackForwardList`/`WebContext`/`loaded_url`/tile cache not reconstructible from `model` |
+| `StationRow` `src/view/station-row.vala` · library list — state fully in `model`, `updateView` pure-ish | `WebKit.WebView` · `Shumate.Map` · `GStreamer` · `DrawingArea+GestureDrag` — widget owns `BackForwardList`/`WebContext`/`loaded_url`/tile cache not reconstructible from `model` |
 | Headless `test_update` covers behavior | `value_changed`/`row_expanded` floods at pixel rate → `updateView` per-message would thrash → need coalesced `adjustment.value_changed` `1500ms` |
 
 **Trigger rule (all three must hold to adopt):**
@@ -328,4 +338,4 @@ baseline):
 
 `smem` is not installed, so PSS could not be sampled; `VmRSS` matched
 `VmHWM` in both runs. The gap is not material, so the rewrite does not force
-`GSK_RENDERER=cairo`. Re-measure after MPRIS lands.
+`GSK_RENDERER=cairo`.

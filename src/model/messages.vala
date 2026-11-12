@@ -29,6 +29,7 @@ public enum Gradio.MessageKind {
     PLAYER_STATE_CHANGED,
     PLAYER_METADATA_CHANGED,
     PLAYER_ERROR,
+    PLAYER_RECONNECTING,
     SHOW_DETAILS,
     HIDE_DETAILS,
     SET_VOLUME,
@@ -66,7 +67,9 @@ public enum Gradio.MessageKind {
     SET_BACKGROUND_PLAYBACK,
     WINDOW_CLOSE_REQUESTED,
     WINDOW_RAISED,
-    SET_NOTIFICATIONS
+    SET_NOTIFICATIONS,
+    SET_SHOW_STATUS_BAR,
+    SET_PLAYER_IN_HEADER
 }
 
 public abstract class Gradio.Message {
@@ -208,6 +211,12 @@ public class Gradio.PlayerErrorMessage : Gradio.Message {
     public override MessageKind kind { get { return MessageKind.PLAYER_ERROR; } }
 }
 
+public class Gradio.PlayerReconnectingMessage : Gradio.Message {
+    public string message;
+    public PlayerReconnectingMessage (string message) { this.message = message; }
+    public override MessageKind kind { get { return MessageKind.PLAYER_RECONNECTING; } }
+}
+
 public class Gradio.ShowDetailsMessage : Gradio.Message {
     public RadioStation? station;
     public ShowDetailsMessage (RadioStation? station) { this.station = station; }
@@ -300,7 +309,8 @@ public class Gradio.SetSearchSortModeMessage : Gradio.Message {
     public override MessageKind kind { get { return MessageKind.SET_SEARCH_SORT_MODE; } }
 }
 
-public class Gradio.SetSearchFilterMessage : Gradio.Message {    public SearchFilterKind field;
+public class Gradio.SetSearchFilterMessage : Gradio.Message {
+    public SearchFilterKind field;
     public string value;
 
     public SetSearchFilterMessage (SearchFilterKind field, string value) {
@@ -514,9 +524,34 @@ public class Gradio.SetNotificationsMessage : Gradio.Message {
     public override MessageKind kind { get { return MessageKind.SET_NOTIFICATIONS; } }
 }
 
+public class Gradio.SetShowStatusBarMessage : Gradio.Message {
+    public bool enabled;
+
+    public SetShowStatusBarMessage (bool enabled) { this.enabled = enabled; }
+
+    public override MessageKind kind { get { return MessageKind.SET_SHOW_STATUS_BAR; } }
+}
+
+public class Gradio.SetPlayerInHeaderMessage : Gradio.Message {
+    public bool enabled;
+
+    public SetPlayerInHeaderMessage (bool enabled) { this.enabled = enabled; }
+
+    public override MessageKind kind { get { return MessageKind.SET_PLAYER_IN_HEADER; } }
+}
+
 public class Gradio.AppModel {
     public ViewMode view = ViewMode.LIBRARY;
     public AppConfig config;
+    // Sorted view of config.stations. config.stations stays in custom order
+    // (the persisted source of truth); this array is rebuilt only when the
+    // library or the sort settings change.
+    public GLib.GenericArray<RadioStation> library_order =
+        new GLib.GenericArray<RadioStation> ();
+    public uint library_revision = 0;
+    private uint library_order_revision = 0;
+    private LibrarySortMode library_order_sort = LibrarySortMode.CUSTOM;
+    private bool library_order_descending = false;
     public GLib.GenericArray<RadioStation> search_results = new GLib.GenericArray<RadioStation> ();
     public string search_query = "";
     public bool search_active = false;
@@ -525,6 +560,9 @@ public class Gradio.AppModel {
     public uint search_generation = 0;
     public RadioStation? current_station = null;
     public bool playing = false;
+    // True after an explicit stop (stop button, MPRIS Stop, station removal)
+    // as opposed to a pause/toggle; MPRIS reports "Stopped" for this state.
+    public bool playback_stopped = false;
     public bool playback_failed = false;
     public bool window_hidden = false;
     public string last_notified_title = "";
@@ -533,7 +571,11 @@ public class Gradio.AppModel {
     public int stream_bitrate = 0;
     public bool details_visible = false;
     public RadioStation? details_station = null;
-    public string status_message = _("Ready");
+    // Transient playback text shown on the player's track line
+    // ("Connecting…", "Reconnecting…", error messages).
+    public string player_status = "";
+    // App-wide feedback ("Exported 10 stations", …) shown in the status bar.
+    public string status_message = "";
     public GLib.HashTable<string, string> favicons = new GLib.HashTable<string, string> (str_hash, str_equal);
     public GLib.HashTable<string, string> favicon_sources = new GLib.HashTable<string, string> (str_hash, str_equal);
     public GLib.HashTable<string, bool> voted_ids = new GLib.HashTable<string, bool> (str_hash, str_equal);
@@ -554,6 +596,30 @@ public class Gradio.AppModel {
 
     public AppModel (AppConfig config) {
         this.config = config;
+        ensure_library_order ();
+    }
+
+    // Call whenever the library contents or any field used by
+    // StationSort.sort_library() change. config.stations itself is never
+    // reordered by sorting; custom order stays intact for drag-and-drop.
+    public void invalidate_library_order () {
+        library_revision++;
+    }
+
+    // Kept O(1) for unrelated messages: the cached array is reused unless the
+    // revision, the sort mode, or the descending flag changed. The length
+    // check also catches direct config mutations made by tests.
+    public void ensure_library_order () {
+        if (library_order_revision == library_revision &&
+                library_order_sort == config.library_sort &&
+                library_order_descending == config.library_sort_descending &&
+                library_order.length == config.stations.length)
+            return;
+        library_order = StationSort.sort_library (config.stations,
+            config.library_sort, config.library_sort_descending);
+        library_order_revision = library_revision;
+        library_order_sort = config.library_sort;
+        library_order_descending = config.library_sort_descending;
     }
 
     public string? favicon_for (RadioStation station) {
@@ -576,7 +642,8 @@ public class Gradio.AppModel {
         return discover_error != null && !discover_has_results ();
     }
 
-    public string[] filter_options (SearchFilterKind field) {        switch (field) {
+    public string[] filter_options (SearchFilterKind field) {
+        switch (field) {
             case SearchFilterKind.COUNTRY:
                 return filter_countries;
             case SearchFilterKind.LANGUAGE:

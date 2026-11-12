@@ -65,8 +65,9 @@ namespace Gradio {
             GLib.HashTable<string, GLib.Variant>[] metas = {};
             foreach (string id in ids) {
                 var station = config.find_station (id);
-                if (station != null)
-                    metas += result_meta (station);
+                // The shell expects one entry per requested id; keep the
+                // arrays aligned even if the library changed in between.
+                metas += station != null ? result_meta (station) : placeholder_meta (id);
             }
             return metas;
         }
@@ -119,6 +120,13 @@ namespace Gradio {
             string description = station.secondary_text (false);
             if (description != "")
                 meta.insert ("description", new GLib.Variant.string (description));
+            return meta;
+        }
+
+        private static GLib.HashTable<string, GLib.Variant> placeholder_meta (string id) {
+            var meta = new GLib.HashTable<string, GLib.Variant> (str_hash, str_equal);
+            meta.insert ("id", new GLib.Variant.string (id));
+            meta.insert ("name", new GLib.Variant.string (""));
             return meta;
         }
     }

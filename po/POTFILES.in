@@ -7,6 +7,9 @@ src/view/details-panel.vala
 src/view/player-bar.vala
 src/view/settings-dialog.vala
 src/view/station-row.vala
+src/view/station-editor-dialog.vala
 src/backend/player.vala
+src/app-runtime.vala
 src/app-update.vala
 src/model/messages.vala
+src/model/station-validation.vala
