@@ -1,9 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 namespace Gradio {
-    // Async file helpers. Every operation here returns to the main loop
-    // instead of blocking it. The sync wrappers in AppConfig are reserved for
-    // startup/shutdown and tests.
+    // Async file helpers. Sync wrappers are for startup, shutdown, and tests.
     public class FileIO : GLib.Object {
         public static async string load_text_async (string path) throws GLib.Error {
             var file = GLib.File.new_for_path (path);

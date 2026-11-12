@@ -43,9 +43,8 @@ namespace Gradio {
             var conn = yield client.connect_to_host_async (host, (uint16) port,
                 cancellable);
             var tls_conn = TlsClientConnection.@new (conn, null);
-            // Cast devices present a self-signed certificate. The transport is
-            // only used on the local network and the device address comes from
-            // mDNS, so accept the certificate.
+            // Self-signed certificate on the local network; the address comes
+            // from mDNS, so accept it.
             tls_conn.accept_certificate.connect ((cert, errors) => true);
             yield tls_conn.handshake_async (GLib.Priority.DEFAULT, cancellable);
 

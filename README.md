@@ -10,7 +10,6 @@ The GTK3 implementation and its libsoup 3 baseline live on the
 no shared git history with it; it is a deliberate rewrite.
 
 - **Architecture:** [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
-- **B+hybrid escape hatch:** [docs/B_HYBRID.md](docs/B_HYBRID.md)
 - **Agent conventions:** [AGENTS.md](AGENTS.md)
 
 ## Build
@@ -32,47 +31,18 @@ meson test -C builddir        # headless — no display needed
 
 Gradio is a usable single-list radio player:
 
-- One library list; `+` opens the Add view with radio-browser search and
-  Discover lists (popular and recently added stations)
-- Blank name with any filter browses everything matching that filter
-- Add stays in search and marks results as added; Back returns to the list
-- GStreamer playback with play/stop, volume, and stream metadata
-- Background playback: closing the window keeps the stream alive while the
-  app holds a background slot, and sleep is inhibited during playback
-- Slide-in station details with homepage, stream URLs, session track history,
-  and voting; removal is on the library row
-- Station icons cached under `~/.cache/gradio/favicons/`, with homepage icon
-  discovery via HTML `<link rel="icon">` and `/favicon.ico`
-- Drag stations to reorder the library; search-result sorting stays on the search tab
-- Library sorting by name, country, state, language, or bitrate (ascending or
-  descending); Custom order keeps drag-and-drop reordering and reverses it
-  when descending is on
-- Add and edit local stations that are not in radio-browser; remote stations
-  stay read-only
-- Remote station metadata refreshes on startup; stations missing upstream get
-  an “Unavailable” badge and stay in the library
-- Persisted country, state, language, and tag search filters; country,
-  language, and tag are searchable pickers filled from radio-browser
-- Window geometry and station-icon size are remembered
-- Preferences for technical information, notifications, background playback,
-  status bar, player-in-header placement, station-icon size, resuming the last
-  station on startup, and clearing the icon cache
-- Import and export the station library as JSON, or export an M3U playlist
-- MPRIS 2.2 controls, media keys, and the GNOME media widget
-- GNOME Shell search over the local library
-- Google Cast audio devices on the local network: mDNS discovery, stream
-  casting, and one-output-at-a-time routing back to local playback
-- Desktop notifications for now-playing changes and playback errors
-- JSON config at `~/.config/gradio/config.json` (`XDG_CONFIG_HOME` honored);
-  cache lives at `~/.cache/gradio/`
-- Headless core tests for the model, config, HTTP, search, player, and runtime
+- **Library:** one list, drag-to-reorder, sorting by name/country/state/language/bitrate; add/edit local stations; remote metadata refresh with “Unavailable” badges.
+- **Search:** radio-browser search and Discover presets; persisted country/state/language/tag filters; results mark already-added stations.
+- **Playback:** GStreamer play/stop, volume, stream metadata, background playback, sleep inhibition.
+- **Station details:** slide-in panel with homepage, stream URLs, track history, and voting.
+- **Icons:** cached under `~/.cache/gradio/favicons/`, with homepage discovery and cache clearing.
+- **Integrations:** MPRIS 2.2, media keys, GNOME Shell search, desktop notifications.
+- **Cast:** Google Cast discovery, stream casting, and one-output-at-a-time routing back to local playback.
+- **Config:** JSON at `~/.config/gradio/config.json` (`XDG_CONFIG_HOME` honored); window geometry and preferences persisted; import/export JSON or M3U.
+- **Tests:** headless core tests for model, config, HTTP, search, player, and runtime.
 
-Gradio keeps the extras that fit the single-list design: import/export (JSON and
-M3U), MPRIS, the GNOME Shell search provider, notifications, voting, filter
-pickers, Discover presets, background playback, and optional resume of the
-last station. A codec installer is not included; common GStreamer codec
-packages are regular dependencies. Collections, headerbar tabs, tray icon,
-and multi-select remain out of scope.
+Out of scope: codec installer, collections, headerbar tabs, tray icon,
+multi-select.
 
 ## Packaging
 

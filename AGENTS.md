@@ -4,6 +4,11 @@ Guidance for AI coding agents (and humans) working in this repository.
 Read `docs/ARCHITECTURE.md` first — it explains the half-elmish pattern this
 codebase follows.
 
+Docs:
+- `README.md` — project overview, build, packaging
+- `docs/ARCHITECTURE.md` — loop, messages, commands, views, threading, Cast
+- `AGENTS.md` — this file
+
 ## Build / test / run
 
 ```bash

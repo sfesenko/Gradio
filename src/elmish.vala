@@ -10,16 +10,9 @@ namespace Elmish {
     public delegate void Sub<Message> (Dispatch<Message> dispatch);
     public delegate MessageOut Mapper<MessageOut, MessageIn> (MessageIn message);
 
-    // A "command": a side effect bundled with a message. Commands are the only
-    // place where IO happens (file writes, network, timers, ...).
-    // They are returned from updateModel and executed right after the model
-    // update, receiving the same dispatch so they can send messages back
-    // (async result, progress, ...).
-    //
-    // Contract: `sub` must return promptly. It may start async work, enqueue a
-    // job, or arm a timer, but it must not block on IO. Results come back
-    // through `dispatch` (directly or via the worker marshalling in
-    // ElmishProgram). Model and widget mutations stay on the main thread.
+    // Side effect bundled with a message. Returned by updateModel and run
+    // after the model update with the same dispatch, so it can dispatch
+    // results back. `sub` must return promptly and never block on IO.
     public class Cmd<Message> {
         private Sub<Message> sub;
         private Cmd<Message>? next;
@@ -37,23 +30,10 @@ namespace Elmish {
             }
         }
 
-        // Lifts this command into another message space — the composition
-        // primitive for components. Each component works with its own
-        // message type; the parent maps child commands into its own space:
-        //
-        //     child_cmd.map<AppMessage> (mapper_object.method)
-        //                        ── dispatch (AppMessage) ──▶ updateModel
-        //
-        // Vala delegate contract (verified): closures BORROW captured
-        // delegates — valac's delegate calling convention carries no destroy
-        // notify, so a temporary closure is freed as soon as its creating
-        // frame returns. Therefore:
-        //   • the mapper must be a METHOD-BOUND delegate (a method on a
-        //     long-lived object), never an inline lambda with captures;
-        //   • the child sub must use the passed dispatch only synchronously
-        //     within the sub call. Deferred use (timers, async IO) requires
-        //     the child to capture its own long-lived dispatch at creation
-        //     (see the sample's counter component).
+        // Lifts a child command into the parent message space.
+        // Vala closures borrow captured delegates, so the mapper must be
+        // method-bound; inline lambdas are freed with the creating frame.
+        // Deferred use needs a long-lived dispatch captured at creation.
         public Cmd<MessageOut> map<MessageOut> (Mapper<MessageOut, Message> f) {
             var head = new Cmd<MessageOut> ((dispatch) => {
                 this.sub ((m) => dispatch (f (m)));

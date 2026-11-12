@@ -1,14 +1,8 @@
 # Half-Elmish Architecture (GTK4 + Vala)
 
-This template is a reference implementation of **half-elmish**: an elmish-style
-(Elm architecture) update loop with an imperative view. The term comes from
-the F# ecosystem, where exactly this split is called "half-elmish" (e.g.
-Elmish.Uno, the Elmish.XamarinForms StaticView sample).
-
-The deviation from full Elm is *exactly one thing*: the view. Full Elm renders
-the whole UI as a pure function of the model; here the view mutates widgets
-imperatively, which is the pragmatic GTK way. **Everything else — model,
-messages, update, commands, subscriptions — is full elmish.**
+Half-elmish is an Elm-style update loop with an imperative view. Everything
+except the view — model, messages, update, commands, subscriptions — is full
+elmish; the view mutates GTK widgets directly.
 
 ## The loop
 
@@ -50,43 +44,33 @@ GStreamer but still need no display.
 
 ## Gradio state and IO
 
-`AppModel` holds the single list's view state: `view` (`LIBRARY` or
-`ADD_STATION`), the `AppConfig` (settings + stations), search results and
-generation, the current station, playback state and stream metadata, and the
-details panel selection. Messages are discriminated by `MessageKind`.
+`AppModel` holds view state (`LIBRARY`/`ADD_STATION`), `AppConfig` (settings +
+stations), search results, current station, playback state, stream metadata,
+and details selection.
 
-`RadioStation` carries `state`, `is_local`, and `orphaned` in addition to the
-radio-browser metadata. Local stations use `local-<uuid>` IDs and are the only
-editable entries; remote stations refresh from radio-browser on startup via the
-batch `refresh_library` command (`/json/stations/byuuid`). A failed batch
-discards the whole refresh so stations are never falsely flagged as orphaned.
-`AppConfig` persists the library order, the selected `LibrarySortMode`, and
-whether the sort is descending. `AppModel.library_order` caches the sorted
-view; `config.stations` remains in custom order and is never overwritten by a
-sort. The cache is rebuilt only when the library revision or sort settings
-change, so unrelated messages (metadata ticks, volume, favicon loads) do not
-re-sort. Station lookup is still a linear scan (`find_station`), which is
-deliberately simple at current library sizes; if a library grows enough for
-that to matter, add an id→station hash index while keeping `library_order` as
-the derived display order.
-
-`updateModel` is a thin dispatcher: `update_model` switches on `MessageKind`,
-calls a pure `update_<case>` helper, and `updateModel` refreshes the library
-order cache afterwards. Each helper mutates only `model` and returns a `Cmd`
-or `null`; no helper performs IO or touches widgets. The injected `Commands`
-factory returns `Cmd`s for search, play, stop, volume, and config saves. Tests
-inject a recording fake; production passes `AppRuntime`, which
-owns the `Soup.Session`, the GStreamer `Player`, and the debounced config
-writer (500 ms, atomic replace). Player signals and async search results are
-dispatched back through the long-lived dispatch captured by `attach`.
-
-Persistence is JSON, not SQLite: `AppConfig` reads and writes
-`$XDG_CONFIG_HOME/gradio/config.json` (default `~/.config/gradio/config.json`).
-If the file cannot be parsed, the app starts empty and leaves the file
-untouched until a user-triggered save, which first backs it up as
-`config.json.corrupt`. `~/.local/share/gradio/gradio.db` from the GTK3 app is
-intentionally never read. Cache files belong under `$XDG_CACHE_HOME/gradio/`
-and are not used for the library.
+- **Stations:** `RadioStation` adds `state`, `is_local`, and `orphaned` to
+  radio-browser metadata. Local stations use `local-<uuid>` IDs and are
+  editable; remote stations are read-only.
+- **Refresh:** remote stations refresh on startup through the batch
+  `refresh_library` command (`/json/stations/byuuid`). A failed batch discards
+  the whole result so stations are not falsely marked orphaned.
+- **Sorting:** `AppConfig` persists library order and sort settings;
+  `AppModel.library_order` caches the sorted view. `config.stations` stays in
+  custom order. The cache rebuilds only when the library revision or sort
+  settings change.
+- **Lookup:** linear `find_station`; add an id→station index only if library
+  size demands it.
+- **Commands:** `updateModel` switches on `MessageKind`, calls a pure
+  `update_<case>` helper, then refreshes the sort cache. Helpers mutate only
+  the model and return a `Cmd` or `null`.
+- **Runtime:** tests inject a recording `Commands` fake; production uses
+  `AppRuntime` (Soup session, GStreamer player, 500 ms debounced config
+  writer). Async results dispatch back through the captured dispatch.
+- **Persistence:** JSON at `$XDG_CONFIG_HOME/gradio/config.json` (default
+  `~/.config/gradio/config.json`). Unparseable files start empty and are backed
+  up as `config.json.corrupt` before the next save. The GTK3
+  `~/.local/share/gradio/gradio.db` is never read; caches live under
+  `$XDG_CACHE_HOME/gradio/`.
 
 ## Messages: plain classes + enum discriminator
 
@@ -130,9 +114,9 @@ either ref-counted or copyable (`get_dup_func_expression` in
   the GObject machinery (property system, instance data, qdata) — cheaper to
   create and destroy, same refcount safety.
 
-Cost figures are indicative (measured ~140 ns/dispatch on this template's
-scratch benchmark); at UI rates all four are negligible — the choice is about
-type safety, composability, and simplicity, not raw speed.
+Cost figures are indicative (~140 ns/dispatch); at UI rates all four are
+negligible — the choice is about type safety, composability, and simplicity,
+not raw speed.
 
 ## updateModel: the pure half
 
@@ -235,42 +219,25 @@ imperatively. Any construction method fits:
 
 | Style | How |
 |---|---|
-| Code (this template) | `build_ui` constructs widgets, connects signals → `dispatch` |
+| Code | `build_ui` constructs widgets, connects signals → `dispatch` |
 | `.ui` (GtkBuilder XML) | `Gtk.Builder.new_from_resource`, `get_object` by name into view fields; signals connect to dispatch |
 | Blueprint | compiles to `.ui` → same GtkBuilder path (`blueprint-compiler` is a build-time only dep) |
 
-## When to use this pattern — and when to escalate to B+hybrid
+## When to use this pattern
 
-Elmish is not strictly superior to "usual Vala GTK" (signals + widgets-as-state
-+ GObject bindings) — it is a tradeoff. **Start half-elmish always.** It is
-the simplest, fully tested, and covers most apps. Only escalate per-view to
-`B+hybrid` (`docs/B_HYBRID.md`) when a retained-native widget forces it.
-
-### Half-elmish (default — start here)
+Elmish is not strictly superior to usual Vala GTK (signals + widgets-as-state
++ GObject bindings) — it is a tradeoff. Start half-elmish always; it is the
+simplest, fully tested option and covers most apps. Retained-native widgets
+(WebKit, maps, GStreamer, drawing surfaces) are handled in the view layer
+without changing the loop.
 
 **Use it when:** business logic deserves headless tests; multiple paths mutate
-the same state; async flows (save/load/network) need status feedback; teams
-want one uniform flow to review; and no widget owns state that
+the same state; async flows need status feedback; no widget owns state that
 `updateView(msg, model, view)` cannot rebuild from `model` alone.
 
-**Don't use it when:** the app is a small tool where GTK widgets *are* the
-model (editable trees, live bindings everywhere); the ceremony of a message
-per interaction outweighs the testability gain.
-
-### B+hybrid (escape hatch — adopt later, per-view)
-
-| Stay half-elmish | Adopt B+hybrid |
-|---|---|
-| `StationRow` `src/view/station-row.vala` · library list — state fully in `model`, `updateView` pure-ish | `WebKit.WebView` · `Shumate.Map` · `GStreamer` · `DrawingArea+GestureDrag` — widget owns `BackForwardList`/`WebContext`/`loaded_url`/tile cache not reconstructible from `model` |
-| Headless `test_update` covers behavior | `value_changed`/`row_expanded` floods at pixel rate → `updateView` per-message would thrash → need coalesced `adjustment.value_changed` `1500ms` |
-
-**Trigger rule (all three must hold to adopt):**
-
-1. Widget keeps retained-native state outside GTK property bindings.
-2. Rebuilding it from `model` in `updateView` would recreate or lose state every message (e.g. `WebView.load_uri`, `Map.set_center`, pipeline restart).
-3. Events arrive at continuous rate (`value_changed`, `motion`, `notify::zoom-level`) not discrete user actions.
-
-If only (1) without (2)–(3) (e.g. a one-shot `WebView` load), stay half-elmish and drive it from a `Cmd`. See `docs/B_HYBRID.md` for the pattern and `docs/MIGRATING_TO_HYBRID.md` for the per-view checklist.
+**Skip it when:** the app is a small tool where GTK widgets *are* the model
+(editable trees, live bindings everywhere); message ceremony outweighs
+testability.
 
 ## Adding a new feature, step by step
 
@@ -362,16 +329,3 @@ other. The cast layer is GTK-free and lives in `src/cast/`:
 The device is selected explicitly; its mDNS `id`, friendly name, host, and
 port are persisted in `AppConfig`. Cast stream URLs must be reachable from the
 device itself.
-
-## Memory checkpoint
-
-Measured on the target Wayland session, `VmHWM` after 3–4 seconds with a
-populated library (3 stations for GTK4, the GTK3 database's 2 stations for the
-baseline):
-
-- GTK3 baseline (`v7.3-gtk3-baseline`): 87,484 kB
-- GTK4 (`gtk4-elmish`): 89,716 kB (+2.5%)
-
-`smem` is not installed, so PSS could not be sampled; `VmRSS` matched
-`VmHWM` in both runs. The gap is not material, so the rewrite does not force
-`GSK_RENDERER=cairo`.

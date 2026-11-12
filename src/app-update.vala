@@ -813,10 +813,8 @@ private Elmish.Cmd<Gradio.Message>? update_play_station (Gradio.Message msg, Gra
     var report = play.station.is_local
         ? null
         : commands.report_click (play.station.id);
-    // No notification here: the station name would just duplicate the
-    // title, and the first metadata tick after connecting announces the
-    // station far more usefully. last_notified_title is already reset
-    // above so that first tick always fires.
+    // No notification: the first metadata tick announces the station.
+    // last_notified_title is reset above so it always fires.
     if (model.playback_target == PlaybackTarget.CAST &&
             model.cast_device_id != null) {
         model.cast_status = CastStatus.CONNECTING;
@@ -866,9 +864,8 @@ private Elmish.Cmd<Gradio.Message>? update_toggle_play (Gradio.Message msg, Grad
         return Commands.chain (commands.play (model.current_station),
             commands.inhibit_sleep ());
     }
-    // A toggle from playing is a pause: the pipeline stops (live radio
-    // cannot buffer), but MPRIS should still report "Paused". Explicit
-    // stops go through STOP_PLAYBACK, which marks playback_stopped.
+    // A toggle from playing is a pause: live radio cannot buffer, so the
+    // pipeline stops but MPRIS reports "Paused". STOP_PLAYBACK marks stopped.
     model.playback_failed = false;
     model.stream_title = "";
     model.stream_bitrate = 0;
@@ -906,8 +903,7 @@ private Elmish.Cmd<Gradio.Message>? update_player_state_changed (Gradio.Message 
     var state = msg as PlayerStateChangedMessage;
     if (state == null)
         return null;
-    // While casting, the local player is torn down asynchronously; its NULL
-    // state must not release the inhibitor acquired for the cast.
+    // Local player teardown during cast must not release the cast inhibitor.
     if (model.playback_target == PlaybackTarget.CAST)
         return null;
     model.playing = state.playing;

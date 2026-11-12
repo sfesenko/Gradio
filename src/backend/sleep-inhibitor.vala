@@ -15,6 +15,7 @@ namespace Gradio {
         // alive rather than the (h) index from the reply body.
         public int handle { get { return fd; } }
 
+        // Sync path, used by tests only; the UI uses acquire_async().
         public bool acquire () {
             if (fd >= 0)
                 return true;

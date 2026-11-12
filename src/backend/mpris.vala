@@ -151,7 +151,7 @@ namespace Gradio {
             }
         }
 
-        // ── MPRIS root ─────────────────────────────────────────────────────
+        // MPRIS root
 
         private static string[] uri_schemes = { "http", "https" };
         private static string[] no_mime_types = {};
@@ -172,7 +172,7 @@ namespace Gradio {
             app.quit ();
         }
 
-        // ── MPRIS player ───────────────────────────────────────────────────
+        // MPRIS player
 
         public string playback_status { owned get { return status; } }
         public GLib.Variant metadata { owned get { return current_metadata; } }
@@ -235,7 +235,7 @@ namespace Gradio {
         public void open_uri (string uri) throws GLib.Error {
         }
 
-        // ── pure helpers ───────────────────────────────────────────────────
+        // pure helpers
 
         public static string playback_status_for (bool playing, bool has_station, bool stopped) {
             if (playing)

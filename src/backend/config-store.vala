@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 namespace Gradio {
-    // Owns config serialization and persistence. The UI calls save() on the
-    // main thread; the actual write happens through FileIO async. A single
-    // writer and a generation counter make the latest snapshot win.
+    // Config serialization and persistence. UI calls save() on the main
+    // thread; writes use FileIO async. Latest snapshot wins.
     public class ConfigStore : GLib.Object {
         public signal void saved ();
         public signal void save_failed (string message);
