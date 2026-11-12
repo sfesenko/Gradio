@@ -14,8 +14,8 @@ pkgdesc="GTK4/elmish rewrite of the Gradio internet radio player"
 arch=('x86_64')
 url="https://github.com/sfesenko/Gradio"
 license=('GPL-3.0-or-later')
-depends=('gtk4' 'glib2' 'libsoup3' 'json-glib' 'gst-plugins-base' 'gst-plugins-good' 'gst-plugins-bad' 'gst-plugins-ugly' 'gst-libav')
-makedepends=('meson' 'ninja' 'vala' 'gettext')
+depends=('gtk4' 'glib2' 'libsoup3' 'json-glib' 'gst-plugins-base' 'gst-plugins-good' 'gst-plugins-bad' 'gst-plugins-ugly' 'gst-libav' 'protobuf-c')
+makedepends=('meson' 'ninja' 'vala' 'gettext' 'protobuf' 'protobuf-c')
 source=()
 sha256sums=()
 

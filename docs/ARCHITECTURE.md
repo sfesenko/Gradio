@@ -307,6 +307,8 @@ headless with plain glib assertions:
 - `test_radio_browser.vala` — search URL and station parsing
 - `test_player.vala` — GStreamer volume and error handling
 - `test_app_runtime.vala` — debounced saves and save-failure dispatch
+- `test_cast.vala` — Cast JSON helpers and service parsing
+- `test_mdns.vala` — mDNS name decompression, record parsing, device assembly
 - `test_elmish.vala` — the core itself: Cmd chains, dispatch-back, coalescing,
   subscriptions, thread marshalling, `Cmd.map` composition, plain-class
   messages in the generic core (12 tests)
@@ -326,6 +328,25 @@ Tests that need the main loop (coalescing, worker dispatch) pump it with
 - `show_close_button` → `show_title_buttons` (GTK ≥ 4.10).
 - Theme handling is left entirely to GTK: `GTK_THEME` wins, then the
   `gtk-theme` (Legacy Applications) setting, then built-in Adwaita.
+
+## Cast support (Google Cast v2)
+
+Casting is a routing target, not a second output: `PlaybackTarget.LOCAL|CAST`
+lives in the model, and `updateModel` stops one transport before starting the
+other. The cast layer is GTK-free and lives in `src/cast/`:
+
+- `mdns.vala` — raw mDNS query/parser over `GSocket` (PTR/SRV/TXT/A), no Avahi.
+- `cast-connection.vala` — TLS to port 8009, 4-byte length-prefixed protobuf
+  frames, a blocking reader thread, and message marshalling back to the main
+  loop.
+- `cast-proto.c` / `cast.proto` — protobuf wire encoding; `protoc` generates
+  `cast.pb-c.c/h` at build time and `libprotobuf-c` is linked.
+- `cast-service.vala` — Cast v2 commands: mDNS discovery, LAUNCH of the
+  Default Media Receiver, media LOAD, PING/PONG, and STOP.
+
+The device is selected explicitly; its mDNS `id`, friendly name, host, and
+port are persisted in `AppConfig`. Cast stream URLs must be reachable from the
+device itself.
 
 ## Memory checkpoint
 

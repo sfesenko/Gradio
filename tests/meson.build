@@ -85,3 +85,15 @@ test_station_validation = executable('test_station_validation',
   dependencies: [test_deps, lib_core_dep],
 )
 test('station-validation', test_station_validation)
+
+test_cast = executable('test_cast',
+  'test_cast.vala',
+  dependencies: [test_deps, lib_core_dep],
+)
+test('cast', test_cast)
+
+test_cast_mdns = executable('test_cast_mdns',
+  'test_mdns.vala',
+  dependencies: [test_deps, lib_core_dep],
+)
+test('cast-mdns', test_cast_mdns)

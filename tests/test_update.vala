@@ -2189,5 +2189,249 @@ int main (string[] args) {
     Test.add_func ("/update/set_view_add_search", test_set_view_add_searches_when_filters_present);
     Test.add_func ("/update/clear_filters_discover", test_clearing_filters_requests_discover_when_empty);
 
+    register_cast_tests ();
+
     return Test.run ();
+}
+
+class CastRecordingCommands : Gradio.Commands {
+    private Elmish.Cmd<Gradio.Message> dummy () {
+        return new Elmish.Cmd<Gradio.Message> ((dispatch) => {});
+    }
+
+    public int discover_cast_calls = 0;
+    public int cast_calls = 0;
+    public int stop_cast_calls = 0;
+    public int play_calls = 0;
+    public int stop_calls = 0;
+    public int save_calls = 0;
+    public int inhibit_sleep_calls = 0;
+    public string last_cast_device = "";
+    public string last_cast_host = "";
+    public int last_cast_port = 0;
+    public string last_cast_url = "";
+
+    public override Elmish.Cmd<Gradio.Message>? discover_cast () {
+        discover_cast_calls++;
+        return dummy ();
+    }
+
+    public override Elmish.Cmd<Gradio.Message>? cast (string device_id, string host,
+            int port, string url) {
+        cast_calls++;
+        last_cast_device = device_id;
+        last_cast_host = host;
+        last_cast_port = port;
+        last_cast_url = url;
+        return dummy ();
+    }
+
+    public override Elmish.Cmd<Gradio.Message>? stop_cast (string device_id, string host,
+            int port) {
+        stop_cast_calls++;
+        last_cast_device = device_id;
+        last_cast_host = host;
+        last_cast_port = port;
+        return dummy ();
+    }
+
+    public override Elmish.Cmd<Gradio.Message>? play (RadioStation station) {
+        play_calls++;
+        return null;
+    }
+
+    public override Elmish.Cmd<Gradio.Message>? stop () {
+        stop_calls++;
+        return dummy ();
+    }
+
+    public override Elmish.Cmd<Gradio.Message>? save_config () {
+        save_calls++;
+        return dummy ();
+    }
+
+    public override Elmish.Cmd<Gradio.Message>? inhibit_sleep () {
+        inhibit_sleep_calls++;
+        return dummy ();
+    }
+}
+
+private Gradio.CastDevice make_cast_device (string id, string name) {
+    return new Gradio.CastDevice (id, name, "127.0.0.1", 8009, "Google Home");
+}
+
+void test_cast_discover_starts_command () {
+    var model = make_model ();
+    var commands = new CastRecordingCommands ();
+    var cmd = updateModel (new DiscoverCastDevicesMessage (), model, commands);
+    assert (cmd != null);
+    assert (commands.discover_cast_calls == 1);
+    assert (model.cast_status == CastStatus.DISCOVERING);
+    assert (model.cast_error == "");
+}
+
+void test_cast_devices_discovered () {
+    var model = make_model ();
+    var commands = new CastRecordingCommands ();
+    var devices = new CastDevice[] { make_cast_device ("id-1", "Kitchen") };
+    updateModel (new CastDevicesDiscoveredMessage (devices), model, commands);
+    assert (model.cast_devices.length == 1);
+    assert (model.cast_devices[0].id == "id-1");
+    assert (model.cast_status == CastStatus.READY);
+}
+
+void test_cast_discovery_failed () {
+    var model = make_model ();
+    var commands = new CastRecordingCommands ();
+    updateModel (new CastDiscoveryFailedMessage ("no devices"), model, commands);
+    assert (model.cast_status == CastStatus.FAILED);
+    assert (model.cast_error == "no devices");
+}
+
+void test_select_cast_device () {
+    var model = make_model ();
+    var commands = new CastRecordingCommands ();
+    updateModel (new SelectCastDeviceMessage ("id-1", "Kitchen", "127.0.0.1", 8009),
+        model, commands);
+    assert (model.cast_device_id == "id-1");
+    assert (model.cast_device_name == "Kitchen");
+    assert (model.cast_status == CastStatus.READY);
+}
+
+void test_cast_to_selected_starts_command () {
+    var model = make_model ();
+    var commands = new CastRecordingCommands ();
+    model.cast_device_id = "id-1";
+    model.cast_device_host = "127.0.0.1";
+    model.current_stream_url = "https://example.test/stream";
+    var cmd = updateModel (new CastToSelectedMessage (), model, commands);
+    assert (cmd != null);
+    assert (commands.cast_calls == 1);
+    assert (commands.last_cast_device == "id-1");
+    assert (commands.last_cast_url == "https://example.test/stream");
+    assert (model.playback_target == PlaybackTarget.CAST);
+    assert (model.cast_status == CastStatus.CONNECTING);
+    assert (commands.inhibit_sleep_calls == 1);
+}
+
+void test_cast_to_selected_requires_device () {
+    var model = make_model ();
+    var commands = new CastRecordingCommands ();
+    model.current_stream_url = "https://example.test/stream";
+    var cmd = updateModel (new CastToSelectedMessage (), model, commands);
+    assert (cmd == null);
+    assert (commands.cast_calls == 0);
+    assert (model.cast_status == CastStatus.FAILED);
+}
+
+void test_cast_to_selected_requires_stream () {
+    var model = make_model ();
+    var commands = new CastRecordingCommands ();
+    model.cast_device_id = "id-1";
+    model.cast_device_host = "127.0.0.1";
+    var cmd = updateModel (new CastToSelectedMessage (), model, commands);
+    assert (cmd == null);
+    assert (commands.cast_calls == 0);
+    assert (model.cast_status == CastStatus.FAILED);
+}
+
+void test_cast_started_marks_playing () {
+    var model = make_model ();
+    var commands = new CastRecordingCommands ();
+    model.cast_device_id = "id-1";
+    model.playback_target = PlaybackTarget.CAST;
+    updateModel (new CastStartedMessage ("id-1"), model, commands);
+    assert (model.cast_status == CastStatus.PLAYING);
+    assert (model.playing);
+}
+
+void test_cast_failed_reverts_to_local () {
+    var model = make_model ();
+    var commands = new CastRecordingCommands ();
+    model.playback_target = PlaybackTarget.CAST;
+    updateModel (new CastFailedMessage ("boom"), model, commands);
+    assert (model.cast_status == CastStatus.FAILED);
+    assert (model.cast_error == "boom");
+    assert (model.playback_target == PlaybackTarget.LOCAL);
+    assert (!model.playing);
+}
+
+void test_stop_cast_returns_command () {
+    var model = make_model ();
+    var commands = new CastRecordingCommands ();
+    model.cast_device_id = "id-1";
+    model.cast_device_host = "127.0.0.1";
+    var cmd = updateModel (new StopCastMessage (), model, commands);
+    assert (cmd != null);
+    assert (commands.stop_cast_calls == 1);
+    assert (commands.last_cast_device == "id-1");
+    assert (model.playback_target == PlaybackTarget.LOCAL);
+}
+
+void test_play_local_switches_target () {
+    var model = make_model ();
+    var commands = new CastRecordingCommands ();
+    model.playback_target = PlaybackTarget.CAST;
+    model.cast_device_id = "id-1";
+    model.cast_device_host = "127.0.0.1";
+    model.current_station = make_station ("u1");
+    var cmd = updateModel (new PlayLocalMessage (), model, commands);
+    assert (cmd != null);
+    assert (model.playback_target == PlaybackTarget.LOCAL);
+    assert (model.cast_status == CastStatus.IDLE);
+    assert (commands.stop_cast_calls == 1);
+    assert (commands.play_calls == 1);
+}
+
+void test_play_station_sets_stream_url () {
+    var model = make_model ();
+    var commands = new CastRecordingCommands ();
+    updateModel (new PlayStationMessage (make_station ("u1")), model, commands);
+    assert (model.current_stream_url == "https://example.test/u1");
+}
+
+void test_play_station_cast_target_uses_cast_command () {
+    var model = make_model ();
+    var commands = new CastRecordingCommands ();
+    model.playback_target = PlaybackTarget.CAST;
+    model.cast_device_id = "id-1";
+    model.cast_device_host = "127.0.0.1";
+    var cmd = updateModel (new PlayStationMessage (make_station ("u1")), model, commands);
+    assert (cmd != null);
+    assert (commands.cast_calls == 1);
+    assert (commands.play_calls == 0);
+    assert (model.playing);
+    assert (model.current_stream_url == "https://example.test/u1");
+}
+
+void test_stop_playback_cast_target_stops_cast () {
+    var model = make_model ();
+    var commands = new CastRecordingCommands ();
+    model.playback_target = PlaybackTarget.CAST;
+    model.cast_device_id = "id-1";
+    model.cast_device_host = "127.0.0.1";
+    model.playing = true;
+    var cmd = updateModel (new StopPlaybackMessage (), model, commands);
+    assert (cmd != null);
+    assert (commands.stop_cast_calls == 1);
+    assert (commands.stop_calls == 0);
+    assert (!model.playing);
+    assert (model.playback_target == PlaybackTarget.LOCAL);
+}
+
+void register_cast_tests () {
+    Test.add_func ("/update/cast/discover", test_cast_discover_starts_command);
+    Test.add_func ("/update/cast/discovered", test_cast_devices_discovered);
+    Test.add_func ("/update/cast/discovery_failed", test_cast_discovery_failed);
+    Test.add_func ("/update/cast/select", test_select_cast_device);
+    Test.add_func ("/update/cast/to_selected", test_cast_to_selected_starts_command);
+    Test.add_func ("/update/cast/to_selected_no_device", test_cast_to_selected_requires_device);
+    Test.add_func ("/update/cast/to_selected_no_stream", test_cast_to_selected_requires_stream);
+    Test.add_func ("/update/cast/started", test_cast_started_marks_playing);
+    Test.add_func ("/update/cast/failed", test_cast_failed_reverts_to_local);
+    Test.add_func ("/update/cast/stop", test_stop_cast_returns_command);
+    Test.add_func ("/update/cast/play_local", test_play_local_switches_target);
+    Test.add_func ("/update/cast/play_station_sets_url", test_play_station_sets_stream_url);
+    Test.add_func ("/update/cast/play_station_cast", test_play_station_cast_target_uses_cast_command);
+    Test.add_func ("/update/cast/stop_playback_cast", test_stop_playback_cast_target_stops_cast);
 }

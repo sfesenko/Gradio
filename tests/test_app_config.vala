@@ -395,6 +395,24 @@ void test_player_in_header_round_trip () {
     cleanup (dir);
 }
 
+void test_cast_device_round_trip () {
+    var dir = make_tmp_dir ();
+    var path = GLib.Path.build_filename (dir, "config.json");
+    var config = new Gradio.AppConfig (path);
+    config.cast_device_id = "device-1";
+    config.cast_device_name = "Kitchen";
+    config.cast_host = "192.168.0.20";
+    config.cast_port = 8009;
+    save_config (config);
+
+    var loaded = load_config (path);
+    assert (loaded.cast_device_id == "device-1");
+    assert (loaded.cast_device_name == "Kitchen");
+    assert (loaded.cast_host == "192.168.0.20");
+    assert (loaded.cast_port == 8009);
+    cleanup (dir);
+}
+
 int main (string[] args) {
     Test.init (ref args);
 
@@ -426,6 +444,7 @@ int main (string[] args) {
     Test.add_func ("/app-config/skips_station_without_id", test_skips_station_without_id);
     Test.add_func ("/app-config/skips_station_without_name_or_url", test_skips_station_without_name_or_url);
     Test.add_func ("/app-config/library_sort_round_trip", test_library_sort_round_trip);
+    Test.add_func ("/app-config/cast_device_round_trip", test_cast_device_round_trip);
 
     return Test.run ();
 }

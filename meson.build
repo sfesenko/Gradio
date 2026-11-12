@@ -28,6 +28,18 @@ gnome.post_install(
 
 # Shared library for pure logic (testable without GTK).
 # Everything in here must stay GTK-free: no widgets, no Gtk imports.
+# --- Cast support (Google Cast v2) ---
+protoc = find_program('protoc', required: true)
+cast_proto_c = custom_target('cast-proto',
+  input: 'src/cast/cast.proto',
+  output: ['cast.pb-c.c', 'cast.pb-c.h'],
+  command: [find_program('scripts/gen-cast-proto.sh'),
+            meson.current_build_dir(), meson.current_source_dir(), '@INPUT@'],
+  build_by_default: true)
+
+lib_core_c_args = ['-DHAVE_CAST=1']
+lib_core_link_args = ['-lprotobuf-c']
+
 lib_core_sources = [
   'src/elmish.vala',
   'src/model/messages.vala',
@@ -49,6 +61,9 @@ lib_core_sources = [
   'src/backend/sleep-inhibitor.vala',
   'src/backend/search-provider.vala',
   'src/app-update.vala',
+  'src/cast/cast-service.vala',
+  'src/cast/mdns.vala',
+  'src/cast/cast-connection.vala',
 ]
 
 lib_core_deps = [
@@ -62,6 +77,11 @@ lib_core_deps = [
 
 lib_core = static_library('gradio-core',
   lib_core_sources,
+  'src/cast/cast-proto.c',
+  cast_proto_c,
+  c_args: lib_core_c_args,
+  include_directories: include_directories('.'),
+  link_args: lib_core_link_args,
   dependencies: lib_core_deps,
 )
 

@@ -11,6 +11,37 @@ public enum Gradio.DiscoverMode {
     NEW
 }
 
+public enum Gradio.CastStatus {
+    IDLE,
+    DISCOVERING,
+    READY,
+    CONNECTING,
+    PLAYING,
+    STOPPED,
+    FAILED
+}
+
+public enum Gradio.PlaybackTarget {
+    LOCAL,
+    CAST
+}
+
+public class Gradio.CastDevice {
+    public string id;
+    public string name;
+    public string host;
+    public int port;
+    public string model;
+
+    public CastDevice (string id, string name, string host, int port, string model) {
+        this.id = id;
+        this.name = name;
+        this.host = host;
+        this.port = port;
+        this.model = model;
+    }
+}
+
 public enum Gradio.MessageKind {
     SET_VIEW,
     SEARCH_REQUESTED,
@@ -69,7 +100,17 @@ public enum Gradio.MessageKind {
     WINDOW_RAISED,
     SET_NOTIFICATIONS,
     SET_SHOW_STATUS_BAR,
-    SET_PLAYER_IN_HEADER
+    SET_PLAYER_IN_HEADER,
+    DISCOVER_CAST_DEVICES,
+    CAST_DEVICES_DISCOVERED,
+    CAST_DISCOVERY_FAILED,
+    SELECT_CAST_DEVICE,
+    CAST_TO_SELECTED,
+    CAST_STARTED,
+    CAST_STOPPED,
+    CAST_FAILED,
+    STOP_CAST,
+    PLAY_LOCAL
 }
 
 public abstract class Gradio.Message {
@@ -540,6 +581,75 @@ public class Gradio.SetPlayerInHeaderMessage : Gradio.Message {
     public override MessageKind kind { get { return MessageKind.SET_PLAYER_IN_HEADER; } }
 }
 
+public class Gradio.DiscoverCastDevicesMessage : Gradio.Message {
+    public override MessageKind kind { get { return MessageKind.DISCOVER_CAST_DEVICES; } }
+}
+
+public class Gradio.CastDevicesDiscoveredMessage : Gradio.Message {
+    public CastDevice[] devices;
+
+    public CastDevicesDiscoveredMessage (CastDevice[] devices) { this.devices = devices; }
+
+    public override MessageKind kind { get { return MessageKind.CAST_DEVICES_DISCOVERED; } }
+}
+
+public class Gradio.CastDiscoveryFailedMessage : Gradio.Message {
+    public string error;
+
+    public CastDiscoveryFailedMessage (string error) { this.error = error; }
+
+    public override MessageKind kind { get { return MessageKind.CAST_DISCOVERY_FAILED; } }
+}
+
+public class Gradio.SelectCastDeviceMessage : Gradio.Message {
+    public string device_id;
+    public string device_name;
+    public string device_host;
+    public int device_port;
+
+    public SelectCastDeviceMessage (string device_id, string device_name,
+            string device_host, int device_port) {
+        this.device_id = device_id;
+        this.device_name = device_name;
+        this.device_host = device_host;
+        this.device_port = device_port;
+    }
+
+    public override MessageKind kind { get { return MessageKind.SELECT_CAST_DEVICE; } }
+}
+
+public class Gradio.CastToSelectedMessage : Gradio.Message {
+    public override MessageKind kind { get { return MessageKind.CAST_TO_SELECTED; } }
+}
+
+public class Gradio.CastStartedMessage : Gradio.Message {
+    public string device_id;
+
+    public CastStartedMessage (string device_id) { this.device_id = device_id; }
+
+    public override MessageKind kind { get { return MessageKind.CAST_STARTED; } }
+}
+
+public class Gradio.CastStoppedMessage : Gradio.Message {
+    public override MessageKind kind { get { return MessageKind.CAST_STOPPED; } }
+}
+
+public class Gradio.CastFailedMessage : Gradio.Message {
+    public string error;
+
+    public CastFailedMessage (string error) { this.error = error; }
+
+    public override MessageKind kind { get { return MessageKind.CAST_FAILED; } }
+}
+
+public class Gradio.StopCastMessage : Gradio.Message {
+    public override MessageKind kind { get { return MessageKind.STOP_CAST; } }
+}
+
+public class Gradio.PlayLocalMessage : Gradio.Message {
+    public override MessageKind kind { get { return MessageKind.PLAY_LOCAL; } }
+}
+
 public class Gradio.AppModel {
     public ViewMode view = ViewMode.LIBRARY;
     public AppConfig config;
@@ -593,9 +703,24 @@ public class Gradio.AppModel {
     public string? discover_error = null;
     public uint discover_generation = 0;
     public int discover_pending = 0;
+    public PlaybackTarget playback_target = PlaybackTarget.LOCAL;
+    public CastStatus cast_status = CastStatus.IDLE;
+    public string? cast_device_id = null;
+    public string? cast_device_name = null;
+    public string cast_device_host = "";
+    public int cast_port = 8009;
+    public CastDevice[] cast_devices = {};
+    public string cast_error = "";
+    public string current_stream_url = "";
 
     public AppModel (AppConfig config) {
         this.config = config;
+        this.cast_device_id = config.cast_device_id != ""
+            ? config.cast_device_id : null;
+        this.cast_device_name = config.cast_device_name != ""
+            ? config.cast_device_name : null;
+        this.cast_device_host = config.cast_host;
+        this.cast_port = config.cast_port;
         ensure_library_order ();
     }
 

@@ -29,6 +29,10 @@ namespace Gradio {
         public bool show_status_bar = true;
         public bool player_in_header = false;
         public string last_station_id = "";
+        public string cast_device_id = "";
+        public string cast_device_name = "";
+        public string cast_host = "";
+        public int cast_port = 8009;
         public SearchSortMode search_sort = SearchSortMode.RELEVANCE;
         public LibrarySortMode library_sort = LibrarySortMode.CUSTOM;
         public bool library_sort_descending = false;
@@ -117,6 +121,16 @@ namespace Gradio {
                     "player_in_header", config.player_in_header);
                 config.last_station_id = settings.get_string_member_with_default (
                     "last_station", config.last_station_id);
+                config.cast_device_id = settings.get_string_member_with_default (
+                    "cast_device_id", config.cast_device_id);
+                config.cast_device_name = settings.get_string_member_with_default (
+                    "cast_device_name", config.cast_device_name);
+                config.cast_host = settings.get_string_member_with_default (
+                    "cast_host", config.cast_host);
+                config.cast_port = (int) settings.get_int_member_with_default (
+                    "cast_port", config.cast_port);
+                if (config.cast_port <= 0 || config.cast_port > 65535)
+                    config.cast_port = 8009;
                 config.search_sort = StationSort.search_from_string (
                     settings.get_string_member_with_default ("search_sort",
                         StationSort.search_to_string (config.search_sort)));
@@ -175,6 +189,10 @@ namespace Gradio {
             settings.set_boolean_member ("show_status_bar", show_status_bar);
             settings.set_boolean_member ("player_in_header", player_in_header);
             settings.set_string_member ("last_station", last_station_id);
+            settings.set_string_member ("cast_device_id", cast_device_id);
+            settings.set_string_member ("cast_device_name", cast_device_name);
+            settings.set_string_member ("cast_host", cast_host);
+            settings.set_int_member ("cast_port", cast_port);
             settings.set_string_member ("search_sort", StationSort.search_to_string (search_sort));
             settings.set_string_member ("library_sort",
                 StationSort.library_sort_to_string (library_sort));

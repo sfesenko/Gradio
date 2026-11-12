@@ -631,5 +631,19 @@ namespace Gradio {
                     dispatch (new SearchFailedMessage (e.message, generation));
             }
         }
+
+    public override Elmish.Cmd<Gradio.Message>? discover_cast () {
+        return Gradio.CastService.discover_cmd ();
+    }
+
+    public override Elmish.Cmd<Gradio.Message>? cast (string device_id, string host,
+            int port, string url) {
+        return Gradio.CastService.cast_cmd (device_id, host, port, url);
+    }
+
+    public override Elmish.Cmd<Gradio.Message>? stop_cast (string device_id, string host,
+            int port) {
+        return Gradio.CastService.stop_cmd (device_id, host, port);
+    }
     }
 }

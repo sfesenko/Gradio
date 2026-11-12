@@ -26,6 +26,9 @@ namespace Gradio {
         public virtual Elmish.Cmd<Message>? inhibit_sleep () { return null; }
         public virtual Elmish.Cmd<Message>? release_sleep () { return null; }
         public virtual Elmish.Cmd<Message>? notify_now_playing (string station_name, string title) { return null; }
+    public virtual Elmish.Cmd<Message>? discover_cast () { return null; }
+    public virtual Elmish.Cmd<Message>? cast (string device_id, string host, int port, string url) { return null; }
+    public virtual Elmish.Cmd<Message>? stop_cast (string device_id, string host, int port) { return null; }
 
         public static Elmish.Cmd<Message>? chain (Elmish.Cmd<Message>? first, Elmish.Cmd<Message>? second) {
             if (first == null)

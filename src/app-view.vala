@@ -49,6 +49,13 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
     private string library_signature = "";
     private string search_signature = "";
     private string discover_signature = "";
+    private Gtk.MenuButton cast_button;
+    private Gtk.ListBox cast_device_list;
+    private Gtk.Label cast_status_label;
+    private Gtk.Button cast_launch_button;
+    private Gtk.Button cast_stop_button;
+    private Gtk.Button cast_local_button;
+    private string cast_device_signature = "";
 
     public MainView (Gtk.Application app) {
         Object (application: app);
@@ -213,6 +220,57 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
                 sort_descending_switch.active));
         });
         header.pack_end (sort_button);
+
+        cast_button = new Gtk.MenuButton () {
+            icon_name = "display-projector-symbolic",
+            tooltip_text = _("Cast to a device")
+        };
+        var cast_box = new Gtk.Box (Gtk.Orientation.VERTICAL, 6) {
+            margin_top = 8,
+            margin_bottom = 8,
+            margin_start = 8,
+            margin_end = 8
+        };
+        var cast_discover_button = new Gtk.Button.with_label (_("Discover devices"));
+        cast_discover_button.clicked.connect (() => dispatch (new DiscoverCastDevicesMessage ()));
+        cast_box.append (cast_discover_button);
+        cast_device_list = new Gtk.ListBox () {
+            selection_mode = Gtk.SelectionMode.SINGLE
+        };
+        cast_device_list.row_selected.connect ((row) => {
+            if (row == null || app_model == null)
+                return;
+            var device = (Gradio.CastDevice) row.get_data<Gradio.CastDevice> ("device");
+            if (device != null)
+                dispatch (new SelectCastDeviceMessage (device.id, device.name,
+                    device.host, device.port));
+        });
+        cast_box.append (new Gtk.ScrolledWindow () {
+            child = cast_device_list,
+            min_content_height = 120,
+            hexpand = true
+        });
+        cast_status_label = new Gtk.Label ("") { xalign = 0, wrap = true };
+        cast_box.append (cast_status_label);
+        cast_launch_button = new Gtk.Button.with_label (_("Cast current stream"));
+        cast_launch_button.clicked.connect (() => dispatch (new CastToSelectedMessage ()));
+        cast_stop_button = new Gtk.Button.with_label (_("Stop casting"));
+        cast_stop_button.clicked.connect (() => dispatch (new StopCastMessage ()));
+        cast_local_button = new Gtk.Button.with_label (_("Play on this computer"));
+        cast_local_button.clicked.connect (() => dispatch (new PlayLocalMessage ()));
+        cast_box.append (cast_launch_button);
+        cast_box.append (cast_stop_button);
+        cast_box.append (cast_local_button);
+        var cast_popover = new Gtk.Popover () { child = cast_box };
+        cast_popover.notify["visible"].connect (() => {
+            if (!cast_popover.visible || app_model == null)
+                return;
+            if (app_model.cast_devices.length == 0 &&
+                    app_model.cast_status != CastStatus.DISCOVERING)
+                dispatch (new DiscoverCastDevicesMessage ());
+        });
+        cast_button.set_popover (cast_popover);
+        header.pack_end (cast_button);
 
         header_controls_area = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 6) {
             valign = Gtk.Align.CENTER,
@@ -874,6 +932,61 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
         });
     }
 
+    private void update_cast_ui (Gradio.AppModel model) {
+        if (cast_device_list == null)
+            return;
+        var selected_id = model.cast_device_id;
+        // rebuild rows only when the device list changed
+        var signature = "%u:%s".printf (model.cast_devices.length, selected_id ?? "");
+        if (signature != cast_device_signature) {
+            cast_device_signature = signature;
+            while (cast_device_list.get_first_child () != null)
+                cast_device_list.remove (cast_device_list.get_first_child ());
+            foreach (var device in model.cast_devices) {
+                var row = new Gtk.ListBoxRow () { selectable = true };
+                row.set_data ("device", device);
+                row.child = new Gtk.Label (device.name) {
+                    xalign = 0,
+                    margin_top = 4,
+                    margin_bottom = 4,
+                    margin_start = 6
+                };
+                cast_device_list.append (row);
+            }
+        }
+        switch (model.cast_status) {
+            case CastStatus.IDLE:
+                cast_status_label.label = _("Not casting");
+                break;
+            case CastStatus.DISCOVERING:
+                cast_status_label.label = _("Discovering…");
+                break;
+            case CastStatus.READY:
+                cast_status_label.label = model.cast_device_name != null
+                    ? _("Ready to cast to %s").printf (model.cast_device_name)
+                    : _("Ready to cast");
+                break;
+            case CastStatus.CONNECTING:
+                cast_status_label.label = _("Connecting…");
+                break;
+            case CastStatus.PLAYING:
+                cast_status_label.label = model.cast_device_name != null
+                    ? _("Casting to %s").printf (model.cast_device_name)
+                    : _("Casting");
+                break;
+            case CastStatus.STOPPED:
+                cast_status_label.label = _("Stopped");
+                break;
+            case CastStatus.FAILED:
+                cast_status_label.label = model.cast_error;
+                break;
+        }
+        cast_launch_button.sensitive = model.playback_target == PlaybackTarget.LOCAL &&
+            model.cast_device_id != null && model.current_stream_url != "";
+        cast_stop_button.sensitive = model.playback_target == PlaybackTarget.CAST;
+        cast_local_button.sensitive = model.playback_target == PlaybackTarget.CAST;
+    }
+
     public void update (Gradio.Message msg, Gradio.AppModel model) {
         app_model = model;
 
@@ -882,6 +995,7 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
         add_button.visible = !adding;
         back_button.visible = adding;
         apply_player_placement (model.config.player_in_header);
+        update_cast_ui (model);
         if (adding) {
             title_label.label = _("Add station");
             subtitle_label.visible = false;

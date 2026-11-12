@@ -16,7 +16,8 @@ no shared git history with it; it is a deliberate rewrite.
 ## Build
 
 Requirements: `meson`, `ninja`, `vala`, `gtk4` (≥ 4.12), `libsoup-3.0`,
-`json-glib`, `gstreamer`, `gettext`, and the GStreamer plugin sets
+`json-glib`, `gstreamer`, `gettext`, `protobuf-c` (and `protoc` with the
+protobuf-c plugin at build time), and the GStreamer plugin sets
 `gst-plugins-base`, `gst-plugins-good`, `gst-plugins-bad`, `gst-plugins-ugly`,
 `gst-libav` for common stream codecs.
 
@@ -59,6 +60,8 @@ Gradio is a usable single-list radio player:
 - Import and export the station library as JSON, or export an M3U playlist
 - MPRIS 2.2 controls, media keys, and the GNOME media widget
 - GNOME Shell search over the local library
+- Google Cast audio devices on the local network: mDNS discovery, stream
+  casting, and one-output-at-a-time routing back to local playback
 - Desktop notifications for now-playing changes and playback errors
 - JSON config at `~/.config/gradio/config.json` (`XDG_CONFIG_HOME` honored);
   cache lives at `~/.cache/gradio/`
