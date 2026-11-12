@@ -329,6 +329,22 @@ Tests that need the main loop (coalescing, worker dispatch) pump it with
 - Theme handling is left entirely to GTK: `GTK_THEME` wins, then the
   `gtk-theme` (Legacy Applications) setting, then built-in Adwaita.
 
+## Threading and async IO
+
+The GTK main thread must never block on IO. `updateModel` stays pure and
+synchronous; a `Cmd.sub` starts asynchronous work and returns immediately. Long
+work runs in a subsystem owner (GIO async, a worker task, or the player
+controller thread) and reports results through `dispatch`, never by mutating the
+model or widgets from a worker.
+
+Forbidden on the main thread: blocking file IO, directory scans, `Bus.get_sync`,
+`call_*_sync`, raw socket/TLS reads or writes, `tls.close`, `Thread.usleep`, and
+`playbin.set_state` calls that can wait. Short CPU work (small JSON
+serialization, string formatting) is allowed.
+
+Two explicit exceptions are outside the interactive loop: startup config load
+before `app.run()`, and the final config flush during shutdown.
+
 ## Cast support (Google Cast v2)
 
 Casting is a routing target, not a second output: `PlaybackTarget.LOCAL|CAST`
@@ -337,8 +353,7 @@ other. The cast layer is GTK-free and lives in `src/cast/`:
 
 - `mdns.vala` — raw mDNS query/parser over `GSocket` (PTR/SRV/TXT/A), no Avahi.
 - `cast-connection.vala` — TLS to port 8009, 4-byte length-prefixed protobuf
-  frames, a blocking reader thread, and message marshalling back to the main
-  loop.
+  frames, asynchronous reads/writes, and `close_async` teardown.
 - `cast-proto.c` / `cast.proto` — protobuf wire encoding; `protoc` generates
   `cast.pb-c.c/h` at build time and `libprotobuf-c` is linked.
 - `cast-service.vala` — Cast v2 commands: mDNS discovery, LAUNCH of the

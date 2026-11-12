@@ -46,7 +46,13 @@ int main (string[] args) {
             view.present ();
 
             mpris = new Gradio.MprisServer (dispatch, app);
-            mpris.register ();
+            mpris.register_async.begin ((obj, res) => {
+                try {
+                    mpris.register_async.end (res);
+                } catch (GLib.Error e) {
+                }
+                mpris.update (current_model);
+            });
             mpris.update (current_model);
 
             return view;

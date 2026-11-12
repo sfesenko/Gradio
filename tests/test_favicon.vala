@@ -182,6 +182,74 @@ void test_clear_removes_cache () {
     remove_dir (dir);
 }
 
+void test_lookup_async_finds_cached () {
+    string dir = make_tmp_dir ();
+    var cache = new FaviconCache (dir);
+    string url = "https://example.test/async.png";
+    string? stored = cache.store (url, make_png (16, 16));
+    assert (stored != null);
+
+    var loop = new GLib.MainLoop ();
+    string? found = null;
+    cache.lookup_async (url, (path) => {
+        found = path;
+        loop.quit ();
+    });
+    loop.run ();
+
+    assert (found == stored);
+    remove_dir (dir);
+}
+
+void test_store_async_writes_and_lookup () {
+    string dir = make_tmp_dir ();
+    var cache = new FaviconCache (dir);
+    string url = "https://example.test/async-store.png";
+    var loop = new GLib.MainLoop ();
+    string? stored = null;
+    cache.store_async (url, make_png (24, 24), (path) => {
+        stored = path;
+        loop.quit ();
+    });
+    loop.run ();
+
+    assert (stored != null);
+    assert (GLib.FileUtils.test (stored, GLib.FileTest.EXISTS));
+    assert (cache.lookup (url) == stored);
+    remove_dir (dir);
+}
+
+void test_store_async_rejects_invalid () {
+    string dir = make_tmp_dir ();
+    var cache = new FaviconCache (dir);
+    var loop = new GLib.MainLoop ();
+    string? stored = "not-called";
+    uint8[] junk = { 1, 2, 3, 4 };
+    cache.store_async ("https://example.test/junk-async", junk, (path) => {
+        stored = path;
+        loop.quit ();
+    });
+    loop.run ();
+
+    assert (stored == null);
+    remove_dir (dir);
+}
+
+void test_clear_async_removes_cache () {
+    string dir = make_tmp_dir ();
+    var cache = new FaviconCache (dir);
+    assert (cache.store ("https://example.test/a.png", make_png (16, 16)) != null);
+    assert (cache.store ("https://example.test/b.png", make_png (16, 16)) != null);
+
+    var loop = new GLib.MainLoop ();
+    cache.clear_async (() => { loop.quit (); });
+    loop.run ();
+
+    assert (cache.lookup ("https://example.test/a.png") == null);
+    assert (cache.lookup ("https://example.test/b.png") == null);
+    remove_dir (dir);
+}
+
 int main (string[] args) {
     Test.init (ref args);
     Test.add_func ("/favicon/hash_is_stable", test_hash_is_stable);
@@ -199,5 +267,9 @@ int main (string[] args) {
     Test.add_func ("/favicon/cooldown_blocks_until_ttl", test_cooldown_blocks_until_ttl);
     Test.add_func ("/favicon/cooldown_clear", test_cooldown_clear);
     Test.add_func ("/favicon/clear_removes_cache", test_clear_removes_cache);
+    Test.add_func ("/favicon/lookup_async_finds_cached", test_lookup_async_finds_cached);
+    Test.add_func ("/favicon/store_async_writes_and_lookup", test_store_async_writes_and_lookup);
+    Test.add_func ("/favicon/store_async_rejects_invalid", test_store_async_rejects_invalid);
+    Test.add_func ("/favicon/clear_async_removes_cache", test_clear_async_removes_cache);
     return Test.run ();
 }

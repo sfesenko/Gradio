@@ -50,6 +50,12 @@ test_app_runtime = executable('test_app_runtime',
 )
 test('app-runtime', test_app_runtime)
 
+test_file_io = executable('test_file_io',
+  'test_file_io.vala',
+  dependencies: [test_deps, lib_core_dep],
+)
+test('file-io', test_file_io)
+
 test_favicon = executable('test_favicon',
   'test_favicon.vala',
   dependencies: [test_deps, lib_core_dep],

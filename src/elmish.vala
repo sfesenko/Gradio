@@ -15,6 +15,11 @@ namespace Elmish {
     // They are returned from updateModel and executed right after the model
     // update, receiving the same dispatch so they can send messages back
     // (async result, progress, ...).
+    //
+    // Contract: `sub` must return promptly. It may start async work, enqueue a
+    // job, or arm a timer, but it must not block on IO. Results come back
+    // through `dispatch` (directly or via the worker marshalling in
+    // ElmishProgram). Model and widget mutations stay on the main thread.
     public class Cmd<Message> {
         private Sub<Message> sub;
         private Cmd<Message>? next;

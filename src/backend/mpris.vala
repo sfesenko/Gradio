@@ -85,9 +85,9 @@ namespace Gradio {
             current_metadata = metadata_for (null, "");
         }
 
-        public bool register () {
+        public async bool register_async () {
             try {
-                connection = GLib.Bus.get_sync (GLib.BusType.SESSION);
+                connection = yield GLib.Bus.get (GLib.BusType.SESSION);
             } catch (GLib.Error e) {
                 connection = null;
                 return false;

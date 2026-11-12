@@ -13,6 +13,7 @@ namespace Gradio {
         private static int media_session_id = 0;
         private static uint next_request_id = 1;
         private static uint timeout_id = 0;
+        private static uint session_generation = 0;
         private static bool load_sent = false;
         private static bool finished = false;
 
@@ -42,8 +43,11 @@ namespace Gradio {
         public static Elmish.Cmd<Gradio.Message>? cast_cmd (string device_id, string host,
                 int port, string url) {
             return new Elmish.Cmd<Gradio.Message> ((dispatch) => {
+                clear_timeout ();
+                session_generation++;
+                var generation = session_generation;
                 finished = true;
-                close_current ();
+                close_current_async ();
                 reset_state ();
                 finished = false;
                 current_url = url;
@@ -52,21 +56,26 @@ namespace Gradio {
                 connection = device_connection;
 
                 device_connection.message_received.connect ((json) => {
-                    if (connection == device_connection)
-                        handle_message (dispatch, device_id, json);
+                    if (connection == device_connection && generation == session_generation)
+                        handle_message (dispatch, device_id, json, device_connection,
+                            generation);
                 });
                 device_connection.closed.connect (() => {
-                    if (connection != device_connection || finished)
+                    if (connection != device_connection || generation != session_generation ||
+                            finished)
                         return;
                     finished = true;
                     clear_timeout ();
                     dispatch (new CastFailedMessage (_("Device disconnected")));
                 });
 
-                device_connection.connect.begin (host, port, (obj, res) => {
+                device_connection.connect.begin (host, port, null, (obj, res) => {
+                    if (connection != device_connection || generation != session_generation)
+                        return;
                     try {
                         if (!device_connection.connect.end (res)) {
-                            fail (dispatch, device_id, _("Could not connect"));
+                            fail (dispatch, device_id, _("Could not connect"),
+                                device_connection, generation);
                             return;
                         }
                         var request_id = next_request_id++;
@@ -75,16 +84,18 @@ namespace Gradio {
                         device_connection.send_json (RECEIVER_NAMESPACE, "receiver-0",
                             launch_json (request_id));
                         timeout_id = GLib.Timeout.add_seconds (25, () => {
-                            if (!finished) {
+                            if (generation == session_generation &&
+                                    connection == device_connection && !finished) {
                                 finished = true;
                                 clear_timeout ();
-                                close_current ();
+                                close_current_async ();
                                 dispatch (new CastFailedMessage (_("Cast timed out")));
                             }
                             return false;
                         });
                     } catch (GLib.Error e) {
-                        fail (dispatch, device_id, e.message);
+                        fail (dispatch, device_id, e.message, device_connection,
+                            generation);
                     }
                 });
             });
@@ -93,29 +104,65 @@ namespace Gradio {
         public static Elmish.Cmd<Gradio.Message>? stop_cmd (string device_id, string host,
                 int port) {
             return new Elmish.Cmd<Gradio.Message> ((dispatch) => {
+                clear_timeout ();
+                session_generation++;
+                var current = connection;
+                connection = null;
                 try {
-                    if (connection != null) {
+                    if (current != null) {
                         if (session_id != "") {
                             if (media_session_id > 0)
-                                connection.send_json (MEDIA_NAMESPACE, session_id,
+                                current.send_json (MEDIA_NAMESPACE, session_id,
                                     media_stop_json (next_request_id++, session_id,
                                         media_session_id));
                             else
-                                connection.send_json (RECEIVER_NAMESPACE, "receiver-0",
+                                current.send_json (RECEIVER_NAMESPACE, "receiver-0",
                                     receiver_stop_json (next_request_id++, session_id));
                         }
+                        current.close_after_drain ();
                     }
                 } catch (GLib.Error e) {
+                    if (current != null)
+                        current.close_async.begin ();
                 }
                 finished = true;
-                close_current ();
                 reset_state ();
                 dispatch (new CastStoppedMessage ());
             });
         }
 
+        // Called from AppRuntime.shutdown. Non-blocking: queues STOP and lets
+        // the connection drain before the process exits.
+        public static void shutdown () {
+            clear_timeout ();
+            session_generation++;
+            var current = connection;
+            connection = null;
+            try {
+                if (current != null && session_id != "") {
+                    if (media_session_id > 0)
+                        current.send_json (MEDIA_NAMESPACE, session_id,
+                            media_stop_json (next_request_id++, session_id,
+                                media_session_id));
+                    else
+                        current.send_json (RECEIVER_NAMESPACE, "receiver-0",
+                            receiver_stop_json (next_request_id++, session_id));
+                }
+                if (current != null)
+                    current.close_after_drain ();
+            } catch (GLib.Error e) {
+                if (current != null)
+                    current.close_async.begin ();
+            }
+            finished = true;
+            reset_state ();
+        }
+
         private static void handle_message (Elmish.Dispatch<Gradio.Message> dispatch,
-                string device_id, string json) {
+                string device_id, string json, CastConnection session,
+                uint generation) {
+            if (connection != session || generation != session_generation)
+                return;
             var parser = new Json.Parser ();
             try {
                 parser.load_from_data (json, -1);
@@ -134,9 +181,8 @@ namespace Gradio {
 
             if (type == "PING") {
                 try {
-                    if (connection != null)
-                        connection.send_json (HEARTBEAT_NAMESPACE, "receiver-0",
-                            "{\"type\":\"PONG\"}");
+                    session.send_json (HEARTBEAT_NAMESPACE, "receiver-0",
+                        "{\"type\":\"PONG\"}");
                 } catch (GLib.Error e) {
                 }
                 return;
@@ -152,13 +198,13 @@ namespace Gradio {
                     session_id = app_session;
                     load_sent = true;
                     try {
-                        connection.send_json (CONNECTION_NAMESPACE, app_session,
+                        session.send_json (CONNECTION_NAMESPACE, app_session,
                             connect_json ());
-                        connection.send_json (MEDIA_NAMESPACE, app_session,
+                        session.send_json (MEDIA_NAMESPACE, app_session,
                             load_json (next_request_id++, app_session, current_url,
                                 current_content_type));
                     } catch (GLib.Error e) {
-                        fail (dispatch, device_id, e.message);
+                        fail (dispatch, device_id, e.message, session, generation);
                     }
                 }
                 return;
@@ -176,17 +222,19 @@ namespace Gradio {
                 return;
             }
             if (type == "LOAD_FAILED" || type == "ERROR") {
-                fail (dispatch, device_id, _("The cast device rejected the stream"));
+                fail (dispatch, device_id, _("The cast device rejected the stream"),
+                    session, generation);
             }
         }
 
         private static void fail (Elmish.Dispatch<Gradio.Message> dispatch,
-                string device_id, string message) {
-            if (finished)
+                string device_id, string message, CastConnection session,
+                uint generation) {
+            if (finished || connection != session || generation != session_generation)
                 return;
             finished = true;
             clear_timeout ();
-            close_current ();
+            close_current_async ();
             dispatch (new CastFailedMessage (message));
         }
 
@@ -197,10 +245,13 @@ namespace Gradio {
             }
         }
 
-        private static void close_current () {
+        private static void close_current_async () {
             if (connection != null) {
-                connection.close ();
+                var old = connection;
                 connection = null;
+                old.close_async.begin ((obj, res) => {
+                    old.close_async.end (res);
+                });
             }
         }
 
@@ -331,7 +382,8 @@ namespace Gradio {
         }
 
         private static string json_escape (string text) {
-            return text.replace ("\\", "\\\\").replace ("\"", "\\\"");
+            return text.replace ("\\", "\\\\").replace ("\"", "\\\"")
+                .replace ("\n", "\\n").replace ("\r", "\\r").replace ("\t", "\\t");
         }
 
         public static string content_type_for (string url) {

@@ -2,6 +2,26 @@
 
 namespace Gradio {
 
+    private enum PlayerCommandKind {
+        PLAY,
+        STOP,
+        SET_VOLUME,
+        QUIT
+    }
+
+    private class PlayerCommand : GLib.Object {
+        public PlayerCommandKind kind;
+        public string url;
+        public double volume;
+
+        public PlayerCommand (PlayerCommandKind kind, string url = "",
+                double volume = 0.0) {
+            this.kind = kind;
+            this.url = url;
+            this.volume = volume;
+        }
+    }
+
     public class Player : GLib.Object {
         public signal void state_changed (bool playing);
         public signal void metadata_changed (string title, int bitrate);
@@ -14,6 +34,12 @@ namespace Gradio {
         private uint replay_id = 0;
         private bool suppress_stop_state = false;
 
+        private Thread<bool>? worker = null;
+        private GLib.Mutex lock = GLib.Mutex ();
+        private GLib.Cond cond = GLib.Cond ();
+        private GLib.Queue<PlayerCommand> queue = new GLib.Queue<PlayerCommand> ();
+        private bool quit = false;
+
         public double volume {
             get { return _volume; }
         }
@@ -22,6 +48,10 @@ namespace Gradio {
             playbin = Gst.ElementFactory.make ("playbin", "playbin");
             var bus = playbin.get_bus ();
             bus.add_watch (GLib.Priority.DEFAULT, on_bus_message);
+            worker = new Thread<bool> ("player-control", () => {
+                worker_loop ();
+                return true;
+            });
         }
 
         public void play (RadioStation station) {
@@ -37,28 +67,83 @@ namespace Gradio {
 
             // Tear down the previous stream before switching URIs so two
             // stations never play at once.
-            suppress_stop_state = true;
-            playbin.set_state (Gst.State.NULL);
-
             current = station;
-            playbin.set ("uri", station.url);
-            if (playbin.set_state (Gst.State.PLAYING) == Gst.StateChangeReturn.FAILURE) {
-                suppress_stop_state = true;
-                playback_error (_("Could not start playback"));
-                stop ();
-                suppress_stop_state = false;
-            }
+            suppress_stop_state = true;
+            enqueue (new PlayerCommand (PlayerCommandKind.PLAY, station.url));
         }
 
         public void stop () {
             cancel_replay ();
             current = null;
-            playbin.set_state (Gst.State.NULL);
+            enqueue (new PlayerCommand (PlayerCommandKind.STOP));
         }
 
         public void set_volume (double value) {
             _volume = value.clamp (0.0, 1.0);
-            playbin.set ("volume", _volume);
+            enqueue (new PlayerCommand (PlayerCommandKind.SET_VOLUME,
+                "", _volume));
+        }
+
+        public void shutdown () {
+            lock.lock ();
+            quit = true;
+            queue.clear ();
+            queue.push_tail (new PlayerCommand (PlayerCommandKind.QUIT));
+            cond.signal ();
+            lock.unlock ();
+            if (worker != null) {
+                worker.join ();
+                worker = null;
+            }
+        }
+
+        private void worker_loop () {
+            while (true) {
+                lock.lock ();
+                while (!quit && queue.is_empty ())
+                    cond.wait (lock);
+                var command = queue.pop_head ();
+                lock.unlock ();
+                if (command != null)
+                    execute (command);
+                if (quit)
+                    break;
+            }
+        }
+
+        private void enqueue (PlayerCommand command) {
+            lock.lock ();
+            queue.push_tail (command);
+            cond.signal ();
+            lock.unlock ();
+        }
+
+        private void execute (PlayerCommand command) {
+            switch (command.kind) {
+                case PlayerCommandKind.PLAY:
+                    playbin.set_state (Gst.State.NULL);
+                    playbin.set ("uri", command.url);
+                    if (playbin.set_state (Gst.State.PLAYING) ==
+                            Gst.StateChangeReturn.FAILURE) {
+                        playbin.set_state (Gst.State.NULL);
+                        emit_error_on_main (_("Could not start playback"));
+                    }
+                    break;
+                case PlayerCommandKind.STOP:
+                case PlayerCommandKind.QUIT:
+                    playbin.set_state (Gst.State.NULL);
+                    break;
+                case PlayerCommandKind.SET_VOLUME:
+                    playbin.set ("volume", command.volume);
+                    break;
+            }
+        }
+
+        private void emit_error_on_main (string message) {
+            GLib.Idle.add (() => {
+                playback_error (message);
+                return false;
+            });
         }
 
         private void cancel_replay () {
@@ -115,7 +200,7 @@ namespace Gradio {
                 case Gst.MessageType.EOS:
                     suppress_stop_state = true;
                     playback_reconnecting (_("Reconnecting…"));
-                    playbin.set_state (Gst.State.NULL);
+                    enqueue (new PlayerCommand (PlayerCommandKind.STOP));
                     schedule_replay ();
                     break;
                 case Gst.MessageType.ELEMENT:

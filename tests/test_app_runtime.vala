@@ -169,6 +169,124 @@ void test_newer_config_is_preserved_read_only () {
     cleanup_dir (dir);
 }
 
+void test_config_store_writes_async () {
+    string dir = make_tmp_dir ();
+    string path = GLib.Path.build_filename (dir, "config.json");
+    var config = new Gradio.AppConfig (path);
+    config.volume = 0.25;
+    var store = new Gradio.ConfigStore (config);
+    var loop = new GLib.MainLoop ();
+    bool saved = false;
+    store.save_failed.connect ((message) => {
+        Test.message ("unexpected save failure: %s", message);
+        loop.quit ();
+    });
+    store.saved.connect (() => {
+        saved = true;
+        loop.quit ();
+    });
+
+    store.save ();
+    loop.run ();
+
+    assert (saved);
+    var loaded = load_config (path);
+    assert (loaded.volume == 0.25);
+    cleanup_dir (dir);
+}
+
+void test_config_store_latest_snapshot_wins () {
+    string dir = make_tmp_dir ();
+    string path = GLib.Path.build_filename (dir, "config.json");
+    var config = new Gradio.AppConfig (path);
+    config.volume = 0.1;
+    var store = new Gradio.ConfigStore (config);
+    var loop = new GLib.MainLoop ();
+    bool saw_latest = false;
+    store.save_failed.connect ((message) => {
+        Test.message ("unexpected save failure: %s", message);
+        loop.quit ();
+    });
+    store.saved.connect (() => {
+        var loaded = load_config (path);
+        if (loaded.volume == 0.9) {
+            saw_latest = true;
+            loop.quit ();
+        }
+    });
+
+    store.save ();
+    config.volume = 0.9;
+    store.save ();
+    loop.run ();
+
+    assert (saw_latest);
+    var loaded = load_config (path);
+    assert (loaded.volume == 0.9);
+    cleanup_dir (dir);
+}
+
+void test_config_store_reports_failure () {
+    string dir = make_tmp_dir ();
+    string blocker = GLib.Path.build_filename (dir, "blocker");
+    GLib.FileUtils.set_contents (blocker, "not a directory");
+    string path = GLib.Path.build_filename (blocker, "config.json");
+    var config = new Gradio.AppConfig (path);
+    var store = new Gradio.ConfigStore (config);
+    var loop = new GLib.MainLoop ();
+    bool failed = false;
+    store.save_failed.connect ((message) => {
+        failed = true;
+        loop.quit ();
+    });
+
+    store.save ();
+    loop.run ();
+
+    assert (failed);
+    cleanup_dir (dir);
+}
+
+void test_import_missing_dispatches_failure () {
+    string dir = make_tmp_dir ();
+    string path = GLib.Path.build_filename (dir, "missing.json");
+    var config = new Gradio.AppConfig (GLib.Path.build_filename (dir, "config.json"));
+    var runtime = new Gradio.AppRuntime (config);
+    Gradio.Message? last = null;
+    runtime.attach ((msg) => { last = msg; });
+    var cmd = runtime.import_stations (path);
+    assert (cmd != null);
+    Elmish.Cmd.exec<Gradio.Message> ((msg) => { last = msg; }, cmd);
+    wait_for_save ();
+
+    assert (last is Gradio.ImportFailedMessage);
+    cleanup_dir (dir);
+}
+
+void test_export_unwritable_dispatches_failure () {
+    string dir = make_tmp_dir ();
+    string blocker = GLib.Path.build_filename (dir, "blocker");
+    GLib.FileUtils.set_contents (blocker, "not a directory");
+    string path = GLib.Path.build_filename (blocker, "export.json");
+    var config = new Gradio.AppConfig (GLib.Path.build_filename (dir, "config.json"));
+    var station = new Gradio.RadioStation ();
+    station.id = "u1";
+    station.name = "Jazz FM";
+    station.url = "https://example.test/jazz";
+    config.add_station (station);
+
+    var runtime = new Gradio.AppRuntime (config);
+    Gradio.Message? last = null;
+    runtime.attach ((msg) => { last = msg; });
+    var cmd = runtime.export_stations (config.stations, path);
+    assert (cmd != null);
+    Elmish.Cmd.exec<Gradio.Message> ((msg) => { last = msg; }, cmd);
+    wait_for_save ();
+
+    assert (last is Gradio.ExportFailedMessage);
+    cleanup_dir (dir);
+}
+
 void test_export_writes_stations () {
     string dir = make_tmp_dir ();
     string path = GLib.Path.build_filename (dir, "export.json");
@@ -291,6 +409,9 @@ int main (string[] args) {
     Test.init (ref args);
 
     Test.add_func ("/app-runtime/save_schedules_write", test_save_schedules_write);
+    Test.add_func ("/app-runtime/config_store_writes_async", test_config_store_writes_async);
+    Test.add_func ("/app-runtime/config_store_latest_snapshot_wins", test_config_store_latest_snapshot_wins);
+    Test.add_func ("/app-runtime/config_store_reports_failure", test_config_store_reports_failure);
     Test.add_func ("/app-runtime/volume_schedules_save", test_volume_schedules_save);
     Test.add_func ("/app-runtime/save_failure_dispatches_error", test_save_failure_dispatches_error);
     Test.add_func ("/app-runtime/corrupt_config_survives_shutdown", test_corrupt_config_survives_shutdown);
@@ -299,6 +420,8 @@ int main (string[] args) {
     Test.add_func ("/app-runtime/export_writes_stations", test_export_writes_stations);
     Test.add_func ("/app-runtime/export_playlist_writes_m3u", test_export_playlist_writes_m3u);
     Test.add_func ("/app-runtime/import_dispatches_stations", test_import_dispatches_stations);
+    Test.add_func ("/app-runtime/import_missing_fails", test_import_missing_dispatches_failure);
+    Test.add_func ("/app-runtime/export_unwritable_fails", test_export_unwritable_dispatches_failure);
     Test.add_func ("/app-runtime/notify_without_app", test_notify_without_application_is_noop);
     Test.add_func ("/app-runtime/report_click_failure_silent", test_report_click_failure_is_silent);
     Test.add_func ("/app-runtime/background_noop", test_background_commands_without_application_are_noop);

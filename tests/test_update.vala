@@ -2206,6 +2206,7 @@ class CastRecordingCommands : Gradio.Commands {
     public int stop_calls = 0;
     public int save_calls = 0;
     public int inhibit_sleep_calls = 0;
+    public int release_sleep_calls = 0;
     public string last_cast_device = "";
     public string last_cast_host = "";
     public int last_cast_port = 0;
@@ -2252,6 +2253,11 @@ class CastRecordingCommands : Gradio.Commands {
 
     public override Elmish.Cmd<Gradio.Message>? inhibit_sleep () {
         inhibit_sleep_calls++;
+        return dummy ();
+    }
+
+    public override Elmish.Cmd<Gradio.Message>? release_sleep () {
+        release_sleep_calls++;
         return dummy ();
     }
 }
@@ -2345,6 +2351,36 @@ void test_cast_started_marks_playing () {
     assert (model.playing);
 }
 
+void test_cast_started_inhibits_sleep () {
+    var model = make_model ();
+    var commands = new CastRecordingCommands ();
+    model.cast_device_id = "id-1";
+    model.playback_target = PlaybackTarget.CAST;
+    var cmd = updateModel (new CastStartedMessage ("id-1"), model, commands);
+    assert (cmd != null);
+    assert (commands.inhibit_sleep_calls == 1);
+}
+
+void test_local_player_state_ignored_while_casting () {
+    var model = make_model ();
+    var commands = new CastRecordingCommands ();
+    model.playback_target = PlaybackTarget.CAST;
+    model.playing = true;
+    var cmd = updateModel (new PlayerStateChangedMessage (false), model, commands);
+    assert (cmd == null);
+    assert (model.playing);
+    assert (commands.release_sleep_calls == 0);
+}
+
+void test_cast_failed_releases_sleep () {
+    var model = make_model ();
+    var commands = new CastRecordingCommands ();
+    model.playback_target = PlaybackTarget.CAST;
+    var cmd = updateModel (new CastFailedMessage ("boom"), model, commands);
+    assert (cmd != null);
+    assert (commands.release_sleep_calls == 1);
+}
+
 void test_cast_failed_reverts_to_local () {
     var model = make_model ();
     var commands = new CastRecordingCommands ();
@@ -2366,6 +2402,28 @@ void test_stop_cast_returns_command () {
     assert (commands.stop_cast_calls == 1);
     assert (commands.last_cast_device == "id-1");
     assert (model.playback_target == PlaybackTarget.LOCAL);
+}
+
+void test_stop_cast_clears_playing_state () {
+    var model = make_model ();
+    var commands = new CastRecordingCommands ();
+    model.cast_device_id = "id-1";
+    model.cast_device_host = "127.0.0.1";
+    model.current_station = make_station ("u1");
+    model.playback_target = PlaybackTarget.CAST;
+    model.cast_status = CastStatus.PLAYING;
+    model.playing = true;
+    model.stream_title = "Title";
+    model.stream_bitrate = 128;
+    model.player_status = "";
+    updateModel (new StopCastMessage (), model, commands);
+    assert (model.playback_target == PlaybackTarget.LOCAL);
+    assert (!model.playing);
+    assert (model.playback_stopped);
+    assert (model.cast_status == CastStatus.STOPPED);
+    assert (model.stream_title == "");
+    assert (model.stream_bitrate == 0);
+    assert (commands.release_sleep_calls == 1);
 }
 
 void test_play_local_switches_target () {
@@ -2428,8 +2486,12 @@ void register_cast_tests () {
     Test.add_func ("/update/cast/to_selected_no_device", test_cast_to_selected_requires_device);
     Test.add_func ("/update/cast/to_selected_no_stream", test_cast_to_selected_requires_stream);
     Test.add_func ("/update/cast/started", test_cast_started_marks_playing);
+    Test.add_func ("/update/cast/started_inhibits_sleep", test_cast_started_inhibits_sleep);
+    Test.add_func ("/update/cast/local_state_ignored", test_local_player_state_ignored_while_casting);
+    Test.add_func ("/update/cast/failed_releases_sleep", test_cast_failed_releases_sleep);
     Test.add_func ("/update/cast/failed", test_cast_failed_reverts_to_local);
     Test.add_func ("/update/cast/stop", test_stop_cast_returns_command);
+    Test.add_func ("/update/cast/stop_clears_playing_state", test_stop_cast_clears_playing_state);
     Test.add_func ("/update/cast/play_local", test_play_local_switches_target);
     Test.add_func ("/update/cast/play_station_sets_url", test_play_station_sets_stream_url);
     Test.add_func ("/update/cast/play_station_cast", test_play_station_cast_target_uses_cast_command);

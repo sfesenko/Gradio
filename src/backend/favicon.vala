@@ -2,6 +2,9 @@
 
 namespace Gradio {
 
+    public delegate void FaviconPathCallback (string? path);
+    public delegate void FaviconDoneCallback ();
+
     // Disk cache for station icons. The cache itself is GTK-free: it only
     // decodes and re-encodes images with gdk-pixbuf.
     public class FaviconCache : GLib.Object {
@@ -9,6 +12,9 @@ namespace Gradio {
         public const int MAX_SIZE = 128;
 
         public string directory { get; private set; }
+
+        private GLib.HashTable<string, string> known_paths =
+            new GLib.HashTable<string, string> (str_hash, str_equal);
 
         public FaviconCache (string? directory = null) {
             if (directory != null && directory != "") {
@@ -30,10 +36,40 @@ namespace Gradio {
         }
 
         public string? lookup (string url) {
+            string? known = known_paths.lookup (url);
+            if (known != null)
+                return known;
             string path = path_for (url);
             if (GLib.FileUtils.test (path, GLib.FileTest.EXISTS))
                 return path;
             return null;
+        }
+
+        public void lookup_async (string url, owned FaviconPathCallback callback) {
+            string? known = known_paths.lookup (url);
+            if (known != null) {
+                GLib.Idle.add (() => {
+                    callback (known);
+                    return false;
+                });
+                return;
+            }
+
+            string path = path_for (url);
+            var file = GLib.File.new_for_path (path);
+            file.query_info_async.begin ("standard::type",
+                GLib.FileQueryInfoFlags.NONE, GLib.Priority.DEFAULT, null, (obj, res) => {
+                    string? found = null;
+                    try {
+                        var info = file.query_info_async.end (res);
+                        if (info.get_file_type () == GLib.FileType.REGULAR)
+                            found = path;
+                    } catch (GLib.Error e) {
+                    }
+                    if (found != null)
+                        known_paths.set (url, found);
+                    callback (found);
+                });
         }
 
         public string? store (string url, uint8[] data) {
@@ -80,6 +116,20 @@ namespace Gradio {
             return path;
         }
 
+        public void store_async (string url, uint8[] data, owned FaviconPathCallback callback) {
+            var copy = data.copy ();
+            new Thread<bool> ("favicon-store", () => {
+                string? path = store (url, copy);
+                GLib.Idle.add (() => {
+                    if (path != null)
+                        known_paths.set (url, path);
+                    callback (path);
+                    return false;
+                });
+                return true;
+            });
+        }
+
         public void clear () {
             try {
                 var dir = GLib.Dir.open (directory, 0);
@@ -89,6 +139,18 @@ namespace Gradio {
                 }
             } catch (GLib.Error e) {
             }
+        }
+
+        public void clear_async (owned FaviconDoneCallback callback) {
+            new Thread<bool> ("favicon-clear", () => {
+                clear ();
+                GLib.Idle.add (() => {
+                    known_paths.remove_all ();
+                    callback ();
+                    return false;
+                });
+                return true;
+            });
         }
     }
 

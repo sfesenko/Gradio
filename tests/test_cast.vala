@@ -35,9 +35,27 @@ void test_parse_devices_empty () {
     assert (devices.length == 0);
 }
 
+void test_load_json_escapes_control_characters () {
+    var parser = new Json.Parser ();
+    parser.load_from_data (CastService.load_json (10, "session-1",
+        "https://example.test/a\nb", "audio/mpeg"));
+    var obj = parser.get_root ().get_object ();
+    var media = obj.get_object_member ("media");
+    assert (media.get_string_member ("contentId") == "https://example.test/a\nb");
+}
+
+void test_stop_cast_dispatches_stopped () {
+    Gradio.Message? last = null;
+    var cmd = CastService.stop_cmd ("id", "127.0.0.1", 8009);
+    assert (cmd != null);
+    Elmish.Cmd.exec<Gradio.Message> ((msg) => { last = msg; }, cmd);
+    assert (last is CastStoppedMessage);
+}
+
 int main (string[] args) {
     Test.init (ref args);
     Test.add_func ("/cast/content_type_default", test_content_type_default);
+    Test.add_func ("/cast/stop_dispatches_stopped", test_stop_cast_dispatches_stopped);
     Test.add_func ("/cast/content_type_m3u8", test_content_type_m3u8);
     Test.add_func ("/cast/content_type_aac", test_content_type_aac);
     Test.add_func ("/cast/parse_devices_valid", test_parse_devices_valid);
@@ -48,6 +66,7 @@ int main (string[] args) {
     Test.add_func ("/cast/receiver_session", test_receiver_session_id);
     Test.add_func ("/cast/media_state", test_media_player_state);
     Test.add_func ("/cast/media_stop_json", test_media_stop_json);
+    Test.add_func ("/cast/load_json_escapes_control_characters", test_load_json_escapes_control_characters);
     return Test.run ();
 }
 

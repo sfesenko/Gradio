@@ -526,6 +526,14 @@ private Elmish.Cmd<Gradio.Message>? update_remove_station (Gradio.Message msg, G
         model.details_visible = false;
         model.playback_stopped = true;
         model.status_message = _("Station removed");
+        if (model.playback_target == PlaybackTarget.CAST &&
+                model.cast_device_id != null && model.cast_device_id != "") {
+            model.playback_target = PlaybackTarget.LOCAL;
+            model.cast_status = CastStatus.STOPPED;
+            return Commands.chain (commands.stop_cast (model.cast_device_id,
+                cast_host_for (model), cast_port_for (model)),
+                Commands.chain (commands.release_sleep (), commands.save_config ()));
+        }
         return Commands.chain (commands.stop (),
             Commands.chain (commands.release_sleep (), commands.save_config ()));
     }
@@ -898,6 +906,10 @@ private Elmish.Cmd<Gradio.Message>? update_player_state_changed (Gradio.Message 
     var state = msg as PlayerStateChangedMessage;
     if (state == null)
         return null;
+    // While casting, the local player is torn down asynchronously; its NULL
+    // state must not release the inhibitor acquired for the cast.
+    if (model.playback_target == PlaybackTarget.CAST)
+        return null;
     model.playing = state.playing;
     if (state.playing) {
         model.playback_stopped = false;
@@ -934,6 +946,8 @@ private Elmish.Cmd<Gradio.Message>? update_player_error (Gradio.Message msg, Gra
     var error = msg as PlayerErrorMessage;
     if (error == null)
         return null;
+    if (model.playback_target == PlaybackTarget.CAST)
+        return null;
     model.playing = false;
     model.playback_failed = true;
     model.playback_stopped = true;
@@ -953,6 +967,8 @@ private Elmish.Cmd<Gradio.Message>? update_player_error (Gradio.Message msg, Gra
 private Elmish.Cmd<Gradio.Message>? update_player_reconnecting (Gradio.Message msg, Gradio.AppModel model, Gradio.Commands commands) {
     var reconnecting = msg as PlayerReconnectingMessage;
     if (reconnecting == null)
+        return null;
+    if (model.playback_target == PlaybackTarget.CAST)
         return null;
     model.playing = false;
     model.playback_failed = false;
@@ -1187,7 +1203,7 @@ private Elmish.Cmd<Gradio.Message>? update_cast_started (Gradio.Message msg, Gra
     model.cast_status = CastStatus.PLAYING;
     model.playing = true;
     model.player_status = "";
-    return null;
+    return commands.inhibit_sleep ();
 }
 
 private Elmish.Cmd<Gradio.Message>? update_cast_stopped (Gradio.Message msg, Gradio.AppModel model, Gradio.Commands commands) {
@@ -1199,6 +1215,7 @@ private Elmish.Cmd<Gradio.Message>? update_cast_stopped (Gradio.Message msg, Gra
         model.stream_title = "";
         model.stream_bitrate = 0;
         model.player_status = "";
+        return commands.release_sleep ();
     }
     return null;
 }
@@ -1213,6 +1230,7 @@ private Elmish.Cmd<Gradio.Message>? update_cast_failed (Gradio.Message msg, Grad
         model.stream_title = "";
         model.stream_bitrate = 0;
         model.player_status = "";
+        return commands.release_sleep ();
     }
     return null;
 }
@@ -1220,6 +1238,13 @@ private Elmish.Cmd<Gradio.Message>? update_cast_failed (Gradio.Message msg, Grad
 private Elmish.Cmd<Gradio.Message>? update_stop_cast (Gradio.Message msg, Gradio.AppModel model, Gradio.Commands commands) {
     if (model.cast_device_id == null || model.cast_device_id == "")
         return null;
+    model.playing = false;
+    model.playback_stopped = true;
+    model.playback_failed = false;
+    model.stream_title = "";
+    model.stream_bitrate = 0;
+    model.player_status = "";
+    model.cast_status = CastStatus.STOPPED;
     model.playback_target = PlaybackTarget.LOCAL;
     return Commands.chain (commands.stop_cast (model.cast_device_id,
         cast_host_for (model), cast_port_for (model)), commands.release_sleep ());

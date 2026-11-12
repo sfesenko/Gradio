@@ -173,6 +173,18 @@ namespace Gradio {
             string dir = GLib.Path.get_dirname (path);
             GLib.DirUtils.create_with_parents (dir, 0755);
 
+            string data = to_json ();
+            string tmp = path + ".tmp";
+            GLib.FileUtils.set_contents (tmp, data);
+            if (GLib.FileUtils.rename (tmp, path) != 0) {
+                GLib.FileUtils.remove (tmp);
+                throw new GLib.FileError.FAILED ("could not replace config file");
+            }
+        }
+
+        // Serialization only. The UI path uses ConfigStore to write it without
+        // blocking; save() is the synchronous startup/shutdown/test path.
+        public string to_json () throws GLib.Error {
             var root = new Json.Object ();
             root.set_int_member ("version", FORMAT_VERSION);
 
@@ -218,14 +230,7 @@ namespace Gradio {
             generator.set_root (node);
             generator.set_pretty (true);
             size_t length;
-            string data = generator.to_data (out length);
-
-            string tmp = path + ".tmp";
-            GLib.FileUtils.set_contents (tmp, data);
-            if (GLib.FileUtils.rename (tmp, path) != 0) {
-                GLib.FileUtils.remove (tmp);
-                throw new GLib.FileError.FAILED ("could not replace config file");
-            }
+            return generator.to_data (out length);
         }
 
         public bool add_station (RadioStation station) {
