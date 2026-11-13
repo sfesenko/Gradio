@@ -203,6 +203,24 @@ void test_defaults () {
     assert (model.search_results.length == 0);
 }
 
+void test_cast_mode_restores_cast_target () {
+    var config = new AppConfig ("/tmp/gradio-test-config.json");
+    config.cast_mode = true;
+    config.cast_device_id = "id-1";
+    config.cast_device_name = "Kitchen";
+    var model = new AppModel (config);
+    assert (model.playback_target == PlaybackTarget.CAST);
+    assert (model.cast_status == CastStatus.READY);
+}
+
+void test_cast_mode_without_device_falls_back_local () {
+    var config = new AppConfig ("/tmp/gradio-test-config.json");
+    config.cast_mode = true;
+    var model = new AppModel (config);
+    assert (model.playback_target == PlaybackTarget.LOCAL);
+    assert (config.cast_mode == false);
+}
+
 void test_set_view () {
     var model = make_model ();
     var commands = new RecordingCommands ();
@@ -2080,6 +2098,8 @@ int main (string[] args) {
     Test.add_func ("/update/window_raised_and_setting", test_window_raised_and_setting);
     Test.add_func ("/update/stop_hidden_vs_visible", test_stop_hidden_vs_visible);
     Test.add_func ("/update/defaults", test_defaults);
+    Test.add_func ("/update/cast_mode_restores_target", test_cast_mode_restores_cast_target);
+    Test.add_func ("/update/cast_mode_without_device", test_cast_mode_without_device_falls_back_local);
     Test.add_func ("/update/set_view", test_set_view);
     Test.add_func ("/update/search_requested_empty", test_search_requested_empty);
     Test.add_func ("/update/search_requested_blank_with_filter", test_search_requested_blank_with_filter_browses);
@@ -2328,6 +2348,8 @@ void test_cast_to_selected_starts_command () {
     assert (commands.last_cast_url == "https://example.test/stream");
     assert (model.playback_target == PlaybackTarget.CAST);
     assert (model.cast_status == CastStatus.CONNECTING);
+    assert (model.config.cast_mode);
+    assert (commands.save_calls >= 1);
     assert (commands.inhibit_sleep_calls == 1);
 }
 
@@ -2392,15 +2414,84 @@ void test_cast_failed_releases_sleep () {
     assert (commands.release_sleep_calls == 1);
 }
 
-void test_cast_failed_reverts_to_local () {
+void test_cast_failed_keeps_cast_target () {
     var model = make_model ();
     var commands = new CastRecordingCommands ();
     model.playback_target = PlaybackTarget.CAST;
+    model.cast_device_id = "id-1";
     updateModel (new CastFailedMessage ("boom"), model, commands);
     assert (model.cast_status == CastStatus.FAILED);
     assert (model.cast_error == "boom");
-    assert (model.playback_target == PlaybackTarget.LOCAL);
+    assert (model.playback_target == PlaybackTarget.CAST);
     assert (!model.playing);
+    assert (commands.release_sleep_calls == 1);
+}
+
+void test_cast_failed_autoresume_discovers () {
+    var model = make_model ();
+    var commands = new CastRecordingCommands ();
+    model.playback_target = PlaybackTarget.CAST;
+    model.cast_device_id = "id-1";
+    model.cast_resume_pending = true;
+    var cmd = updateModel (new CastFailedMessage ("boom"), model, commands);
+    assert (cmd != null);
+    assert (commands.discover_cast_calls == 1);
+    assert (model.cast_retry_on_discovery);
+    assert (!model.cast_resume_pending);
+    assert (model.cast_status == CastStatus.DISCOVERING);
+    assert (model.playback_target == PlaybackTarget.CAST);
+}
+
+void test_cast_devices_discovered_retries_cast () {
+    var model = make_model ();
+    var commands = new CastRecordingCommands ();
+    model.playback_target = PlaybackTarget.CAST;
+    model.cast_device_id = "id-1";
+    model.cast_device_host = "old-host";
+    model.current_stream_url = "https://example.test/stream";
+    model.cast_retry_on_discovery = true;
+    var devices = new CastDevice[] { make_cast_device ("id-1", "Kitchen") };
+    var cmd = updateModel (new CastDevicesDiscoveredMessage (devices), model, commands);
+    assert (cmd != null);
+    assert (!model.cast_retry_on_discovery);
+    assert (commands.cast_calls == 1);
+    assert (commands.last_cast_host == "127.0.0.1");
+    assert (model.cast_device_host == "127.0.0.1");
+    assert (model.config.cast_host == "127.0.0.1");
+    assert (model.cast_status == CastStatus.CONNECTING);
+    assert (commands.save_calls >= 1);
+}
+
+void test_cast_devices_discovered_not_found_stops () {
+    var model = make_model ();
+    var commands = new CastRecordingCommands ();
+    model.playback_target = PlaybackTarget.CAST;
+    model.cast_device_id = "id-1";
+    model.cast_retry_on_discovery = true;
+    var devices = new CastDevice[] {};
+    updateModel (new CastDevicesDiscoveredMessage (devices), model, commands);
+    assert (!model.cast_retry_on_discovery);
+    assert (model.cast_status == CastStatus.FAILED);
+    assert (!model.playing);
+    assert (model.playback_target == PlaybackTarget.CAST);
+    assert (commands.cast_calls == 0);
+    assert (commands.release_sleep_calls == 1);
+}
+
+void test_restore_last_station_sets_cast_resume_pending () {
+    var model = make_model ();
+    var commands = new CastRecordingCommands ();
+    var station = make_station ("u1");
+    model.config.add_station (station);
+    model.config.last_station_id = "u1";
+    model.config.resume_playback = true;
+    model.config.cast_mode = true;
+    model.playback_target = PlaybackTarget.CAST;
+    model.cast_device_id = "id-1";
+    model.cast_device_host = "127.0.0.1";
+    updateModel (new RestoreLastStationMessage (), model, commands);
+    assert (model.cast_resume_pending);
+    assert (commands.cast_calls == 1);
 }
 
 void test_stop_cast_returns_command () {
@@ -2408,11 +2499,14 @@ void test_stop_cast_returns_command () {
     var commands = new CastRecordingCommands ();
     model.cast_device_id = "id-1";
     model.cast_device_host = "127.0.0.1";
+    model.config.cast_mode = true;
     var cmd = updateModel (new StopCastMessage (), model, commands);
     assert (cmd != null);
     assert (commands.stop_cast_calls == 1);
     assert (commands.last_cast_device == "id-1");
     assert (model.playback_target == PlaybackTarget.LOCAL);
+    assert (!model.config.cast_mode);
+    assert (commands.save_calls >= 1);
 }
 
 void test_stop_cast_clears_playing_state () {
@@ -2444,12 +2538,15 @@ void test_play_local_switches_target () {
     model.cast_device_id = "id-1";
     model.cast_device_host = "127.0.0.1";
     model.current_station = make_station ("u1");
+    model.config.cast_mode = true;
     var cmd = updateModel (new PlayLocalMessage (), model, commands);
     assert (cmd != null);
     assert (model.playback_target == PlaybackTarget.LOCAL);
     assert (model.cast_status == CastStatus.IDLE);
+    assert (!model.config.cast_mode);
     assert (commands.stop_cast_calls == 1);
     assert (commands.play_calls == 1);
+    assert (commands.save_calls >= 1);
 }
 
 void test_play_station_sets_stream_url () {
@@ -2480,12 +2577,58 @@ void test_stop_playback_cast_target_stops_cast () {
     model.cast_device_id = "id-1";
     model.cast_device_host = "127.0.0.1";
     model.playing = true;
+    model.config.cast_mode = true;
     var cmd = updateModel (new StopPlaybackMessage (), model, commands);
     assert (cmd != null);
     assert (commands.stop_cast_calls == 1);
     assert (commands.stop_calls == 0);
     assert (!model.playing);
-    assert (model.playback_target == PlaybackTarget.LOCAL);
+    assert (model.playback_target == PlaybackTarget.CAST);
+    assert (model.config.cast_mode);
+}
+
+void test_cast_stopped_keeps_cast_target () {
+    var model = make_model ();
+    var commands = new CastRecordingCommands ();
+    model.playback_target = PlaybackTarget.CAST;
+    model.cast_device_id = "id-1";
+    model.playing = true;
+    model.config.cast_mode = true;
+    updateModel (new CastStoppedMessage (), model, commands);
+    assert (model.cast_status == CastStatus.STOPPED);
+    assert (model.playback_target == PlaybackTarget.CAST);
+    assert (!model.playing);
+    assert (model.config.cast_mode);
+}
+
+void test_cast_stopped_then_toggle_recasts () {
+    var model = make_model ();
+    var commands = new CastRecordingCommands ();
+    model.playback_target = PlaybackTarget.CAST;
+    model.cast_device_id = "id-1";
+    model.cast_device_host = "127.0.0.1";
+    model.current_stream_url = "https://example.test/stream";
+    updateModel (new CastStoppedMessage (), model, commands);
+    updateModel (new TogglePlayMessage (), model, commands);
+    assert (commands.cast_calls == 1);
+    assert (model.playback_target == PlaybackTarget.CAST);
+    assert (model.cast_status == CastStatus.CONNECTING);
+}
+
+void test_stop_playback_then_play_recasts () {
+    var model = make_model ();
+    var commands = new CastRecordingCommands ();
+    model.playback_target = PlaybackTarget.CAST;
+    model.cast_device_id = "id-1";
+    model.cast_device_host = "127.0.0.1";
+    model.current_stream_url = "https://example.test/stream";
+    model.playing = true;
+    updateModel (new StopPlaybackMessage (), model, commands);
+    updateModel (new CastStoppedMessage (), model, commands);
+    assert (model.playback_target == PlaybackTarget.CAST);
+    updateModel (new TogglePlayMessage (), model, commands);
+    assert (commands.cast_calls == 1);
+    assert (model.playback_target == PlaybackTarget.CAST);
 }
 
 void test_set_cast_loss_action_saves_config () {
@@ -2509,7 +2652,7 @@ void test_cast_lost_wait_stops_playback () {
     var cmd = updateModel (new CastLostMessage ("id-1", "lost"), model, commands);
     assert (cmd != null);
     assert (model.cast_status == CastStatus.LOST);
-    assert (model.playback_target == PlaybackTarget.LOCAL);
+    assert (model.playback_target == PlaybackTarget.CAST);
     assert (!model.playing);
     assert (model.playback_stopped);
     assert (commands.play_calls == 0);
@@ -2526,9 +2669,11 @@ void test_cast_lost_play_local_resumes_here () {
     model.cast_status = CastStatus.PLAYING;
     model.playing = true;
     model.config.cast_loss_action = CastLossAction.PLAY_LOCAL;
+    model.config.cast_mode = true;
     updateModel (new CastLostMessage ("id-1", "lost"), model, commands);
     assert (model.cast_status == CastStatus.LOST);
     assert (model.playback_target == PlaybackTarget.LOCAL);
+    assert (!model.config.cast_mode);
     assert (model.playing);
     assert (!model.playback_stopped);
     assert (commands.play_calls == 1);
@@ -2635,7 +2780,14 @@ void register_cast_tests () {
     Test.add_func ("/update/cast/started_inhibits_sleep", test_cast_started_inhibits_sleep);
     Test.add_func ("/update/cast/local_state_ignored", test_local_player_state_ignored_while_casting);
     Test.add_func ("/update/cast/failed_releases_sleep", test_cast_failed_releases_sleep);
-    Test.add_func ("/update/cast/failed", test_cast_failed_reverts_to_local);
+    Test.add_func ("/update/cast/failed", test_cast_failed_keeps_cast_target);
+    Test.add_func ("/update/cast/failed_autoresume_discovers", test_cast_failed_autoresume_discovers);
+    Test.add_func ("/update/cast/rediscovered_retries", test_cast_devices_discovered_retries_cast);
+    Test.add_func ("/update/cast/rediscovered_not_found", test_cast_devices_discovered_not_found_stops);
+    Test.add_func ("/update/cast/restore_sets_resume_pending", test_restore_last_station_sets_cast_resume_pending);
+    Test.add_func ("/update/cast/stopped_keeps_target", test_cast_stopped_keeps_cast_target);
+    Test.add_func ("/update/cast/stopped_then_toggle", test_cast_stopped_then_toggle_recasts);
+    Test.add_func ("/update/cast/stop_playback_then_play", test_stop_playback_then_play_recasts);
     Test.add_func ("/update/cast/stop", test_stop_cast_returns_command);
     Test.add_func ("/update/cast/stop_clears_playing_state", test_stop_cast_clears_playing_state);
     Test.add_func ("/update/cast/play_local", test_play_local_switches_target);

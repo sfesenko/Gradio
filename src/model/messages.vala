@@ -760,6 +760,8 @@ public class Gradio.AppModel {
     public CastDevice[] cast_devices = {};
     public string cast_error = "";
     public string current_stream_url = "";
+    public bool cast_resume_pending = false;
+    public bool cast_retry_on_discovery = false;
 
     public AppModel (AppConfig config) {
         this.config = config;
@@ -769,6 +771,12 @@ public class Gradio.AppModel {
             ? config.cast_device_name : null;
         this.cast_device_host = config.cast_host;
         this.cast_port = config.cast_port;
+        if (config.cast_mode && this.cast_device_id != null) {
+            this.playback_target = PlaybackTarget.CAST;
+            this.cast_status = CastStatus.READY;
+        } else {
+            config.cast_mode = false;
+        }
         ensure_library_order ();
     }
 

@@ -34,6 +34,7 @@ namespace Gradio {
         public string cast_host = "";
         public int cast_port = 8009;
         public CastLossAction cast_loss_action = CastLossAction.WAIT;
+        public bool cast_mode = false;
         public SearchSortMode search_sort = SearchSortMode.RELEVANCE;
         public LibrarySortMode library_sort = LibrarySortMode.CUSTOM;
         public bool library_sort_descending = false;
@@ -153,6 +154,8 @@ namespace Gradio {
                 config.cast_loss_action = cast_loss_action_from_string (
                     settings.get_string_member_with_default ("cast_loss_action",
                         cast_loss_action_to_string (config.cast_loss_action)));
+                config.cast_mode = settings.get_boolean_member_with_default (
+                    "cast_mode", config.cast_mode);
                 config.search_sort = StationSort.search_from_string (
                     settings.get_string_member_with_default ("search_sort",
                         StationSort.search_to_string (config.search_sort)));
@@ -229,6 +232,7 @@ namespace Gradio {
             settings.set_int_member ("cast_port", cast_port);
             settings.set_string_member ("cast_loss_action",
                 cast_loss_action_to_string (cast_loss_action));
+            settings.set_boolean_member ("cast_mode", cast_mode);
             settings.set_string_member ("search_sort", StationSort.search_to_string (search_sort));
             settings.set_string_member ("library_sort",
                 StationSort.library_sort_to_string (library_sort));

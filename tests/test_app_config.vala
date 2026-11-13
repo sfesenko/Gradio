@@ -440,6 +440,23 @@ void test_cast_loss_action_invalid_string_defaults_to_wait () {
     cleanup (dir);
 }
 
+void test_cast_mode_round_trip () {
+    string dir = make_tmp_dir ();
+    string path = GLib.Path.build_filename (dir, "config.json");
+    var config = new Gradio.AppConfig (path);
+    config.cast_mode = true;
+    save_config (config);
+    assert (load_config (path).cast_mode == true);
+    cleanup (dir);
+}
+
+void test_cast_mode_defaults_off () {
+    string dir = make_tmp_dir ();
+    var config = load_config (GLib.Path.build_filename (dir, "missing.json"));
+    assert (config.cast_mode == false);
+    cleanup (dir);
+}
+
 int main (string[] args) {
     Test.init (ref args);
 
@@ -475,6 +492,8 @@ int main (string[] args) {
     Test.add_func ("/app-config/cast_loss_action_round_trip", test_cast_loss_action_round_trip);
     Test.add_func ("/app-config/cast_loss_action_defaults_to_wait", test_cast_loss_action_defaults_to_wait);
     Test.add_func ("/app-config/cast_loss_action_invalid_string_defaults_to_wait", test_cast_loss_action_invalid_string_defaults_to_wait);
+    Test.add_func ("/app-config/cast_mode_round_trip", test_cast_mode_round_trip);
+    Test.add_func ("/app-config/cast_mode_defaults_off", test_cast_mode_defaults_off);
 
     return Test.run ();
 }
