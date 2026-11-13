@@ -17,8 +17,15 @@ public enum Gradio.CastStatus {
     READY,
     CONNECTING,
     PLAYING,
+    PAUSED,
     STOPPED,
-    FAILED
+    FAILED,
+    LOST
+}
+
+public enum Gradio.CastLossAction {
+    WAIT,
+    PLAY_LOCAL
 }
 
 public enum Gradio.PlaybackTarget {
@@ -109,8 +116,11 @@ public enum Gradio.MessageKind {
     CAST_STARTED,
     CAST_STOPPED,
     CAST_FAILED,
+    CAST_LOST,
+    CAST_PAUSED,
     STOP_CAST,
-    PLAY_LOCAL
+    PLAY_LOCAL,
+    SET_CAST_LOSS_ACTION
 }
 
 public abstract class Gradio.Message {
@@ -565,6 +575,14 @@ public class Gradio.SetNotificationsMessage : Gradio.Message {
     public override MessageKind kind { get { return MessageKind.SET_NOTIFICATIONS; } }
 }
 
+public class Gradio.SetCastLossActionMessage : Gradio.Message {
+    public CastLossAction action;
+
+    public SetCastLossActionMessage (CastLossAction action) { this.action = action; }
+
+    public override MessageKind kind { get { return MessageKind.SET_CAST_LOSS_ACTION; } }
+}
+
 public class Gradio.SetShowStatusBarMessage : Gradio.Message {
     public bool enabled;
 
@@ -640,6 +658,26 @@ public class Gradio.CastFailedMessage : Gradio.Message {
     public CastFailedMessage (string error) { this.error = error; }
 
     public override MessageKind kind { get { return MessageKind.CAST_FAILED; } }
+}
+
+public class Gradio.CastLostMessage : Gradio.Message {
+    public string device_id;
+    public string error;
+
+    public CastLostMessage (string device_id, string error) {
+        this.device_id = device_id;
+        this.error = error;
+    }
+
+    public override MessageKind kind { get { return MessageKind.CAST_LOST; } }
+}
+
+public class Gradio.CastPausedMessage : Gradio.Message {
+    public string device_id;
+
+    public CastPausedMessage (string device_id) { this.device_id = device_id; }
+
+    public override MessageKind kind { get { return MessageKind.CAST_PAUSED; } }
 }
 
 public class Gradio.StopCastMessage : Gradio.Message {

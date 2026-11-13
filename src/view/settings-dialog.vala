@@ -57,6 +57,18 @@ namespace Gradio {
             });
             list.append (build_row (_("Show notifications"), notifications_toggle));
 
+            var cast_loss_dropdown = new Gtk.DropDown.from_strings ({
+                _("Stop playback"), _("Play on this computer")
+            });
+            cast_loss_dropdown.selected =
+                model.config.cast_loss_action == CastLossAction.PLAY_LOCAL ? 1 : 0;
+            cast_loss_dropdown.notify["selected"].connect (() => {
+                dispatch (new SetCastLossActionMessage (
+                    cast_loss_dropdown.selected == 1
+                        ? CastLossAction.PLAY_LOCAL : CastLossAction.WAIT));
+            });
+            list.append (build_row (_("When a cast is lost"), cast_loss_dropdown));
+
             var status_bar_toggle = new Gtk.Switch () {
                 active = model.config.show_status_bar,
                 valign = Gtk.Align.CENTER

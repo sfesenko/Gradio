@@ -33,6 +33,7 @@ namespace Gradio {
         public string cast_device_name = "";
         public string cast_host = "";
         public int cast_port = 8009;
+        public CastLossAction cast_loss_action = CastLossAction.WAIT;
         public SearchSortMode search_sort = SearchSortMode.RELEVANCE;
         public LibrarySortMode library_sort = LibrarySortMode.CUSTOM;
         public bool library_sort_descending = false;
@@ -54,6 +55,24 @@ namespace Gradio {
                     return size;
                 default:
                     return DEFAULT_ICON_SIZE;
+            }
+        }
+
+        public static string cast_loss_action_to_string (CastLossAction action) {
+            switch (action) {
+                case CastLossAction.PLAY_LOCAL:
+                    return "play_local";
+                default:
+                    return "wait";
+            }
+        }
+
+        public static CastLossAction cast_loss_action_from_string (string value) {
+            switch (value) {
+                case "play_local":
+                    return CastLossAction.PLAY_LOCAL;
+                default:
+                    return CastLossAction.WAIT;
             }
         }
 
@@ -131,6 +150,9 @@ namespace Gradio {
                     "cast_port", config.cast_port);
                 if (config.cast_port <= 0 || config.cast_port > 65535)
                     config.cast_port = 8009;
+                config.cast_loss_action = cast_loss_action_from_string (
+                    settings.get_string_member_with_default ("cast_loss_action",
+                        cast_loss_action_to_string (config.cast_loss_action)));
                 config.search_sort = StationSort.search_from_string (
                     settings.get_string_member_with_default ("search_sort",
                         StationSort.search_to_string (config.search_sort)));
@@ -205,6 +227,8 @@ namespace Gradio {
             settings.set_string_member ("cast_device_name", cast_device_name);
             settings.set_string_member ("cast_host", cast_host);
             settings.set_int_member ("cast_port", cast_port);
+            settings.set_string_member ("cast_loss_action",
+                cast_loss_action_to_string (cast_loss_action));
             settings.set_string_member ("search_sort", StationSort.search_to_string (search_sort));
             settings.set_string_member ("library_sort",
                 StationSort.library_sort_to_string (library_sort));

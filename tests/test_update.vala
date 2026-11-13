@@ -2488,7 +2488,127 @@ void test_stop_playback_cast_target_stops_cast () {
     assert (model.playback_target == PlaybackTarget.LOCAL);
 }
 
+void test_set_cast_loss_action_saves_config () {
+    var model = make_model ();
+    var commands = new CastRecordingCommands ();
+    updateModel (new SetCastLossActionMessage (CastLossAction.PLAY_LOCAL),
+        model, commands);
+    assert (model.config.cast_loss_action == CastLossAction.PLAY_LOCAL);
+    assert (commands.save_calls == 1);
+}
+
+void test_cast_lost_wait_stops_playback () {
+    var model = make_model ();
+    var commands = new CastRecordingCommands ();
+    model.current_station = make_station ("u1");
+    model.current_stream_url = "https://example.test/u1";
+    model.cast_device_id = "id-1";
+    model.playback_target = PlaybackTarget.CAST;
+    model.cast_status = CastStatus.PLAYING;
+    model.playing = true;
+    var cmd = updateModel (new CastLostMessage ("id-1", "lost"), model, commands);
+    assert (cmd != null);
+    assert (model.cast_status == CastStatus.LOST);
+    assert (model.playback_target == PlaybackTarget.LOCAL);
+    assert (!model.playing);
+    assert (model.playback_stopped);
+    assert (commands.play_calls == 0);
+    assert (commands.release_sleep_calls == 1);
+}
+
+void test_cast_lost_play_local_resumes_here () {
+    var model = make_model ();
+    var commands = new CastRecordingCommands ();
+    model.current_station = make_station ("u1");
+    model.current_stream_url = "https://example.test/u1";
+    model.cast_device_id = "id-1";
+    model.playback_target = PlaybackTarget.CAST;
+    model.cast_status = CastStatus.PLAYING;
+    model.playing = true;
+    model.config.cast_loss_action = CastLossAction.PLAY_LOCAL;
+    updateModel (new CastLostMessage ("id-1", "lost"), model, commands);
+    assert (model.cast_status == CastStatus.LOST);
+    assert (model.playback_target == PlaybackTarget.LOCAL);
+    assert (model.playing);
+    assert (!model.playback_stopped);
+    assert (commands.play_calls == 1);
+    assert (commands.release_sleep_calls == 0);
+}
+
+void test_cast_lost_play_local_without_station_stops () {
+    var model = make_model ();
+    var commands = new CastRecordingCommands ();
+    model.cast_device_id = "id-1";
+    model.playback_target = PlaybackTarget.CAST;
+    model.cast_status = CastStatus.PLAYING;
+    model.playing = true;
+    model.config.cast_loss_action = CastLossAction.PLAY_LOCAL;
+    updateModel (new CastLostMessage ("id-1", "lost"), model, commands);
+    assert (!model.playing);
+    assert (model.playback_stopped);
+    assert (commands.play_calls == 0);
+    assert (commands.release_sleep_calls == 1);
+}
+
+void test_cast_paused_marks_paused () {
+    var model = make_model ();
+    var commands = new CastRecordingCommands ();
+    model.cast_device_id = "id-1";
+    model.playback_target = PlaybackTarget.CAST;
+    model.cast_status = CastStatus.PLAYING;
+    model.playing = true;
+    updateModel (new CastPausedMessage ("id-1"), model, commands);
+    assert (model.cast_status == CastStatus.PAUSED);
+    assert (!model.playing);
+    assert (!model.playback_stopped);
+    assert (commands.release_sleep_calls == 1);
+}
+
+void test_cast_paused_ignores_other_device () {
+    var model = make_model ();
+    var commands = new CastRecordingCommands ();
+    model.cast_device_id = "id-1";
+    model.playback_target = PlaybackTarget.CAST;
+    model.cast_status = CastStatus.PLAYING;
+    model.playing = true;
+    updateModel (new CastPausedMessage ("id-2"), model, commands);
+    assert (model.cast_status == CastStatus.PLAYING);
+    assert (model.playing);
+    assert (commands.release_sleep_calls == 0);
+}
+
+void test_cast_lost_ignores_other_device () {
+    var model = make_model ();
+    var commands = new CastRecordingCommands ();
+    model.current_station = make_station ("u1");
+    model.cast_device_id = "id-1";
+    model.playback_target = PlaybackTarget.CAST;
+    model.cast_status = CastStatus.PLAYING;
+    model.playing = true;
+    updateModel (new CastLostMessage ("id-2", "lost"), model, commands);
+    assert (model.cast_status == CastStatus.PLAYING);
+    assert (model.playing);
+    assert (commands.release_sleep_calls == 0);
+}
+
+void test_cast_devices_discovered_preserves_paused () {
+    var model = make_model ();
+    var commands = new CastRecordingCommands ();
+    var devices = new CastDevice[] { make_cast_device ("id-1", "Kitchen") };
+    model.cast_status = CastStatus.PAUSED;
+    updateModel (new CastDevicesDiscoveredMessage (devices), model, commands);
+    assert (model.cast_status == CastStatus.PAUSED);
+}
+
 void register_cast_tests () {
+    Test.add_func ("/update/cast/set_loss_action", test_set_cast_loss_action_saves_config);
+    Test.add_func ("/update/cast/lost_wait", test_cast_lost_wait_stops_playback);
+    Test.add_func ("/update/cast/lost_play_local", test_cast_lost_play_local_resumes_here);
+    Test.add_func ("/update/cast/lost_play_local_without_station", test_cast_lost_play_local_without_station_stops);
+    Test.add_func ("/update/cast/paused", test_cast_paused_marks_paused);
+    Test.add_func ("/update/cast/paused_ignores_other_device", test_cast_paused_ignores_other_device);
+    Test.add_func ("/update/cast/lost_ignores_other_device", test_cast_lost_ignores_other_device);
+    Test.add_func ("/update/cast/discovered_preserves_paused", test_cast_devices_discovered_preserves_paused);
     Test.add_func ("/update/cast/discover", test_cast_discover_starts_command);
     Test.add_func ("/update/cast/discovered", test_cast_devices_discovered);
     Test.add_func ("/update/cast/discovered_preserves_playing", test_cast_devices_discovered_preserves_playing);
