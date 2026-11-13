@@ -227,6 +227,8 @@ private Elmish.Cmd<Gradio.Message>? update_model (Gradio.Message msg, Gradio.App
             return update_cast_lost (msg, model, commands);
         case MessageKind.CAST_PAUSED:
             return update_cast_paused (msg, model, commands);
+        case MessageKind.CAST_BUFFERING:
+            return update_cast_buffering (msg, model, commands);
         case MessageKind.STOP_CAST:
             return update_stop_cast (msg, model, commands);
         case MessageKind.PLAY_LOCAL:
@@ -1147,6 +1149,7 @@ private Elmish.Cmd<Gradio.Message>? update_cast_devices_discovered (Gradio.Messa
         return null;
     model.cast_devices = discovered.devices;
     if (model.cast_status != CastStatus.PLAYING &&
+            model.cast_status != CastStatus.BUFFERING &&
             model.cast_status != CastStatus.CONNECTING &&
             model.cast_status != CastStatus.PAUSED &&
             model.cast_status != CastStatus.LOST) {
@@ -1287,6 +1290,18 @@ private Elmish.Cmd<Gradio.Message>? update_cast_paused (Gradio.Message msg, Grad
     model.playback_stopped = false;
     model.player_status = _("Paused on cast device");
     return commands.release_sleep ();
+}
+
+private Elmish.Cmd<Gradio.Message>? update_cast_buffering (Gradio.Message msg, Gradio.AppModel model, Gradio.Commands commands) {
+    var buffering = msg as CastBufferingMessage;
+    if (buffering == null || model.playback_target != PlaybackTarget.CAST ||
+            buffering.device_id != model.cast_device_id)
+        return null;
+    model.cast_status = CastStatus.BUFFERING;
+    model.playing = true;
+    model.playback_stopped = false;
+    model.player_status = _("Buffering…");
+    return null;
 }
 
 private Elmish.Cmd<Gradio.Message>? update_stop_cast (Gradio.Message msg, Gradio.AppModel model, Gradio.Commands commands) {

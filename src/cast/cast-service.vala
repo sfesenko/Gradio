@@ -1,21 +1,37 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 namespace Gradio {
+    public enum CastPlayerTransition {
+        NONE,
+        STARTED,
+        BUFFERING,
+        PAUSED,
+        LOST
+    }
+
     public class CastService : GLib.Object {
         private const string CONNECTION_NAMESPACE = "urn:x-cast:com.google.cast.tp.connection";
         private const string RECEIVER_NAMESPACE = "urn:x-cast:com.google.cast.receiver";
         private const string MEDIA_NAMESPACE = "urn:x-cast:com.google.cast.media";
         private const string HEARTBEAT_NAMESPACE = "urn:x-cast:com.google.cast.heartbeat";
         private const string MEDIA_RECEIVER_APP = "CC1AD845";
+        private const int LIVENESS_INTERVAL_SECONDS = 10;
+        public const int LIVENESS_TIMEOUT_SECONDS = 30;
+        public const int64 LIVENESS_TIMEOUT_US = 30000000L;
 
         private static CastConnection? connection = null;
         private static string session_id = "";
         private static int media_session_id = 0;
         private static uint next_request_id = 1;
         private static uint timeout_id = 0;
+        private static uint liveness_timeout_id = 0;
+        private static uint liveness_watchdog_id = 0;
+        private static int64 last_status_us = 0;
         private static uint session_generation = 0;
         private static bool load_sent = false;
         private static bool finished = false;
+        private static bool started = false;
+        private static string last_player_state = "";
 
         public static Elmish.Cmd<Gradio.Message>? discover_cmd () {
             return new Elmish.Cmd<Gradio.Message> ((dispatch) => {
@@ -44,6 +60,7 @@ namespace Gradio {
                 int port, string url) {
             return new Elmish.Cmd<Gradio.Message> ((dispatch) => {
                 clear_timeout ();
+                clear_liveness ();
                 session_generation++;
                 var generation = session_generation;
                 finished = true;
@@ -61,8 +78,14 @@ namespace Gradio {
                             generation);
                 });
                 device_connection.closed.connect (() => {
-                    if (connection != device_connection || generation != session_generation ||
-                            finished)
+                    if (connection != device_connection || generation != session_generation)
+                        return;
+                    if (started) {
+                        cast_lost (dispatch, device_id, _("Device disconnected"),
+                            device_connection, generation);
+                        return;
+                    }
+                    if (finished)
                         return;
                     finished = true;
                     clear_timeout ();
@@ -105,6 +128,7 @@ namespace Gradio {
                 int port) {
             return new Elmish.Cmd<Gradio.Message> ((dispatch) => {
                 clear_timeout ();
+                clear_liveness ();
                 session_generation++;
                 var current = connection;
                 connection = null;
@@ -135,6 +159,7 @@ namespace Gradio {
         // the connection drain before the process exits.
         public static void shutdown () {
             clear_timeout ();
+            clear_liveness ();
             session_generation++;
             var current = connection;
             connection = null;
@@ -187,6 +212,48 @@ namespace Gradio {
                 }
                 return;
             }
+            if (type == "MEDIA_STATUS") {
+                last_status_us = GLib.get_monotonic_time ();
+                var media_session = media_session_from_json (json);
+                if (media_session > 0)
+                    media_session_id = media_session;
+                bool started_now;
+                var status_message = media_status_message (json, device_id,
+                    started, ref last_player_state, out started_now);
+                if (started_now) {
+                    started = true;
+                    finished = true;
+                    clear_timeout ();
+                    if (status_message != null)
+                        dispatch (status_message);
+                    start_liveness_monitor (dispatch, device_id, session,
+                        generation);
+                    return;
+                }
+                if (status_message is CastLostMessage) {
+                    var lost = status_message as CastLostMessage;
+                    cast_lost (dispatch, device_id, lost.error, session,
+                        generation);
+                    return;
+                }
+                if (status_message != null)
+                    dispatch (status_message);
+                if (started)
+                    arm_liveness_watchdog (dispatch, device_id, session,
+                        generation);
+                return;
+            }
+            if (type == "LOAD_FAILED" || type == "ERROR") {
+                if (started)
+                    cast_lost (dispatch, device_id,
+                        _("The cast device rejected the stream"), session,
+                        generation);
+                else
+                    fail (dispatch, device_id,
+                        _("The cast device rejected the stream"), session,
+                        generation);
+                return;
+            }
             if (finished)
                 return;
             if (type == "RECEIVER_STATUS") {
@@ -209,22 +276,6 @@ namespace Gradio {
                 }
                 return;
             }
-            if (type == "MEDIA_STATUS") {
-                var state = media_state_from_json (json);
-                var media_session = media_session_from_json (json);
-                if (media_session > 0)
-                    media_session_id = media_session;
-                if (state == "PLAYING" || state == "BUFFERING") {
-                    finished = true;
-                    clear_timeout ();
-                    dispatch (new CastStartedMessage (device_id));
-                }
-                return;
-            }
-            if (type == "LOAD_FAILED" || type == "ERROR") {
-                fail (dispatch, device_id, _("The cast device rejected the stream"),
-                    session, generation);
-            }
         }
 
         private static void fail (Elmish.Dispatch<Gradio.Message> dispatch,
@@ -236,6 +287,130 @@ namespace Gradio {
             clear_timeout ();
             close_current_async ();
             dispatch (new CastFailedMessage (message));
+        }
+
+        private static void cast_lost (Elmish.Dispatch<Gradio.Message> dispatch,
+                string device_id, string message, CastConnection session,
+                uint generation) {
+            if (!should_report_lost (started, connection == session, generation,
+                    session_generation))
+                return;
+            started = false;
+            finished = true;
+            clear_timeout ();
+            clear_liveness ();
+            close_current_async ();
+            dispatch (new CastLostMessage (device_id, message));
+        }
+
+        private static void start_liveness_monitor (
+                Elmish.Dispatch<Gradio.Message> dispatch, string device_id,
+                CastConnection session, uint generation) {
+            clear_liveness ();
+            last_status_us = GLib.get_monotonic_time ();
+            arm_liveness_watchdog (dispatch, device_id, session, generation);
+            liveness_timeout_id = GLib.Timeout.add_seconds (
+                LIVENESS_INTERVAL_SECONDS, () => {
+                    if (!started || connection != session ||
+                            generation != session_generation)
+                        return false;
+                    try {
+                        if (session_id == "")
+                            throw new IOError.FAILED ("no media session");
+                        session.send_json (MEDIA_NAMESPACE, session_id,
+                            media_status_json (next_request_id++,
+                                media_session_id));
+                    } catch (GLib.Error e) {
+                        cast_lost (dispatch, device_id,
+                            _("Cast connection lost"), session, generation);
+                        return false;
+                    }
+                    return true;
+                });
+        }
+
+        private static void arm_liveness_watchdog (
+                Elmish.Dispatch<Gradio.Message> dispatch, string device_id,
+                CastConnection session, uint generation,
+                uint delay_seconds = LIVENESS_TIMEOUT_SECONDS) {
+            if (liveness_watchdog_id != 0) {
+                GLib.Source.remove (liveness_watchdog_id);
+                liveness_watchdog_id = 0;
+            }
+            liveness_watchdog_id = GLib.Timeout.add_seconds (delay_seconds, () => {
+                liveness_watchdog_id = 0;
+                if (!started || connection != session ||
+                        generation != session_generation)
+                    return false;
+                if (liveness_expired (last_status_us,
+                        GLib.get_monotonic_time (), LIVENESS_TIMEOUT_US)) {
+                    cast_lost (dispatch, device_id,
+                        _("Cast connection lost"), session, generation);
+                    return false;
+                }
+                arm_liveness_watchdog (dispatch, device_id, session,
+                    generation, 1);
+                return false;
+            });
+        }
+
+        public static Gradio.Message? media_status_message (string json,
+                string device_id, bool started, ref string last_player_state,
+                out bool started_now) {
+            var state = media_state_from_json (json);
+            var transition = player_transition (state, last_player_state);
+            started_now = !started &&
+                (transition == CastPlayerTransition.STARTED ||
+                 transition == CastPlayerTransition.BUFFERING);
+            if (!started && !started_now)
+                return null;
+            if (transition == CastPlayerTransition.LOST)
+                return new CastLostMessage (device_id,
+                    _("Cast playback stopped"));
+            if (transition == CastPlayerTransition.NONE)
+                return null;
+            last_player_state = state;
+            if (transition == CastPlayerTransition.PAUSED)
+                return new CastPausedMessage (device_id);
+            if (transition == CastPlayerTransition.BUFFERING)
+                return new CastBufferingMessage (device_id);
+            return new CastStartedMessage (device_id);
+        }
+
+        public static CastPlayerTransition player_transition (string state,
+                string previous_state) {
+            if (state == "IDLE")
+                return CastPlayerTransition.LOST;
+            if (state == previous_state)
+                return CastPlayerTransition.NONE;
+            if (state == "PAUSED")
+                return CastPlayerTransition.PAUSED;
+            if (state == "BUFFERING")
+                return CastPlayerTransition.BUFFERING;
+            if (state == "PLAYING")
+                return CastPlayerTransition.STARTED;
+            return CastPlayerTransition.NONE;
+        }
+
+        public static bool should_report_lost (bool started, bool same_session,
+                uint generation, uint current_generation) {
+            return started && same_session && generation == current_generation;
+        }
+
+        public static bool liveness_expired (int64 last_us, int64 now_us,
+                int64 timeout_us) {
+            return now_us - last_us >= timeout_us;
+        }
+
+        private static void clear_liveness () {
+            if (liveness_timeout_id != 0) {
+                GLib.Source.remove (liveness_timeout_id);
+                liveness_timeout_id = 0;
+            }
+            if (liveness_watchdog_id != 0) {
+                GLib.Source.remove (liveness_watchdog_id);
+                liveness_watchdog_id = 0;
+            }
         }
 
         private static void clear_timeout () {
@@ -256,6 +431,10 @@ namespace Gradio {
         }
 
         private static void reset_state () {
+            clear_liveness ();
+            started = false;
+            last_player_state = "";
+            last_status_us = 0;
             session_id = "";
             media_session_id = 0;
             load_sent = false;
@@ -367,6 +546,16 @@ namespace Gradio {
                 + "\"streamType\":\"LIVE\"},\"autoplay\":true,\"currentTime\":0}").printf (
                     request_id, json_escape (session), json_escape (url),
                     json_escape (content_type));
+        }
+
+        public static string media_status_json (uint request_id,
+                int media_session_id) {
+            if (media_session_id > 0)
+                return ("{\"type\":\"GET_STATUS\",\"requestId\":%u,"
+                    + "\"mediaSessionId\":%d}").printf (request_id,
+                        media_session_id);
+            return "{\"type\":\"GET_STATUS\",\"requestId\":%u}".printf (
+                request_id);
         }
 
         public static string media_stop_json (uint request_id, string session,

@@ -17,6 +17,7 @@ public enum Gradio.CastStatus {
     READY,
     CONNECTING,
     PLAYING,
+    BUFFERING,
     PAUSED,
     STOPPED,
     FAILED,
@@ -118,6 +119,7 @@ public enum Gradio.MessageKind {
     CAST_FAILED,
     CAST_LOST,
     CAST_PAUSED,
+    CAST_BUFFERING,
     STOP_CAST,
     PLAY_LOCAL,
     SET_CAST_LOSS_ACTION
@@ -678,6 +680,14 @@ public class Gradio.CastPausedMessage : Gradio.Message {
     public CastPausedMessage (string device_id) { this.device_id = device_id; }
 
     public override MessageKind kind { get { return MessageKind.CAST_PAUSED; } }
+}
+
+public class Gradio.CastBufferingMessage : Gradio.Message {
+    public string device_id;
+
+    public CastBufferingMessage (string device_id) { this.device_id = device_id; }
+
+    public override MessageKind kind { get { return MessageKind.CAST_BUFFERING; } }
 }
 
 public class Gradio.StopCastMessage : Gradio.Message {

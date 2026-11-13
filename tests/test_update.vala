@@ -2564,6 +2564,19 @@ void test_cast_paused_marks_paused () {
     assert (commands.release_sleep_calls == 1);
 }
 
+void test_cast_buffering_marks_buffering () {
+    var model = make_model ();
+    var commands = new CastRecordingCommands ();
+    model.cast_device_id = "id-1";
+    model.playback_target = PlaybackTarget.CAST;
+    model.cast_status = CastStatus.PLAYING;
+    model.playing = true;
+    updateModel (new CastBufferingMessage ("id-1"), model, commands);
+    assert (model.cast_status == CastStatus.BUFFERING);
+    assert (model.playing);
+    assert (!model.playback_stopped);
+}
+
 void test_cast_paused_ignores_other_device () {
     var model = make_model ();
     var commands = new CastRecordingCommands ();
@@ -2606,6 +2619,7 @@ void register_cast_tests () {
     Test.add_func ("/update/cast/lost_play_local", test_cast_lost_play_local_resumes_here);
     Test.add_func ("/update/cast/lost_play_local_without_station", test_cast_lost_play_local_without_station_stops);
     Test.add_func ("/update/cast/paused", test_cast_paused_marks_paused);
+    Test.add_func ("/update/cast/buffering", test_cast_buffering_marks_buffering);
     Test.add_func ("/update/cast/paused_ignores_other_device", test_cast_paused_ignores_other_device);
     Test.add_func ("/update/cast/lost_ignores_other_device", test_cast_lost_ignores_other_device);
     Test.add_func ("/update/cast/discovered_preserves_paused", test_cast_devices_discovered_preserves_paused);

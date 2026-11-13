@@ -986,6 +986,9 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
                     ? _("Casting to %s").printf (model.cast_device_name)
                     : _("Casting");
                 break;
+            case CastStatus.BUFFERING:
+                cast_status_label.label = _("Buffering…");
+                break;
             case CastStatus.PAUSED:
                 cast_status_label.label = _("Paused on cast device");
                 break;
@@ -1003,6 +1006,8 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
         string cast_tooltip = _("Cast to a device");
         if (model.cast_status == CastStatus.PLAYING && model.cast_device_name != null)
             cast_tooltip = _("Casting to %s").printf (model.cast_device_name);
+        else if (model.cast_status == CastStatus.BUFFERING && model.cast_device_name != null)
+            cast_tooltip = _("Buffering on %s").printf (model.cast_device_name);
         else if (model.cast_status == CastStatus.PAUSED && model.cast_device_name != null)
             cast_tooltip = _("Paused on %s").printf (model.cast_device_name);
         else if (model.cast_status == CastStatus.LOST)

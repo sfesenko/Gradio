@@ -52,6 +52,139 @@ void test_stop_cast_dispatches_stopped () {
     assert (last is CastStoppedMessage);
 }
 
+void test_media_status_json () {
+    var parser = new Json.Parser ();
+    parser.load_from_data (CastService.media_status_json (12, 3));
+    var obj = parser.get_root ().get_object ();
+    assert (obj.get_string_member ("type") == "GET_STATUS");
+    assert (obj.get_int_member ("requestId") == 12);
+    assert (obj.get_int_member ("mediaSessionId") == 3);
+}
+
+void test_media_status_json_without_session () {
+    var parser = new Json.Parser ();
+    parser.load_from_data (CastService.media_status_json (1, 0));
+    var obj = parser.get_root ().get_object ();
+    assert (!obj.has_member ("mediaSessionId"));
+}
+
+void test_player_transition_buffering_does_not_start () {
+    assert (CastService.player_transition ("BUFFERING", "") ==
+        CastPlayerTransition.BUFFERING);
+    assert (CastService.player_transition ("BUFFERING", "PLAYING") ==
+        CastPlayerTransition.BUFFERING);
+}
+
+void test_player_transition_resumes_from_buffering () {
+    assert (CastService.player_transition ("PLAYING", "BUFFERING") ==
+        CastPlayerTransition.STARTED);
+}
+
+void test_should_report_lost () {
+    assert (CastService.should_report_lost (true, true, 4, 4));
+    assert (!CastService.should_report_lost (false, true, 4, 4));
+    assert (!CastService.should_report_lost (true, false, 4, 4));
+    assert (!CastService.should_report_lost (true, true, 3, 4));
+}
+
+void test_player_transition_playing_starts () {
+    assert (CastService.player_transition ("PLAYING", "") ==
+        CastPlayerTransition.STARTED);
+}
+
+void test_player_transition_idle_is_lost () {
+    assert (CastService.player_transition ("IDLE", "PLAYING") ==
+        CastPlayerTransition.LOST);
+}
+
+void test_player_transition_paused () {
+    assert (CastService.player_transition ("PAUSED", "PLAYING") ==
+        CastPlayerTransition.PAUSED);
+}
+
+void test_player_transition_resumes () {
+    assert (CastService.player_transition ("PLAYING", "PAUSED") ==
+        CastPlayerTransition.STARTED);
+}
+
+void test_player_transition_same_state_is_none () {
+    assert (CastService.player_transition ("PLAYING", "PLAYING") ==
+        CastPlayerTransition.NONE);
+}
+
+void test_liveness_expired_boundary () {
+    assert (!CastService.liveness_expired (0, 29 * 1000000L,
+        CastService.LIVENESS_TIMEOUT_US));
+    assert (CastService.liveness_expired (0, 30 * 1000000L,
+        CastService.LIVENESS_TIMEOUT_US));
+    assert (CastService.liveness_expired (0, 31 * 1000000L,
+        CastService.LIVENESS_TIMEOUT_US));
+}
+
+string media_json (string state) {
+    return ("{\"type\":\"MEDIA_STATUS\",\"status\":[{\"playerState\":\"%s\"}]}").printf (
+        state);
+}
+
+void test_media_status_message_initial_playing () {
+    string last = "";
+    bool started_now;
+    var msg = CastService.media_status_message (media_json ("PLAYING"), "id-1",
+        false, ref last, out started_now);
+    assert (started_now);
+    assert (msg is CastStartedMessage);
+    assert (last == "PLAYING");
+}
+
+void test_media_status_message_initial_buffering () {
+    string last = "";
+    bool started_now;
+    var msg = CastService.media_status_message (media_json ("BUFFERING"), "id-1",
+        false, ref last, out started_now);
+    assert (started_now);
+    assert (msg is CastBufferingMessage);
+    assert (last == "BUFFERING");
+}
+
+void test_media_status_message_idle_is_lost () {
+    string last = "PLAYING";
+    bool started_now;
+    var msg = CastService.media_status_message (media_json ("IDLE"), "id-1",
+        true, ref last, out started_now);
+    assert (!started_now);
+    assert (msg is CastLostMessage);
+}
+
+void test_media_status_message_paused () {
+    string last = "PLAYING";
+    bool started_now;
+    var msg = CastService.media_status_message (media_json ("PAUSED"), "id-1",
+        true, ref last, out started_now);
+    assert (!started_now);
+    assert (msg is CastPausedMessage);
+    assert (last == "PAUSED");
+}
+
+void test_media_status_message_resumes () {
+    string last = "PAUSED";
+    bool started_now;
+    var msg = CastService.media_status_message (media_json ("PLAYING"), "id-1",
+        true, ref last, out started_now);
+    assert (!started_now);
+    assert (msg is CastStartedMessage);
+    assert (last == "PLAYING");
+}
+
+void test_media_status_message_unchanged () {
+    string last = "PLAYING";
+    bool started_now;
+    var msg = CastService.media_status_message (media_json ("PLAYING"), "id-1",
+        true, ref last, out started_now);
+    assert (!started_now);
+    assert (msg == null);
+    assert (last == "PLAYING");
+}
+
 int main (string[] args) {
     Test.init (ref args);
     Test.add_func ("/cast/content_type_default", test_content_type_default);
@@ -67,6 +200,23 @@ int main (string[] args) {
     Test.add_func ("/cast/media_state", test_media_player_state);
     Test.add_func ("/cast/media_stop_json", test_media_stop_json);
     Test.add_func ("/cast/load_json_escapes_control_characters", test_load_json_escapes_control_characters);
+    Test.add_func ("/cast/media_status_json", test_media_status_json);
+    Test.add_func ("/cast/media_status_json_without_session", test_media_status_json_without_session);
+    Test.add_func ("/cast/player_transition_buffering", test_player_transition_buffering_does_not_start);
+    Test.add_func ("/cast/player_transition_resumes_from_buffering", test_player_transition_resumes_from_buffering);
+    Test.add_func ("/cast/should_report_lost", test_should_report_lost);
+    Test.add_func ("/cast/player_transition_playing", test_player_transition_playing_starts);
+    Test.add_func ("/cast/player_transition_idle", test_player_transition_idle_is_lost);
+    Test.add_func ("/cast/player_transition_paused", test_player_transition_paused);
+    Test.add_func ("/cast/player_transition_resumes", test_player_transition_resumes);
+    Test.add_func ("/cast/player_transition_same_state", test_player_transition_same_state_is_none);
+    Test.add_func ("/cast/liveness_expired", test_liveness_expired_boundary);
+    Test.add_func ("/cast/media_message_initial_playing", test_media_status_message_initial_playing);
+    Test.add_func ("/cast/media_message_initial_buffering", test_media_status_message_initial_buffering);
+    Test.add_func ("/cast/media_message_idle", test_media_status_message_idle_is_lost);
+    Test.add_func ("/cast/media_message_paused", test_media_status_message_paused);
+    Test.add_func ("/cast/media_message_resumes", test_media_status_message_resumes);
+    Test.add_func ("/cast/media_message_unchanged", test_media_status_message_unchanged);
     return Test.run ();
 }
 
