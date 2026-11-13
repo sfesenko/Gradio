@@ -50,6 +50,7 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
     private string search_signature = "";
     private string discover_signature = "";
     private Gtk.MenuButton cast_button;
+    private Gtk.Image cast_badge;
     private Gtk.ListBox cast_device_list;
     private Gtk.Label cast_status_label;
     private Gtk.Button cast_launch_button;
@@ -68,7 +69,8 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
         string rules = ".current-station { background-color: alpha(@accent_bg_color, 0.25); }\n" +
             ".dragging { opacity: 0.5; }\n" +
             ".drop-before { box-shadow: inset 0 2px 0 0 @accent_bg_color; }\n" +
-            ".drop-after { box-shadow: inset 0 -2px 0 0 @accent_bg_color; }";
+            ".drop-after { box-shadow: inset 0 -2px 0 0 @accent_bg_color; }\n" +
+            ".cast-indicator { color: @accent_bg_color; }";
         css.load_from_data (rules.data);
         Gtk.StyleContext.add_provider_for_display (Gdk.Display.get_default (), css,
             Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION);
@@ -221,8 +223,18 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
         });
         header.pack_end (sort_button);
 
+        var cast_icon = new Gtk.Image.from_icon_name ("display-projector-symbolic");
+        cast_badge = new Gtk.Image.from_icon_name ("media-record-symbolic") {
+            pixel_size = 8,
+            halign = Gtk.Align.END,
+            valign = Gtk.Align.START,
+            visible = false
+        };
+        cast_badge.add_css_class ("cast-indicator");
+        var cast_overlay = new Gtk.Overlay () { child = cast_icon };
+        cast_overlay.add_overlay (cast_badge);
         cast_button = new Gtk.MenuButton () {
-            icon_name = "display-projector-symbolic",
+            child = cast_overlay,
             tooltip_text = _("Cast to a device")
         };
         var cast_box = new Gtk.Box (Gtk.Orientation.VERTICAL, 6) {
@@ -974,13 +986,30 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
                     ? _("Casting to %s").printf (model.cast_device_name)
                     : _("Casting");
                 break;
+            case CastStatus.PAUSED:
+                cast_status_label.label = _("Paused on cast device");
+                break;
             case CastStatus.STOPPED:
                 cast_status_label.label = _("Stopped");
                 break;
             case CastStatus.FAILED:
                 cast_status_label.label = model.cast_error;
                 break;
+            case CastStatus.LOST:
+                cast_status_label.label = model.cast_error != ""
+                    ? model.cast_error : _("Cast connection lost");
+                break;
         }
+        string cast_tooltip = _("Cast to a device");
+        if (model.cast_status == CastStatus.PLAYING && model.cast_device_name != null)
+            cast_tooltip = _("Casting to %s").printf (model.cast_device_name);
+        else if (model.cast_status == CastStatus.PAUSED && model.cast_device_name != null)
+            cast_tooltip = _("Paused on %s").printf (model.cast_device_name);
+        else if (model.cast_status == CastStatus.LOST)
+            cast_tooltip = _("Cast connection lost");
+        cast_button.tooltip_text = cast_tooltip;
+        cast_badge.visible = model.playback_target == PlaybackTarget.CAST &&
+            model.cast_status == CastStatus.PLAYING;
         cast_launch_button.sensitive = model.playback_target == PlaybackTarget.LOCAL &&
             model.cast_device_id != null && model.current_stream_url != "";
         cast_stop_button.sensitive = model.playback_target == PlaybackTarget.CAST;
