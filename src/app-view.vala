@@ -50,7 +50,9 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
     private string search_signature = "";
     private string discover_signature = "";
     private Gtk.MenuButton cast_button;
-    private Gtk.Image cast_badge;
+    private Gtk.Scale cast_volume_scale;
+    private Gtk.Box cast_volume_row;
+    private bool updating_cast_volume = false;
     private Gtk.ListBox cast_device_list;
     private Gtk.Label cast_status_label;
     private Gtk.Button cast_launch_button;
@@ -70,7 +72,8 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
             ".dragging { opacity: 0.5; }\n" +
             ".drop-before { box-shadow: inset 0 2px 0 0 @accent_bg_color; }\n" +
             ".drop-after { box-shadow: inset 0 -2px 0 0 @accent_bg_color; }\n" +
-            ".cast-indicator { color: @accent_bg_color; }";
+            ".cast-active { background-color: alpha(@accent_bg_color, 0.25); border-radius: 6px; }\n" +
+            ".cast-volume-disabled { opacity: 0.45; }";
         css.load_from_data (rules.data);
         Gtk.StyleContext.add_provider_for_display (Gdk.Display.get_default (), css,
             Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION);
@@ -223,19 +226,9 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
         });
         header.pack_end (sort_button);
 
-        var cast_icon = new Gtk.Image.from_icon_name ("display-projector-symbolic");
-        cast_badge = new Gtk.Image.from_icon_name ("media-record-symbolic") {
-            pixel_size = 8,
-            halign = Gtk.Align.END,
-            valign = Gtk.Align.START,
-            visible = false
-        };
-        cast_badge.add_css_class ("cast-indicator");
-        var cast_overlay = new Gtk.Overlay () { child = cast_icon };
-        cast_overlay.add_overlay (cast_badge);
         cast_button = new Gtk.MenuButton () {
-            child = cast_overlay,
-            tooltip_text = _("Cast to a device")
+            icon_name = volume_icon_name (model.config.volume),
+            tooltip_text = _("Cast and volume")
         };
         var cast_box = new Gtk.Box (Gtk.Orientation.VERTICAL, 6) {
             margin_top = 8,
@@ -243,6 +236,23 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
             margin_start = 8,
             margin_end = 8
         };
+        cast_volume_row = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 8) {
+            tooltip_text = _("Local volume")
+        };
+        cast_volume_row.append (new Gtk.Image.from_icon_name (
+            "audio-volume-high-symbolic"));
+        cast_volume_scale = new Gtk.Scale.with_range (Gtk.Orientation.HORIZONTAL,
+            0.0, 1.0, 0.01);
+        cast_volume_scale.set_draw_value (false);
+        cast_volume_scale.set_hexpand (true);
+        cast_volume_scale.set_value (model.config.volume);
+        cast_volume_scale.value_changed.connect (() => {
+            if (!updating_cast_volume)
+                dispatch (new SetVolumeMessage (cast_volume_scale.get_value ()));
+        });
+        cast_volume_row.append (cast_volume_scale);
+        cast_box.append (cast_volume_row);
+        cast_box.append (new Gtk.Separator (Gtk.Orientation.HORIZONTAL));
         var cast_discover_button = new Gtk.Button.with_label (_("Discover devices"));
         cast_discover_button.clicked.connect (() => dispatch (new DiscoverCastDevicesMessage ()));
         cast_box.append (cast_discover_button);
@@ -944,6 +954,16 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
         });
     }
 
+    private static string volume_icon_name (double volume) {
+        if (volume <= 0.0)
+            return "audio-volume-muted-symbolic";
+        if (volume < 0.33)
+            return "audio-volume-low-symbolic";
+        if (volume < 0.66)
+            return "audio-volume-medium-symbolic";
+        return "audio-volume-high-symbolic";
+    }
+
     private void update_cast_ui (Gradio.AppModel model) {
         if (cast_device_list == null)
             return;
@@ -1003,7 +1023,7 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
                     ? model.cast_error : _("Cast connection lost");
                 break;
         }
-        string cast_tooltip = _("Cast to a device");
+        string cast_tooltip = _("Cast and volume");
         if (model.cast_status == CastStatus.PLAYING && model.cast_device_name != null)
             cast_tooltip = _("Casting to %s").printf (model.cast_device_name);
         else if (model.cast_status == CastStatus.BUFFERING && model.cast_device_name != null)
@@ -1013,8 +1033,25 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
         else if (model.cast_status == CastStatus.LOST)
             cast_tooltip = _("Cast connection lost");
         cast_button.tooltip_text = cast_tooltip;
-        cast_badge.visible = model.playback_target == PlaybackTarget.CAST &&
-            model.cast_status == CastStatus.PLAYING;
+        if (model.playback_target == PlaybackTarget.CAST &&
+                model.cast_status == CastStatus.PLAYING)
+            cast_button.add_css_class ("cast-active");
+        else
+            cast_button.remove_css_class ("cast-active");
+        cast_button.icon_name = volume_icon_name (model.config.volume);
+        bool casting = model.playback_target == PlaybackTarget.CAST;
+        updating_cast_volume = true;
+        if (cast_volume_scale.get_value () != model.config.volume)
+            cast_volume_scale.set_value (model.config.volume);
+        cast_volume_scale.sensitive = !casting;
+        updating_cast_volume = false;
+        if (casting) {
+            cast_volume_row.add_css_class ("cast-volume-disabled");
+            cast_volume_row.tooltip_text = _("Stop casting to change local volume");
+        } else {
+            cast_volume_row.remove_css_class ("cast-volume-disabled");
+            cast_volume_row.tooltip_text = _("Local volume");
+        }
         cast_launch_button.sensitive = model.playback_target == PlaybackTarget.LOCAL &&
             model.cast_device_id != null && model.current_stream_url != "";
         cast_stop_button.sensitive = model.playback_target == PlaybackTarget.CAST;

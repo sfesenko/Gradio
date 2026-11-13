@@ -89,15 +89,14 @@ namespace Gradio {
         }
 
         // Header mode splits the bar: the text goes to the left of the header
-        // bar, the controls to the right (play, volume, history). The widgets
-        // stay owned by this bar, so their state and signals survive the move.
+        // bar, the controls to the right (play, history). Volume lives in the
+        // merged cast popover while the player is in the header, so the header
+        // keeps a single control for both.
         public void place_in_header (Gtk.Box text_host, Gtk.Box controls_host) {
             text_box.unparent ();
             text_host.append (text_box);
             play_button.unparent ();
             controls_host.append (play_button);
-            volume_button.unparent ();
-            controls_host.append (volume_button);
             history_button.unparent ();
             controls_host.append (history_button);
         }
@@ -144,6 +143,7 @@ namespace Gradio {
 
             if (volume_button.value != model.config.volume)
                 volume_button.value = model.config.volume;
+            volume_button.sensitive = model.playback_target != PlaybackTarget.CAST;
 
             string signature = string.joinv ("\n", model.track_history);
             if (signature != history_signature) {
