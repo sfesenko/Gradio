@@ -143,7 +143,9 @@ int main (string[] args) {
             program.dispatch_message (new Gradio.RefreshLibraryMessage ());
             program.dispatch_message (new Gradio.DiscoverServerMessage ());
             program.dispatch_message (new Gradio.RequestFilterOptionsMessage ());
-            program.dispatch_message (new Gradio.RestoreLastStationMessage ());
+            // Probe the cast device in parallel with the local restore: a live
+            // session is adopted, otherwise normal startup continues.
+            program.dispatch_message (new Gradio.SyncCastSessionMessage ());
         } else {
             unowned GLib.List<Gtk.Window> windows = app.get_windows ();
             if (windows != null) {

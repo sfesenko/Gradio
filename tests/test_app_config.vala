@@ -413,6 +413,96 @@ void test_cast_device_round_trip () {
     cleanup (dir);
 }
 
+void test_cast_loss_action_round_trip () {
+    string dir = make_tmp_dir ();
+    string path = GLib.Path.build_filename (dir, "config.json");
+    var config = new Gradio.AppConfig (path);
+    config.cast_loss_action = Gradio.CastLossAction.PLAY_LOCAL;
+    save_config (config);
+
+    var loaded = load_config (path);
+    assert (loaded.cast_loss_action == Gradio.CastLossAction.PLAY_LOCAL);
+    cleanup (dir);
+}
+
+void test_cast_loss_action_defaults_to_wait () {
+    string dir = make_tmp_dir ();
+    var config = load_config (GLib.Path.build_filename (dir, "missing.json"));
+    assert (config.cast_loss_action == Gradio.CastLossAction.WAIT);
+    cleanup (dir);
+}
+
+void test_cast_loss_action_invalid_string_defaults_to_wait () {
+    string dir = make_tmp_dir ();
+    string path = write_file (dir, "config.json",
+        "{\"version\":1,\"settings\":{\"cast_loss_action\":\"bogus\"}}");
+    assert (load_config (path).cast_loss_action == Gradio.CastLossAction.WAIT);
+    cleanup (dir);
+}
+
+void test_cast_mode_round_trip () {
+    string dir = make_tmp_dir ();
+    string path = GLib.Path.build_filename (dir, "config.json");
+    var config = new Gradio.AppConfig (path);
+    config.cast_mode = true;
+    save_config (config);
+    assert (load_config (path).cast_mode == true);
+    cleanup (dir);
+}
+
+void test_cast_mode_defaults_off () {
+    string dir = make_tmp_dir ();
+    var config = load_config (GLib.Path.build_filename (dir, "missing.json"));
+    assert (config.cast_mode == false);
+    cleanup (dir);
+}
+
+void test_cast_keep_on_quit_round_trip () {
+    string dir = make_tmp_dir ();
+    string path = GLib.Path.build_filename (dir, "config.json");
+    var config = new Gradio.AppConfig (path);
+    assert (config.cast_keep_on_quit);
+    config.cast_keep_on_quit = false;
+    save_config (config);
+    assert (!load_config (path).cast_keep_on_quit);
+    cleanup (dir);
+}
+
+void test_cast_track_titles_round_trip () {
+    string dir = make_tmp_dir ();
+    string path = GLib.Path.build_filename (dir, "config.json");
+    var config = new Gradio.AppConfig (path);
+    assert (config.cast_track_titles);
+    config.cast_track_titles = false;
+    save_config (config);
+    assert (!load_config (path).cast_track_titles);
+    cleanup (dir);
+}
+
+void test_cast_track_titles_interval_round_trip () {
+    string dir = make_tmp_dir ();
+    string path = GLib.Path.build_filename (dir, "config.json");
+    var config = new Gradio.AppConfig (path);
+    assert (config.cast_track_titles_interval == 20);
+    config.cast_track_titles_interval = 30;
+    save_config (config);
+    assert (load_config (path).cast_track_titles_interval == 30);
+    cleanup (dir);
+}
+
+void test_cast_track_titles_interval_invalid_falls_back () {
+    string dir = make_tmp_dir ();
+    string path = write_file (dir, "config.json",
+        "{\"version\":1,\"settings\":{\"cast_track_titles_interval\":7}}");
+    assert (load_config (path).cast_track_titles_interval == 20);
+    assert (Gradio.AppConfig.normalize_track_titles_interval (7) == 20);
+    assert (Gradio.AppConfig.normalize_track_titles_interval (10) == 10);
+    assert (Gradio.AppConfig.normalize_track_titles_interval (20) == 20);
+    assert (Gradio.AppConfig.normalize_track_titles_interval (30) == 30);
+    assert (Gradio.AppConfig.normalize_track_titles_interval (60) == 60);
+    cleanup (dir);
+}
+
 int main (string[] args) {
     Test.init (ref args);
 
@@ -445,6 +535,15 @@ int main (string[] args) {
     Test.add_func ("/app-config/skips_station_without_name_or_url", test_skips_station_without_name_or_url);
     Test.add_func ("/app-config/library_sort_round_trip", test_library_sort_round_trip);
     Test.add_func ("/app-config/cast_device_round_trip", test_cast_device_round_trip);
+    Test.add_func ("/app-config/cast_loss_action_round_trip", test_cast_loss_action_round_trip);
+    Test.add_func ("/app-config/cast_loss_action_defaults_to_wait", test_cast_loss_action_defaults_to_wait);
+    Test.add_func ("/app-config/cast_loss_action_invalid_string_defaults_to_wait", test_cast_loss_action_invalid_string_defaults_to_wait);
+    Test.add_func ("/app-config/cast_mode_round_trip", test_cast_mode_round_trip);
+    Test.add_func ("/app-config/cast_mode_defaults_off", test_cast_mode_defaults_off);
+    Test.add_func ("/app-config/cast_keep_on_quit_round_trip", test_cast_keep_on_quit_round_trip);
+    Test.add_func ("/app-config/cast_track_titles_round_trip", test_cast_track_titles_round_trip);
+    Test.add_func ("/app-config/cast_track_titles_interval_round_trip", test_cast_track_titles_interval_round_trip);
+    Test.add_func ("/app-config/cast_track_titles_interval_invalid_falls_back", test_cast_track_titles_interval_invalid_falls_back);
 
     return Test.run ();
 }

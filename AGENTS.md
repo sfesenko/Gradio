@@ -27,6 +27,7 @@ Arch package: `./scripts/build-package.sh`
 - `src/app-view.vala`, `src/view/` — GTK widgets
 - `src/main.vala` — program wiring
 - `tests/` — headless glib tests
+- `docs/ARCHITECTURE.md` — the loop; `docs/CAST.md` — cast lifecycle
 
 ## Rules
 

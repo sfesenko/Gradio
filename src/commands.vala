@@ -7,6 +7,7 @@ namespace Gradio {
         public virtual Elmish.Cmd<Message>? play (RadioStation station) { return null; }
         public virtual Elmish.Cmd<Message>? stop () { return null; }
         public virtual Elmish.Cmd<Message>? set_volume (double volume) { return null; }
+        public virtual Elmish.Cmd<Message>? set_cast_volume (double volume) { return null; }
         public virtual Elmish.Cmd<Message>? save_config () { return null; }
         public virtual Elmish.Cmd<Message>? load_favicons (GLib.GenericArray<RadioStation> stations) { return null; }
         public virtual Elmish.Cmd<Message>? clear_favicon_cache () { return null; }
@@ -29,6 +30,14 @@ namespace Gradio {
     public virtual Elmish.Cmd<Message>? discover_cast () { return null; }
     public virtual Elmish.Cmd<Message>? cast (string device_id, string host, int port, string url) { return null; }
     public virtual Elmish.Cmd<Message>? stop_cast (string device_id, string host, int port) { return null; }
+    public virtual Elmish.Cmd<Message>? sync_cast (string device_id, string host, int port) { return null; }
+    public virtual Elmish.Cmd<Message>? adopt_cast (string device_id, string host, int port, string url) { return null; }
+    public virtual Elmish.Cmd<Message>? pause_cast (string device_id) { return null; }
+    public virtual Elmish.Cmd<Message>? resume_cast (string device_id) { return null; }
+    // Layer 2: silent local reader of the casted stream for track metadata.
+    public virtual Elmish.Cmd<Message>? start_cast_metadata (string device_id, string url) { return null; }
+    public virtual Elmish.Cmd<Message>? stop_cast_metadata () { return null; }
+    public virtual Elmish.Cmd<Message>? set_cast_metadata_interval (int seconds) { return null; }
 
         public static Elmish.Cmd<Message>? chain (Elmish.Cmd<Message>? first, Elmish.Cmd<Message>? second) {
             if (first == null)

@@ -98,8 +98,27 @@ test_cast = executable('test_cast',
 )
 test('cast', test_cast)
 
+test_cast_metadata = executable('test_cast_metadata',
+  'test_cast_metadata.vala',
+  dependencies: [test_deps, lib_core_dep],
+)
+test('cast-metadata', test_cast_metadata)
+
+test_json_util = executable('test_json_util',
+  'test_json_util.vala',
+  dependencies: [test_deps, lib_core_dep],
+)
+test('json-util', test_json_util)
+
 test_cast_mdns = executable('test_cast_mdns',
   'test_mdns.vala',
   dependencies: [test_deps, lib_core_dep],
 )
 test('cast-mdns', test_cast_mdns)
+
+# Every source file with translatable strings must be in po/POTFILES.in,
+# otherwise its strings silently never reach translators.
+test('i18n-potfiles',
+  find_program('sh'),
+  args: [files('../po/check-pot.sh'), '--coverage'],
+)

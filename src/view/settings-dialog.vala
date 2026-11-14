@@ -47,6 +47,50 @@ namespace Gradio {
             });
             list.append (build_row (_("Keep playing when the window is closed"), background_toggle));
 
+            var cast_quit_toggle = new Gtk.Switch () {
+                active = model.config.cast_keep_on_quit,
+                valign = Gtk.Align.CENTER
+            };
+            cast_quit_toggle.state_set.connect ((state) => {
+                dispatch (new SetCastKeepOnQuitMessage (state));
+                return false;
+            });
+            list.append (build_row (_("Keep casting when Gradio quits"),
+                cast_quit_toggle));
+
+            var cast_titles_toggle = new Gtk.Switch () {
+                active = model.config.cast_track_titles,
+                valign = Gtk.Align.CENTER
+            };
+            int[] intervals = Gradio.AppConfig.track_titles_interval_choices ();
+            var interval_labels = new string[intervals.length];
+            for (int i = 0; i < intervals.length; i++)
+                interval_labels[i] = _("%d seconds").printf (intervals[i]);
+            var cast_titles_interval =
+                new Gtk.DropDown.from_strings (interval_labels);
+            uint selected_interval = 1;
+            for (int i = 0; i < intervals.length; i++) {
+                if (intervals[i] == model.config.cast_track_titles_interval)
+                    selected_interval = (uint) i;
+            }
+            cast_titles_interval.selected = selected_interval;
+            cast_titles_interval.sensitive = model.config.cast_track_titles;
+            cast_titles_interval.notify["selected"].connect (() => {
+                uint index = cast_titles_interval.selected;
+                if (index < intervals.length)
+                    dispatch (new SetCastTrackTitlesIntervalMessage (
+                        intervals[index]));
+            });
+            cast_titles_toggle.state_set.connect ((state) => {
+                dispatch (new SetCastTrackTitlesMessage (state));
+                cast_titles_interval.sensitive = state;
+                return false;
+            });
+            list.append (build_row (_("Show track titles while casting"),
+                cast_titles_toggle));
+            list.append (build_row (_("Check for new titles every"),
+                cast_titles_interval));
+
             var notifications_toggle = new Gtk.Switch () {
                 active = model.config.notifications_enabled,
                 valign = Gtk.Align.CENTER
@@ -56,6 +100,18 @@ namespace Gradio {
                 return false;
             });
             list.append (build_row (_("Show notifications"), notifications_toggle));
+
+            var cast_loss_dropdown = new Gtk.DropDown.from_strings ({
+                _("Stop playback"), _("Play on this computer")
+            });
+            cast_loss_dropdown.selected =
+                model.config.cast_loss_action == CastLossAction.PLAY_LOCAL ? 1 : 0;
+            cast_loss_dropdown.notify["selected"].connect (() => {
+                dispatch (new SetCastLossActionMessage (
+                    cast_loss_dropdown.selected == 1
+                        ? CastLossAction.PLAY_LOCAL : CastLossAction.WAIT));
+            });
+            list.append (build_row (_("When a cast is lost"), cast_loss_dropdown));
 
             var status_bar_toggle = new Gtk.Switch () {
                 active = model.config.show_status_bar,

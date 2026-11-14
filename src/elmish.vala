@@ -53,16 +53,9 @@ namespace Elmish {
         }
     }
 
-    // Wires the half-elmish loop together:
-    //
-    //     dispatch(msg)
-    //       -> updateModel(msg, model) -> Cmd?        (pure, testable)
-    //       -> Cmd.exec(dispatch, cmd)                 (side effects; may dispatch back)
-    //       -> queue view update                       (coalesced, on the main loop)
-    //            -> updateView(msg, model, view)       (imperative widget mutation)
-    //
-    // dispatch is thread-safe: messages sent from worker threads are marshalled
-    // to the main loop before touching the model.
+    // Wires the half-elmish loop together; see docs/ARCHITECTURE.md.
+    // dispatch is thread-safe: messages sent from worker threads are
+    // marshalled to the main loop before touching the model.
     public class ElmishProgram<Message, Model, View> : Object {
 
         private CreateView createView;

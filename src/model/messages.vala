@@ -17,8 +17,16 @@ public enum Gradio.CastStatus {
     READY,
     CONNECTING,
     PLAYING,
+    BUFFERING,
+    PAUSED,
     STOPPED,
-    FAILED
+    FAILED,
+    LOST
+}
+
+public enum Gradio.CastLossAction {
+    WAIT,
+    PLAY_LOCAL
 }
 
 public enum Gradio.PlaybackTarget {
@@ -109,8 +117,20 @@ public enum Gradio.MessageKind {
     CAST_STARTED,
     CAST_STOPPED,
     CAST_FAILED,
+    CAST_LOST,
+    CAST_PAUSED,
+    CAST_BUFFERING,
     STOP_CAST,
-    PLAY_LOCAL
+    PLAY_LOCAL,
+    SET_CAST_LOSS_ACTION,
+    SYNC_CAST_SESSION,
+    CAST_SESSION_DETECTED,
+    CAST_ADOPTED,
+    CAST_ADOPT_FAILED,
+    CAST_METADATA,
+    SET_CAST_KEEP_ON_QUIT,
+    SET_CAST_TRACK_TITLES,
+    SET_CAST_TRACK_TITLES_INTERVAL
 }
 
 public abstract class Gradio.Message {
@@ -565,6 +585,14 @@ public class Gradio.SetNotificationsMessage : Gradio.Message {
     public override MessageKind kind { get { return MessageKind.SET_NOTIFICATIONS; } }
 }
 
+public class Gradio.SetCastLossActionMessage : Gradio.Message {
+    public CastLossAction action;
+
+    public SetCastLossActionMessage (CastLossAction action) { this.action = action; }
+
+    public override MessageKind kind { get { return MessageKind.SET_CAST_LOSS_ACTION; } }
+}
+
 public class Gradio.SetShowStatusBarMessage : Gradio.Message {
     public bool enabled;
 
@@ -642,12 +670,121 @@ public class Gradio.CastFailedMessage : Gradio.Message {
     public override MessageKind kind { get { return MessageKind.CAST_FAILED; } }
 }
 
+public class Gradio.CastLostMessage : Gradio.Message {
+    public string device_id;
+    public string error;
+
+    public CastLostMessage (string device_id, string error) {
+        this.device_id = device_id;
+        this.error = error;
+    }
+
+    public override MessageKind kind { get { return MessageKind.CAST_LOST; } }
+}
+
+public class Gradio.CastPausedMessage : Gradio.Message {
+    public string device_id;
+
+    public CastPausedMessage (string device_id) { this.device_id = device_id; }
+
+    public override MessageKind kind { get { return MessageKind.CAST_PAUSED; } }
+}
+
+public class Gradio.CastBufferingMessage : Gradio.Message {
+    public string device_id;
+
+    public CastBufferingMessage (string device_id) { this.device_id = device_id; }
+
+    public override MessageKind kind { get { return MessageKind.CAST_BUFFERING; } }
+}
+
 public class Gradio.StopCastMessage : Gradio.Message {
     public override MessageKind kind { get { return MessageKind.STOP_CAST; } }
 }
 
 public class Gradio.PlayLocalMessage : Gradio.Message {
     public override MessageKind kind { get { return MessageKind.PLAY_LOCAL; } }
+}
+
+public class Gradio.SyncCastSessionMessage : Gradio.Message {
+    public override MessageKind kind { get { return MessageKind.SYNC_CAST_SESSION; } }
+}
+
+public class Gradio.CastSessionDetectedMessage : Gradio.Message {
+    public string device_id;
+    public string content_id;
+    public string player_state;
+    public string title;
+    public string app_name;
+
+    public CastSessionDetectedMessage (string device_id, string content_id,
+            string player_state, string title, string app_name) {
+        this.device_id = device_id;
+        this.content_id = content_id;
+        this.player_state = player_state;
+        this.title = title;
+        this.app_name = app_name;
+    }
+
+    public override MessageKind kind { get { return MessageKind.CAST_SESSION_DETECTED; } }
+}
+
+public class Gradio.CastAdoptedMessage : Gradio.Message {
+    public string device_id;
+    public string player_state;
+
+    public CastAdoptedMessage (string device_id, string player_state) {
+        this.device_id = device_id;
+        this.player_state = player_state;
+    }
+
+    public override MessageKind kind { get { return MessageKind.CAST_ADOPTED; } }
+}
+
+public class Gradio.CastAdoptFailedMessage : Gradio.Message {
+    public string device_id;
+
+    public CastAdoptFailedMessage (string device_id) { this.device_id = device_id; }
+
+    public override MessageKind kind { get { return MessageKind.CAST_ADOPT_FAILED; } }
+}
+
+public class Gradio.CastMetadataMessage : Gradio.Message {
+    public string device_id;
+    public string title;
+
+    public CastMetadataMessage (string device_id, string title) {
+        this.device_id = device_id;
+        this.title = title;
+    }
+
+    public override MessageKind kind { get { return MessageKind.CAST_METADATA; } }
+}
+
+public class Gradio.SetCastKeepOnQuitMessage : Gradio.Message {
+    public bool enabled;
+
+    public SetCastKeepOnQuitMessage (bool enabled) { this.enabled = enabled; }
+
+    public override MessageKind kind { get { return MessageKind.SET_CAST_KEEP_ON_QUIT; } }
+}
+
+public class Gradio.SetCastTrackTitlesMessage : Gradio.Message {
+    public bool enabled;
+
+    public SetCastTrackTitlesMessage (bool enabled) { this.enabled = enabled; }
+
+    public override MessageKind kind { get { return MessageKind.SET_CAST_TRACK_TITLES; } }
+}
+
+public class Gradio.SetCastTrackTitlesIntervalMessage : Gradio.Message {
+    public int seconds;
+
+    public SetCastTrackTitlesIntervalMessage (int seconds) {
+        this.seconds = seconds;
+    }
+
+    public override MessageKind kind { get { return MessageKind.SET_CAST_TRACK_TITLES_INTERVAL; } }
 }
 
 public class Gradio.AppModel {
@@ -712,6 +849,27 @@ public class Gradio.AppModel {
     public CastDevice[] cast_devices = {};
     public string cast_error = "";
     public string current_stream_url = "";
+    public bool cast_resume_pending = false;
+    public bool cast_retry_on_discovery = false;
+    // True while a cast media session is attached and controllable
+    // (started by Gradio or adopted from the device).
+    public bool cast_attached = false;
+    // Device is casting something Gradio is not controlling (no usable URL).
+    public string cast_remote_label = "";
+    // Label kept while adoption is in flight, used if it fails.
+    public string cast_pending_label = "";
+
+    // The cast is the current output and a media session is live or starting.
+    // Stopped/lost/failed casts keep playback_target = CAST for a later
+    // restart, but must not look active or lock the local volume controls.
+    public bool cast_is_active () {
+        if (playback_target != PlaybackTarget.CAST)
+            return false;
+        return cast_status == CastStatus.CONNECTING ||
+            cast_status == CastStatus.PLAYING ||
+            cast_status == CastStatus.BUFFERING ||
+            cast_status == CastStatus.PAUSED;
+    }
 
     public AppModel (AppConfig config) {
         this.config = config;
@@ -721,6 +879,12 @@ public class Gradio.AppModel {
             ? config.cast_device_name : null;
         this.cast_device_host = config.cast_host;
         this.cast_port = config.cast_port;
+        if (config.cast_mode && this.cast_device_id != null) {
+            this.playback_target = PlaybackTarget.CAST;
+            this.cast_status = CastStatus.READY;
+        } else {
+            config.cast_mode = false;
+        }
         ensure_library_order ();
     }
 

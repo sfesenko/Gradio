@@ -52,6 +52,274 @@ void test_stop_cast_dispatches_stopped () {
     assert (last is CastStoppedMessage);
 }
 
+void test_media_status_json () {
+    var parser = new Json.Parser ();
+    parser.load_from_data (CastService.media_status_json (12, 3));
+    var obj = parser.get_root ().get_object ();
+    assert (obj.get_string_member ("type") == "GET_STATUS");
+    assert (obj.get_int_member ("requestId") == 12);
+    assert (obj.get_int_member ("mediaSessionId") == 3);
+}
+
+void test_media_status_json_without_session () {
+    var parser = new Json.Parser ();
+    parser.load_from_data (CastService.media_status_json (1, 0));
+    var obj = parser.get_root ().get_object ();
+    assert (!obj.has_member ("mediaSessionId"));
+}
+
+void test_player_transition_buffering_does_not_start () {
+    assert (CastService.player_transition ("BUFFERING", "") ==
+        CastPlayerTransition.BUFFERING);
+    assert (CastService.player_transition ("BUFFERING", "PLAYING") ==
+        CastPlayerTransition.BUFFERING);
+}
+
+void test_player_transition_resumes_from_buffering () {
+    assert (CastService.player_transition ("PLAYING", "BUFFERING") ==
+        CastPlayerTransition.STARTED);
+}
+
+void test_should_report_lost () {
+    assert (CastService.should_report_lost (true, true, 4, 4));
+    assert (!CastService.should_report_lost (false, true, 4, 4));
+    assert (!CastService.should_report_lost (true, false, 4, 4));
+    assert (!CastService.should_report_lost (true, true, 3, 4));
+}
+
+void test_player_transition_playing_starts () {
+    assert (CastService.player_transition ("PLAYING", "") ==
+        CastPlayerTransition.STARTED);
+}
+
+void test_player_transition_idle_is_lost () {
+    assert (CastService.player_transition ("IDLE", "PLAYING") ==
+        CastPlayerTransition.LOST);
+}
+
+void test_player_transition_empty_status_is_lost () {
+    // Stopped from a phone: the media app stays alive with status: [].
+    assert (CastService.player_transition ("", "PLAYING") ==
+        CastPlayerTransition.LOST);
+    // Nothing was playing yet: an empty status is not a loss.
+    assert (CastService.player_transition ("", "") ==
+        CastPlayerTransition.NONE);
+}
+
+void test_player_transition_paused () {
+    assert (CastService.player_transition ("PAUSED", "PLAYING") ==
+        CastPlayerTransition.PAUSED);
+}
+
+void test_player_transition_resumes () {
+    assert (CastService.player_transition ("PLAYING", "PAUSED") ==
+        CastPlayerTransition.STARTED);
+}
+
+void test_player_transition_same_state_is_none () {
+    assert (CastService.player_transition ("PLAYING", "PLAYING") ==
+        CastPlayerTransition.NONE);
+}
+
+void test_liveness_expired_boundary () {
+    assert (!CastService.liveness_expired (0, 29 * 1000000L,
+        CastService.LIVENESS_TIMEOUT_US));
+    assert (CastService.liveness_expired (0, 30 * 1000000L,
+        CastService.LIVENESS_TIMEOUT_US));
+    assert (CastService.liveness_expired (0, 31 * 1000000L,
+        CastService.LIVENESS_TIMEOUT_US));
+}
+
+string media_json (string state) {
+    return ("{\"type\":\"MEDIA_STATUS\",\"status\":[{\"playerState\":\"%s\"}]}").printf (
+        state);
+}
+
+void test_media_status_message_initial_playing () {
+    string last = "";
+    bool started_now;
+    var msg = CastService.media_status_message (media_json ("PLAYING"), "id-1",
+        false, ref last, out started_now);
+    assert (started_now);
+    assert (msg is CastStartedMessage);
+    assert (last == "PLAYING");
+}
+
+void test_media_status_message_initial_buffering () {
+    string last = "";
+    bool started_now;
+    var msg = CastService.media_status_message (media_json ("BUFFERING"), "id-1",
+        false, ref last, out started_now);
+    assert (started_now);
+    assert (msg is CastBufferingMessage);
+    assert (last == "BUFFERING");
+}
+
+void test_media_status_message_idle_is_lost () {
+    string last = "PLAYING";
+    bool started_now;
+    var msg = CastService.media_status_message (media_json ("IDLE"), "id-1",
+        true, ref last, out started_now);
+    assert (!started_now);
+    assert (msg is CastLostMessage);
+}
+
+void test_media_status_message_initial_paused () {
+    string last = "";
+    bool started_now;
+    var msg = CastService.media_status_message (media_json ("PAUSED"), "id-1",
+        false, ref last, out started_now);
+    assert (started_now);
+    assert (msg is CastPausedMessage);
+    assert (last == "PAUSED");
+}
+
+void test_heartbeat_namespace () {
+    assert (CastService.HEARTBEAT_NAMESPACE ==
+        "urn:x-cast:com.google.cast.tp.heartbeat");
+}
+
+void test_media_status_message_paused () {
+    string last = "PLAYING";
+    bool started_now;
+    var msg = CastService.media_status_message (media_json ("PAUSED"), "id-1",
+        true, ref last, out started_now);
+    assert (!started_now);
+    assert (msg is CastPausedMessage);
+    assert (last == "PAUSED");
+}
+
+void test_media_status_message_resumes () {
+    string last = "PAUSED";
+    bool started_now;
+    var msg = CastService.media_status_message (media_json ("PLAYING"), "id-1",
+        true, ref last, out started_now);
+    assert (!started_now);
+    assert (msg is CastStartedMessage);
+    assert (last == "PLAYING");
+}
+
+void test_media_status_message_unchanged () {
+    string last = "PLAYING";
+    bool started_now;
+    var msg = CastService.media_status_message (media_json ("PLAYING"), "id-1",
+        true, ref last, out started_now);
+    assert (!started_now);
+    assert (msg == null);
+    assert (last == "PLAYING");
+}
+
+void test_media_app_from_json () {
+    var json = ("{\"type\":\"RECEIVER_STATUS\",\"status\":{\"applications\":["
+        + "{\"appId\":\"E8C28D3C\",\"sessionId\":\"backdrop\",\"displayName\":\"Backdrop\","
+        + "\"namespaces\":[]},"
+        + "{\"appId\":\"CC1AD845\",\"sessionId\":\"app-1\","
+        + "\"displayName\":\"Default Media Receiver\","
+        + "\"namespaces\":[\"urn:x-cast:com.google.cast.media\"]}]}}");
+    var app = CastService.media_app_from_json (json);
+    assert (app != null);
+    assert (app.session_id == "app-1");
+    assert (app.name == "Default Media Receiver");
+}
+
+void test_media_app_from_json_object_namespaces () {
+    // Real receivers send namespaces as objects, not plain strings.
+    var json = ("{\"type\":\"RECEIVER_STATUS\",\"status\":{\"applications\":["
+        + "{\"appId\":\"CC1AD845\",\"sessionId\":\"app-1\","
+        + "\"displayName\":\"Default Media Receiver\","
+        + "\"namespaces\":[{\"name\":\"urn:x-cast:com.google.cast.media\"}]}]}}");
+    var app = CastService.media_app_from_json (json);
+    assert (app != null);
+    assert (app.session_id == "app-1");
+    assert (app.name == "Default Media Receiver");
+}
+
+void test_media_app_from_json_without_media_namespace () {
+    var json = ("{\"status\":{\"applications\":["
+        + "{\"appId\":\"233637DE\",\"sessionId\":\"yt\",\"displayName\":\"YouTube\","
+        + "\"namespaces\":[\"urn:x-cast:com.google.cast.youtube\"]}]}}");
+    assert (CastService.media_app_from_json (json) == null);
+}
+
+void test_media_app_from_json_empty () {
+    assert (CastService.media_app_from_json ("{\"status\":{\"applications\":[]}}") == null);
+    assert (CastService.media_app_from_json ("not json") == null);
+}
+
+void test_media_content_id () {
+    var json = ("{\"type\":\"MEDIA_STATUS\",\"status\":[{"
+        + "\"mediaSessionId\":7,\"playerState\":\"PLAYING\","
+        + "\"media\":{\"contentId\":\"https://example.test/stream\","
+        + "\"metadata\":{\"title\":\"Station\"}}}]}");
+    assert (CastService.media_content_id_from_json (json) ==
+        "https://example.test/stream");
+    assert (CastService.media_title_from_json (json) == "Station");
+    // Liveness polls may omit metadata entirely: no title, not a cleared one.
+    var without_metadata = ("{\"type\":\"MEDIA_STATUS\",\"status\":[{"
+        + "\"mediaSessionId\":7,\"playerState\":\"PLAYING\","
+        + "\"media\":{\"contentId\":\"https://example.test/stream\"}}]}");
+    assert (CastService.media_title_from_json (without_metadata) == "");
+    assert (CastService.media_content_id_from_json ("{\"status\":[]}") == "");
+    assert (CastService.media_title_from_json ("{\"status\":[]}") == "");
+}
+
+void test_is_http_url () {
+    assert (CastService.is_http_url ("http://example.test/a"));
+    assert (CastService.is_http_url ("https://example.test/a"));
+    assert (!CastService.is_http_url ("rtsp://example.test/a"));
+    assert (!CastService.is_http_url (""));
+    assert (!CastService.is_http_url ("youtube:video:abc"));
+}
+
+void test_media_command_json () {
+    var parser = new Json.Parser ();
+    parser.load_from_data (CastService.media_command_json (9, "PAUSE", 4));
+    var obj = parser.get_root ().get_object ();
+    assert (obj.get_string_member ("type") == "PAUSE");
+    assert (obj.get_int_member ("requestId") == 9);
+    assert (obj.get_int_member ("mediaSessionId") == 4);
+}
+
+void test_set_volume_json () {
+    var parser = new Json.Parser ();
+    parser.load_from_data (CastService.set_volume_json (11, 0.45));
+    var obj = parser.get_root ().get_object ();
+    assert (obj.get_string_member ("type") == "SET_VOLUME");
+    assert (obj.get_int_member ("requestId") == 11);
+    var volume = obj.get_object_member ("volume");
+    assert (volume.get_double_member ("level") > 0.44);
+    assert (volume.get_double_member ("level") < 0.46);
+}
+
+void test_probe_reports_no_session_on_connection_error () {
+    Gradio.Message? result = null;
+    var cmd = CastService.probe_cmd ("id-1", "127.0.0.1", 1);
+    assert (cmd != null);
+    Elmish.Cmd.exec<Gradio.Message> ((msg) => { result = msg; }, cmd);
+    var context = GLib.MainContext.@default ();
+    var deadline = GLib.get_monotonic_time () + 3 * 1000000;
+    while (result == null && GLib.get_monotonic_time () < deadline)
+        context.iteration (true);
+    assert (result is CastSessionDetectedMessage);
+    var detected = result as CastSessionDetectedMessage;
+    assert (detected != null);
+    assert (detected.content_id == "");
+    assert (detected.player_state == "");
+}
+
+void test_adopt_reports_failure_on_connection_error () {
+    Gradio.Message? result = null;
+    var cmd = CastService.adopt_cmd ("id-1", "127.0.0.1", 1,
+        "https://example.test/stream");
+    assert (cmd != null);
+    Elmish.Cmd.exec<Gradio.Message> ((msg) => { result = msg; }, cmd);
+    var context = GLib.MainContext.@default ();
+    var deadline = GLib.get_monotonic_time () + 3 * 1000000;
+    while (result == null && GLib.get_monotonic_time () < deadline)
+        context.iteration (true);
+    assert (result is CastAdoptFailedMessage);
+}
+
 int main (string[] args) {
     Test.init (ref args);
     Test.add_func ("/cast/content_type_default", test_content_type_default);
@@ -67,6 +335,36 @@ int main (string[] args) {
     Test.add_func ("/cast/media_state", test_media_player_state);
     Test.add_func ("/cast/media_stop_json", test_media_stop_json);
     Test.add_func ("/cast/load_json_escapes_control_characters", test_load_json_escapes_control_characters);
+    Test.add_func ("/cast/media_status_json", test_media_status_json);
+    Test.add_func ("/cast/media_status_json_without_session", test_media_status_json_without_session);
+    Test.add_func ("/cast/player_transition_buffering", test_player_transition_buffering_does_not_start);
+    Test.add_func ("/cast/player_transition_resumes_from_buffering", test_player_transition_resumes_from_buffering);
+    Test.add_func ("/cast/should_report_lost", test_should_report_lost);
+    Test.add_func ("/cast/player_transition_playing", test_player_transition_playing_starts);
+    Test.add_func ("/cast/player_transition_idle", test_player_transition_idle_is_lost);
+    Test.add_func ("/cast/player_transition_empty_is_lost", test_player_transition_empty_status_is_lost);
+    Test.add_func ("/cast/player_transition_paused", test_player_transition_paused);
+    Test.add_func ("/cast/player_transition_resumes", test_player_transition_resumes);
+    Test.add_func ("/cast/player_transition_same_state", test_player_transition_same_state_is_none);
+    Test.add_func ("/cast/liveness_expired", test_liveness_expired_boundary);
+    Test.add_func ("/cast/media_message_initial_playing", test_media_status_message_initial_playing);
+    Test.add_func ("/cast/media_message_initial_buffering", test_media_status_message_initial_buffering);
+    Test.add_func ("/cast/media_message_idle", test_media_status_message_idle_is_lost);
+    Test.add_func ("/cast/media_message_initial_paused", test_media_status_message_initial_paused);
+    Test.add_func ("/cast/heartbeat_namespace", test_heartbeat_namespace);
+    Test.add_func ("/cast/media_message_paused", test_media_status_message_paused);
+    Test.add_func ("/cast/media_message_resumes", test_media_status_message_resumes);
+    Test.add_func ("/cast/media_message_unchanged", test_media_status_message_unchanged);
+    Test.add_func ("/cast/media_app_from_json", test_media_app_from_json);
+    Test.add_func ("/cast/media_app_from_json_object_namespaces", test_media_app_from_json_object_namespaces);
+    Test.add_func ("/cast/media_app_without_media_namespace", test_media_app_from_json_without_media_namespace);
+    Test.add_func ("/cast/media_app_empty", test_media_app_from_json_empty);
+    Test.add_func ("/cast/media_content_id", test_media_content_id);
+    Test.add_func ("/cast/is_http_url", test_is_http_url);
+    Test.add_func ("/cast/media_command_json", test_media_command_json);
+    Test.add_func ("/cast/set_volume_json", test_set_volume_json);
+    Test.add_func ("/cast/probe_no_session_on_connection_error", test_probe_reports_no_session_on_connection_error);
+    Test.add_func ("/cast/adopt_failure_on_connection_error", test_adopt_reports_failure_on_connection_error);
     return Test.run ();
 }
 

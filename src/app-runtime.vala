@@ -39,6 +39,10 @@ namespace Gradio {
         private GLib.Application? application = null;
         private bool background_hold = false;
         private SleepInhibitor sleep_inhibitor = new SleepInhibitor ();
+        // Short-lived ICY metadata polls while casting.
+        private CastMetadataPoller? cast_metadata_poller = null;
+        private string cast_metadata_url = "";
+        private string cast_metadata_device = "";
 
         public AppRuntime (AppConfig config, bool load_failed = false,
                 bool read_only = false, string? favicon_dir = null) {
@@ -103,6 +107,10 @@ namespace Gradio {
                 player.set_volume (volume);
                 schedule_save ();
             });
+        }
+
+        public override Elmish.Cmd<Message>? set_cast_volume (double volume) {
+            return Gradio.CastService.set_volume_cmd (volume);
         }
 
         public override Elmish.Cmd<Message>? save_config () {
@@ -187,10 +195,64 @@ namespace Gradio {
         }
 
         public void shutdown () {
-            CastService.shutdown ();
+            stop_cast_metadata_now ();
+            CastService.shutdown (config.cast_keep_on_quit);
             sleep_inhibitor.release ();
             player.shutdown ();
             config_store.flush_sync ();
+        }
+
+        public override Elmish.Cmd<Message>? start_cast_metadata (string device_id,
+                string url) {
+            return new Elmish.Cmd<Message> ((dispatch) => {
+                start_cast_metadata_now (dispatch, device_id, url);
+            });
+        }
+
+        private void start_cast_metadata_now (Elmish.Dispatch<Message> dispatch,
+                string device_id, string url) {
+            if (url == "")
+                return;
+            if (cast_metadata_poller != null && cast_metadata_poller.active &&
+                    cast_metadata_url == url &&
+                    cast_metadata_device == device_id) {
+                cast_metadata_poller.interval_seconds =
+                    (uint) config.cast_track_titles_interval;
+                return;
+            }
+            stop_cast_metadata_now ();
+            var poller = new CastMetadataPoller ();
+            poller.interval_seconds = (uint) config.cast_track_titles_interval;
+            poller.title_changed.connect ((title) => {
+                dispatch (new CastMetadataMessage (device_id, title));
+            });
+            cast_metadata_poller = poller;
+            cast_metadata_url = url;
+            cast_metadata_device = device_id;
+            poller.start (url);
+        }
+
+        public override Elmish.Cmd<Message>? stop_cast_metadata () {
+            return new Elmish.Cmd<Message> ((dispatch) => {
+                stop_cast_metadata_now ();
+            });
+        }
+
+        public override Elmish.Cmd<Message>? set_cast_metadata_interval (
+                int seconds) {
+            return new Elmish.Cmd<Message> ((dispatch) => {
+                if (cast_metadata_poller != null)
+                    cast_metadata_poller.interval_seconds = (uint) seconds;
+            });
+        }
+
+        private void stop_cast_metadata_now () {
+            var poller = cast_metadata_poller;
+            cast_metadata_poller = null;
+            cast_metadata_url = "";
+            cast_metadata_device = "";
+            if (poller != null)
+                poller.stop ();
         }
 
         public override Elmish.Cmd<Message>? vote (string station_id) {
@@ -681,6 +743,24 @@ namespace Gradio {
 
     public override Elmish.Cmd<Gradio.Message>? discover_cast () {
         return Gradio.CastService.discover_cmd ();
+    }
+
+    public override Elmish.Cmd<Gradio.Message>? sync_cast (string device_id,
+            string host, int port) {
+        return Gradio.CastService.probe_cmd (device_id, host, port);
+    }
+
+    public override Elmish.Cmd<Gradio.Message>? adopt_cast (string device_id,
+            string host, int port, string url) {
+        return Gradio.CastService.adopt_cmd (device_id, host, port, url);
+    }
+
+    public override Elmish.Cmd<Gradio.Message>? pause_cast (string device_id) {
+        return Gradio.CastService.media_command_cmd (device_id, "PAUSE");
+    }
+
+    public override Elmish.Cmd<Gradio.Message>? resume_cast (string device_id) {
+        return Gradio.CastService.media_command_cmd (device_id, "PLAY");
     }
 
     public override Elmish.Cmd<Gradio.Message>? cast (string device_id, string host,
