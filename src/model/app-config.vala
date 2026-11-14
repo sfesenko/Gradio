@@ -16,6 +16,7 @@ namespace Gradio {
         public const int MIN_WINDOW_HEIGHT = 240;
         public const int MAX_WINDOW_SIZE = 16384;
         public const int DEFAULT_ICON_SIZE = 48;
+        public const int DEFAULT_CAST_TRACK_TITLES_INTERVAL = 20;
 
         public double volume = 0.8;
         public bool show_technical_info = false;
@@ -35,6 +36,12 @@ namespace Gradio {
         public int cast_port = 8009;
         public CastLossAction cast_loss_action = CastLossAction.WAIT;
         public bool cast_mode = false;
+        public bool cast_keep_on_quit = true;
+        // Read the cast stream's ICY metadata locally (silent GStreamer
+        // pipeline) to show track titles; the receiver exposes none.
+        public bool cast_track_titles = true;
+        // Seconds between ICY metadata polls while casting.
+        public int cast_track_titles_interval = DEFAULT_CAST_TRACK_TITLES_INTERVAL;
         public SearchSortMode search_sort = SearchSortMode.RELEVANCE;
         public LibrarySortMode library_sort = LibrarySortMode.CUSTOM;
         public bool library_sort_descending = false;
@@ -45,6 +52,22 @@ namespace Gradio {
 
         public AppConfig (string? path = null) {
             this.path = path ?? default_path ();
+        }
+
+        public static int normalize_track_titles_interval (int seconds) {
+            switch (seconds) {
+                case 10:
+                case 20:
+                case 30:
+                case 60:
+                    return seconds;
+                default:
+                    return DEFAULT_CAST_TRACK_TITLES_INTERVAL;
+            }
+        }
+
+        public static int[] track_titles_interval_choices () {
+            return { 10, 20, 30, 60 };
         }
 
         public static int normalize_icon_size (int size) {
@@ -156,6 +179,15 @@ namespace Gradio {
                         cast_loss_action_to_string (config.cast_loss_action)));
                 config.cast_mode = settings.get_boolean_member_with_default (
                     "cast_mode", config.cast_mode);
+                config.cast_keep_on_quit = settings.get_boolean_member_with_default (
+                    "cast_keep_on_quit", config.cast_keep_on_quit);
+                config.cast_track_titles = settings.get_boolean_member_with_default (
+                    "cast_track_titles", config.cast_track_titles);
+                config.cast_track_titles_interval =
+                    normalize_track_titles_interval (
+                        (int) settings.get_int_member_with_default (
+                            "cast_track_titles_interval",
+                            config.cast_track_titles_interval));
                 config.search_sort = StationSort.search_from_string (
                     settings.get_string_member_with_default ("search_sort",
                         StationSort.search_to_string (config.search_sort)));
@@ -233,6 +265,10 @@ namespace Gradio {
             settings.set_string_member ("cast_loss_action",
                 cast_loss_action_to_string (cast_loss_action));
             settings.set_boolean_member ("cast_mode", cast_mode);
+            settings.set_boolean_member ("cast_keep_on_quit", cast_keep_on_quit);
+            settings.set_boolean_member ("cast_track_titles", cast_track_titles);
+            settings.set_int_member ("cast_track_titles_interval",
+                cast_track_titles_interval);
             settings.set_string_member ("search_sort", StationSort.search_to_string (search_sort));
             settings.set_string_member ("library_sort",
                 StationSort.library_sort_to_string (library_sort));

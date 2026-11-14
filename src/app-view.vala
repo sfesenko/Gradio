@@ -52,8 +52,10 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
     private Gtk.MenuButton cast_button;
     private Gtk.Scale cast_volume_scale;
     private Gtk.Box cast_volume_row;
+    private Gtk.Image cast_volume_icon;
     private bool updating_cast_volume = false;
     private Gtk.ListBox cast_device_list;
+    private Gtk.Button cast_discover_button;
     private Gtk.Label cast_status_label;
     private Gtk.Button cast_launch_button;
     private Gtk.Button cast_stop_button;
@@ -72,8 +74,7 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
             ".dragging { opacity: 0.5; }\n" +
             ".drop-before { box-shadow: inset 0 2px 0 0 @accent_bg_color; }\n" +
             ".drop-after { box-shadow: inset 0 -2px 0 0 @accent_bg_color; }\n" +
-            ".cast-active { background-color: alpha(@accent_bg_color, 0.25); border-radius: 6px; }\n" +
-            ".cast-volume-disabled { opacity: 0.45; }";
+            ".cast-active { background-color: alpha(@accent_bg_color, 0.25); border-radius: 6px; }";
         css.load_from_data (rules.data);
         Gtk.StyleContext.add_provider_for_display (Gdk.Display.get_default (), css,
             Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION);
@@ -227,8 +228,8 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
         header.pack_end (sort_button);
 
         cast_button = new Gtk.MenuButton () {
-            icon_name = volume_icon_name (model.config.volume),
-            tooltip_text = _("Cast and volume")
+            icon_name = "display-projector-symbolic",
+            tooltip_text = _("Cast to a device")
         };
         var cast_box = new Gtk.Box (Gtk.Orientation.VERTICAL, 6) {
             margin_top = 8,
@@ -239,8 +240,9 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
         cast_volume_row = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 8) {
             tooltip_text = _("Local volume")
         };
-        cast_volume_row.append (new Gtk.Image.from_icon_name (
-            "audio-volume-high-symbolic"));
+        cast_volume_icon = new Gtk.Image.from_icon_name (
+            "audio-volume-high-symbolic");
+        cast_volume_row.append (cast_volume_icon);
         cast_volume_scale = new Gtk.Scale.with_range (Gtk.Orientation.HORIZONTAL,
             0.0, 1.0, 0.01);
         cast_volume_scale.set_draw_value (false);
@@ -253,7 +255,7 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
         cast_volume_row.append (cast_volume_scale);
         cast_box.append (cast_volume_row);
         cast_box.append (new Gtk.Separator (Gtk.Orientation.HORIZONTAL));
-        var cast_discover_button = new Gtk.Button.with_label (_("Discover devices"));
+        cast_discover_button = new Gtk.Button.with_label (_("Discover devices"));
         cast_discover_button.clicked.connect (() => dispatch (new DiscoverCastDevicesMessage ()));
         cast_box.append (cast_discover_button);
         cast_device_list = new Gtk.ListBox () {
@@ -1023,7 +1025,9 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
                     ? model.cast_error : _("Cast connection lost");
                 break;
         }
-        string cast_tooltip = _("Cast and volume");
+        if (model.cast_remote_label != "" && !model.cast_is_active ())
+            cast_status_label.label = model.cast_remote_label;
+        string cast_tooltip = _("Cast to a device");
         if (model.cast_status == CastStatus.PLAYING && model.cast_device_name != null)
             cast_tooltip = _("Casting to %s").printf (model.cast_device_name);
         else if (model.cast_status == CastStatus.BUFFERING && model.cast_device_name != null)
@@ -1033,25 +1037,25 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
         else if (model.cast_status == CastStatus.LOST)
             cast_tooltip = _("Cast connection lost");
         cast_button.tooltip_text = cast_tooltip;
-        if (model.playback_target == PlaybackTarget.CAST &&
-                model.cast_status == CastStatus.PLAYING)
+        if (model.cast_is_active ())
             cast_button.add_css_class ("cast-active");
         else
             cast_button.remove_css_class ("cast-active");
-        cast_button.icon_name = volume_icon_name (model.config.volume);
-        bool casting = model.playback_target == PlaybackTarget.CAST;
+        bool can_change_device = !(model.cast_is_active () || model.cast_attached);
+        cast_discover_button.sensitive = can_change_device;
+        cast_device_list.sensitive = can_change_device;
+        cast_discover_button.tooltip_text = can_change_device
+            ? _("Discover cast devices")
+            : _("Stop casting to change device");
+        cast_volume_icon.icon_name = volume_icon_name (model.config.volume);
+        bool casting = model.cast_is_active ();
         updating_cast_volume = true;
         if (cast_volume_scale.get_value () != model.config.volume)
             cast_volume_scale.set_value (model.config.volume);
-        cast_volume_scale.sensitive = !casting;
+        cast_volume_scale.sensitive = true;
         updating_cast_volume = false;
-        if (casting) {
-            cast_volume_row.add_css_class ("cast-volume-disabled");
-            cast_volume_row.tooltip_text = _("Stop casting to change local volume");
-        } else {
-            cast_volume_row.remove_css_class ("cast-volume-disabled");
-            cast_volume_row.tooltip_text = _("Local volume");
-        }
+        cast_volume_row.tooltip_text = casting
+            ? _("Volume (local and cast)") : _("Local volume");
         cast_launch_button.sensitive = model.playback_target == PlaybackTarget.LOCAL &&
             model.cast_device_id != null && model.current_stream_url != "";
         cast_stop_button.sensitive = model.playback_target == PlaybackTarget.CAST;

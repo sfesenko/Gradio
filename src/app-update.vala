@@ -233,6 +233,22 @@ private Elmish.Cmd<Gradio.Message>? update_model (Gradio.Message msg, Gradio.App
             return update_stop_cast (msg, model, commands);
         case MessageKind.PLAY_LOCAL:
             return update_play_local (msg, model, commands);
+        case MessageKind.SYNC_CAST_SESSION:
+            return update_sync_cast_session (msg, model, commands);
+        case MessageKind.CAST_SESSION_DETECTED:
+            return update_cast_session_detected (msg, model, commands);
+        case MessageKind.CAST_ADOPTED:
+            return update_cast_adopted (msg, model, commands);
+        case MessageKind.CAST_ADOPT_FAILED:
+            return update_cast_adopt_failed (msg, model, commands);
+        case MessageKind.CAST_METADATA:
+            return update_cast_metadata (msg, model, commands);
+        case MessageKind.SET_CAST_KEEP_ON_QUIT:
+            return update_set_cast_keep_on_quit (msg, model, commands);
+        case MessageKind.SET_CAST_TRACK_TITLES:
+            return update_set_cast_track_titles (msg, model, commands);
+        case MessageKind.SET_CAST_TRACK_TITLES_INTERVAL:
+            return update_set_cast_track_titles_interval (msg, model, commands);
         default:
             // Vala enums are not exhaustiveness-checked. Keep a loud failure
             // here so a MessageKind added without an update case cannot
@@ -333,7 +349,10 @@ private Elmish.Cmd<Gradio.Message>? update_volume (Gradio.Message msg, Gradio.Ap
         return null;
     double clamped = volume.volume.clamp (0.0, 1.0);
     model.config.volume = clamped;
-    return commands.set_volume (clamped);
+    var local = commands.set_volume (clamped);
+    if (!model.cast_is_active ())
+        return local;
+    return Commands.chain (local, commands.set_cast_volume (clamped));
 }
 
 private Elmish.Cmd<Gradio.Message>? update_config_save_failed (Gradio.Message msg, Gradio.AppModel model, Gradio.Commands commands) {
@@ -547,6 +566,10 @@ private Elmish.Cmd<Gradio.Message>? update_remove_station (Gradio.Message msg, G
             model.playback_target = PlaybackTarget.LOCAL;
             model.cast_status = CastStatus.STOPPED;
             model.config.cast_mode = false;
+            model.cast_resume_pending = false;
+            model.cast_retry_on_discovery = false;
+            model.cast_remote_label = "";
+            model.cast_pending_label = "";
             return Commands.chain (commands.stop_cast (model.cast_device_id,
                 cast_host_for (model), cast_port_for (model)),
                 Commands.chain (commands.release_sleep (), commands.save_config ()));
@@ -836,22 +859,36 @@ private Elmish.Cmd<Gradio.Message>? update_play_station (Gradio.Message msg, Gra
             model.cast_device_id != null) {
         model.config.cast_mode = true;
         model.cast_status = CastStatus.CONNECTING;
-        return Commands.chain (commands.save_config (),
-            Commands.chain (commands.stop (),
-                Commands.chain (commands.cast (model.cast_device_id,
-                        cast_host_for (model), cast_port_for (model),
-                        model.current_stream_url),
-                    Commands.chain (commands.inhibit_sleep (), report))));
+        model.cast_attached = false;
+        model.cast_remote_label = "";
+        model.cast_pending_label = "";
+        return Commands.chain (commands.stop_cast_metadata (),
+            Commands.chain (commands.save_config (),
+                Commands.chain (commands.stop (),
+                    Commands.chain (commands.cast (model.cast_device_id,
+                            cast_host_for (model), cast_port_for (model),
+                            model.current_stream_url),
+                        Commands.chain (commands.inhibit_sleep (), report)))));
     }
+    model.cast_remote_label = "";
+    model.cast_pending_label = "";
     return Commands.chain (commands.save_config (),
         Commands.chain (commands.play (play.station),
             Commands.chain (commands.inhibit_sleep (), report)));
 }
 
 private Elmish.Cmd<Gradio.Message>? update_toggle_play (Gradio.Message msg, Gradio.AppModel model, Gradio.Commands commands) {
+    // No stream yet (cast mode restored from config, nothing played this
+    // session): there is nothing to LOAD, so fall through to the local path,
+    // which ignores the toggle while no station is selected.
     if (model.playback_target == PlaybackTarget.CAST &&
-            model.cast_device_id != null) {
+            model.cast_device_id != null && model.current_stream_url != "") {
         if (model.playing) {
+            if (model.cast_attached) {
+                // A live session: pause it instead of stopping and restarting.
+                // The model commits to PAUSED only when the device reports it.
+                return commands.pause_cast (model.cast_device_id);
+            }
             model.playing = false;
             model.playback_stopped = true;
             model.playback_failed = false;
@@ -859,9 +896,29 @@ private Elmish.Cmd<Gradio.Message>? update_toggle_play (Gradio.Message msg, Grad
             model.stream_bitrate = 0;
             model.player_status = "";
             model.cast_status = CastStatus.STOPPED;
-            return Commands.chain (commands.stop_cast (model.cast_device_id,
-                cast_host_for (model), cast_port_for (model)),
-                commands.release_sleep ());
+            model.cast_attached = false;
+            model.cast_remote_label = "";
+            model.cast_pending_label = "";
+            model.cast_resume_pending = false;
+            model.cast_retry_on_discovery = false;
+            model.cast_error = "";
+            model.playback_target = PlaybackTarget.LOCAL;
+            model.config.cast_mode = false;
+            return Commands.chain (commands.save_config (),
+                Commands.chain (commands.stop_cast_metadata (),
+                    Commands.chain (commands.stop_cast (model.cast_device_id,
+                        cast_host_for (model), cast_port_for (model)),
+                        commands.release_sleep ())));
+        }
+        if (model.cast_attached) {
+            model.playing = true;
+            model.playback_stopped = false;
+            model.playback_failed = false;
+            model.player_status = _("Connecting…");
+            model.cast_status = CastStatus.CONNECTING;
+            return Commands.chain (
+                commands.resume_cast (model.cast_device_id),
+                commands.inhibit_sleep ());
         }
         model.playing = true;
         model.playback_stopped = false;
@@ -904,9 +961,19 @@ private Elmish.Cmd<Gradio.Message>? update_stop_playback (Gradio.Message msg, Gr
         model.stream_bitrate = 0;
         model.player_status = "";
         model.cast_status = CastStatus.STOPPED;
-        return Commands.chain (commands.stop_cast (model.cast_device_id,
-            cast_host_for (model), cast_port_for (model)),
-            commands.release_sleep ());
+        model.cast_attached = false;
+        model.cast_remote_label = "";
+        model.cast_pending_label = "";
+        model.cast_resume_pending = false;
+        model.cast_retry_on_discovery = false;
+        model.cast_error = "";
+        model.playback_target = PlaybackTarget.LOCAL;
+        model.config.cast_mode = false;
+        return Commands.chain (commands.save_config (),
+            Commands.chain (commands.stop_cast_metadata (),
+                Commands.chain (commands.stop_cast (model.cast_device_id,
+                    cast_host_for (model), cast_port_for (model)),
+                    commands.release_sleep ())));
     }
     model.playing = false;
     model.playback_stopped = true;
@@ -945,14 +1012,46 @@ private Elmish.Cmd<Gradio.Message>? update_player_metadata_changed (Gradio.Messa
     var metadata = msg as PlayerMetadataChangedMessage;
     if (metadata == null || !model.playing)
         return null;
-    model.stream_title = metadata.title;
     model.stream_bitrate = metadata.bitrate;
+    return apply_stream_metadata (model, commands, metadata.title);
+}
+
+private Elmish.Cmd<Gradio.Message>? update_cast_metadata (Gradio.Message msg,
+        Gradio.AppModel model, Gradio.Commands commands) {
+    var metadata = msg as CastMetadataMessage;
+    if (metadata == null || metadata.device_id != model.cast_device_id)
+        return null;
+    if (!model.config.cast_track_titles)
+        return null;
+    if (!model.playing || model.playback_target != PlaybackTarget.CAST)
+        return null;
+    // A status without media.metadata says nothing about the title. Only an
+    // actual title may replace what is already shown.
+    if (metadata.title == "")
+        return null;
+    return apply_stream_metadata (model, commands, metadata.title);
+}
+
+// Layer 2 is optional: when enabled, a silent local pipeline reads the
+// casted stream's ICY tags because the receiver exposes no metadata.
+private Elmish.Cmd<Gradio.Message>? start_cast_metadata_if_enabled (
+        Gradio.AppModel model, Gradio.Commands commands) {
+    if (!model.config.cast_track_titles || model.current_stream_url == "" ||
+            model.cast_device_id == null || model.cast_device_id == "")
+        return null;
+    return commands.start_cast_metadata (model.cast_device_id,
+        model.current_stream_url);
+}
+
+private Elmish.Cmd<Gradio.Message>? apply_stream_metadata (Gradio.AppModel model,
+        Gradio.Commands commands, string title) {
+    model.stream_title = title;
     model.track_history = PlaybackLifecycle.push_track_title (
-        model.track_history, metadata.title, PlaybackLifecycle.TRACK_HISTORY_LIMIT);
+        model.track_history, title, PlaybackLifecycle.TRACK_HISTORY_LIMIT);
     if (model.config.notifications_enabled && model.current_station != null &&
-            metadata.title != "" && metadata.title != model.last_notified_title) {
-        model.last_notified_title = metadata.title;
-        return commands.notify_now_playing (model.current_station.name, metadata.title);
+            title != "" && title != model.last_notified_title) {
+        model.last_notified_title = title;
+        return commands.notify_now_playing (model.current_station.name, title);
     }
     return null;
 }
@@ -1044,14 +1143,251 @@ private Elmish.Cmd<Gradio.Message>? update_hide_details (Gradio.Message msg, Gra
 }
 
 private Elmish.Cmd<Gradio.Message>? update_restore_last_station (Gradio.Message msg, Gradio.AppModel model, Gradio.Commands commands) {
+    return restore_last_station (model, commands);
+}
+
+private Elmish.Cmd<Gradio.Message>? restore_last_station (Gradio.AppModel model,
+        Gradio.Commands commands) {
     if (!model.config.resume_playback || model.config.last_station_id == "")
         return null;
     var last_station = model.config.find_station (model.config.last_station_id);
     if (last_station == null)
         return null;
     if (model.playback_target == PlaybackTarget.CAST && model.cast_device_id != null)
+        // The startup probe may adopt a live session; if it finds none, this
+        // flag makes the restore re-cast once.
         model.cast_resume_pending = true;
     return updateModel (new PlayStationMessage (last_station), model, commands);
+}
+
+private Elmish.Cmd<Gradio.Message>? update_sync_cast_session (
+        Gradio.Message msg, Gradio.AppModel model, Gradio.Commands commands) {
+    if (model.cast_device_id == null || model.cast_device_id == "" ||
+            model.cast_device_host == "")
+        return restore_last_station (model, commands);
+    model.cast_remote_label = "";
+    model.cast_pending_label = "";
+    var probe = commands.sync_cast (model.cast_device_id, model.cast_device_host,
+        model.cast_port);
+    if (model.playback_target != PlaybackTarget.CAST) {
+        // Local output does not need to wait for the probe. Start the restore
+        // now; a live cast session detected in parallel is shown as remote.
+        return Commands.chain (restore_last_station (model, commands), probe);
+    }
+    return probe;
+}
+
+private Elmish.Cmd<Gradio.Message>? update_cast_session_detected (
+        Gradio.Message msg, Gradio.AppModel model, Gradio.Commands commands) {
+    var detected = msg as CastSessionDetectedMessage;
+    if (detected == null || detected.device_id != model.cast_device_id)
+        return null;
+    // The user started casting while the probe was in flight: never replace
+    // the station that is currently connecting with an older detected session.
+    if (model.cast_attached ||
+            (model.playback_target == PlaybackTarget.CAST &&
+             model.cast_status == CastStatus.CONNECTING))
+        return null;
+    if (detected.content_id == "") {
+        if (detected.player_state == "") {
+            // Nothing is playing on the device. Do not restart a local
+            // stream that the parallel startup restore already started.
+            if (model.playing || model.cast_attached)
+                return null;
+            return restore_last_station (model, commands);
+        }
+        // A live session whose URL is not exposed: show it, never re-LOAD.
+        model.cast_remote_label = cast_remote_label (detected);
+        return null;
+    }
+    if (!CastService.is_http_url (detected.content_id)) {
+        model.cast_remote_label = cast_remote_label (detected);
+        return null;
+    }
+    if (model.playback_target != PlaybackTarget.CAST && model.playing) {
+        // Local playback is running: report the session without hijacking it
+        // or adding an unrequested station to the library.
+        model.cast_remote_label = cast_remote_label (detected);
+        return null;
+    }
+    var station = model.config.find_station_by_url (detected.content_id);
+    Elmish.Cmd<Gradio.Message>? add = null;
+    if (station == null) {
+        station = make_cast_station (detected);
+        model.config.add_station (station);
+        model.invalidate_library_order ();
+        add = commands.save_config ();
+    }
+    // Nothing is playing locally, so a live session on the configured device
+    // is adopted even if the last output was local.
+    model.playback_target = PlaybackTarget.CAST;
+    model.config.cast_mode = true;
+    model.current_station = station;
+    model.current_stream_url = detected.content_id;
+    model.config.last_station_id = station.id;
+    model.playback_stopped = false;
+    model.playback_failed = false;
+    model.player_status = "";
+    model.stream_title = detected.title;
+    model.stream_bitrate = 0;
+    model.last_notified_title = detected.title;
+    model.cast_status = CastStatus.CONNECTING;
+    model.cast_error = "";
+    model.cast_remote_label = "";
+    // Promote to the popover label only if adoption actually fails.
+    model.cast_pending_label = cast_remote_label (detected);
+    model.playing = true;
+    var adopt = commands.adopt_cast (model.cast_device_id,
+        cast_host_for (model), cast_port_for (model), detected.content_id);
+    return Commands.chain (add ?? commands.save_config (),
+        Commands.chain (adopt, commands.inhibit_sleep ()));
+}
+
+private Elmish.Cmd<Gradio.Message>? update_cast_adopted (
+        Gradio.Message msg, Gradio.AppModel model, Gradio.Commands commands) {
+    var adopted = msg as CastAdoptedMessage;
+    if (adopted == null || adopted.device_id != model.cast_device_id)
+        return null;
+    model.cast_attached = true;
+    model.cast_remote_label = "";
+    model.cast_pending_label = "";
+    model.cast_resume_pending = false;
+    model.cast_retry_on_discovery = false;
+    model.playback_stopped = false;
+    model.playback_failed = false;
+    model.cast_error = "";
+    model.player_status = adopted.player_state == "PAUSED"
+        ? _("Paused on cast device") : "";
+    model.cast_status = cast_status_for_player_state (adopted.player_state);
+    model.playing = adopted.player_state != "PAUSED" &&
+        adopted.player_state != "IDLE";
+    // A live adopted session gets the silent metadata reader right away.
+    Elmish.Cmd<Gradio.Message>? metadata = model.playing
+        ? start_cast_metadata_if_enabled (model, commands) : null;
+    var sleep = model.playing
+        ? commands.inhibit_sleep () : commands.release_sleep ();
+    return Commands.chain (commands.set_cast_volume (model.config.volume),
+        Commands.chain (sleep, metadata));
+}
+
+private Elmish.Cmd<Gradio.Message>? update_cast_adopt_failed (
+        Gradio.Message msg, Gradio.AppModel model, Gradio.Commands commands) {
+    var failed = msg as CastAdoptFailedMessage;
+    if (failed == null || failed.device_id != model.cast_device_id)
+        return null;
+    bool was_cast = model.playback_target == PlaybackTarget.CAST;
+    model.cast_status = CastStatus.READY;
+    model.cast_attached = false;
+    if (was_cast) {
+        model.playing = false;
+        model.playback_stopped = true;
+        model.player_status = "";
+        model.stream_title = "";
+        model.stream_bitrate = 0;
+        model.last_notified_title = "";
+    }
+    model.cast_resume_pending = false;
+    model.cast_retry_on_discovery = false;
+    // The remote session cannot be controlled, so return to the local output.
+    // Keep the detection label as show-only; never re-LOAD a stream that may
+    // still be playing on the device.
+    model.playback_target = PlaybackTarget.LOCAL;
+    model.config.cast_mode = false;
+    if (model.cast_pending_label != "")
+        model.cast_remote_label = model.cast_pending_label;
+    model.cast_pending_label = "";
+    return Commands.chain (commands.save_config (),
+        Commands.chain (commands.stop_cast_metadata (),
+            was_cast ? commands.release_sleep () : null));
+}
+
+private CastStatus cast_status_for_player_state (string state) {
+    switch (state) {
+        case "PAUSED":
+            return CastStatus.PAUSED;
+        case "BUFFERING":
+            return CastStatus.BUFFERING;
+        default:
+            return CastStatus.PLAYING;
+    }
+}
+
+private RadioStation make_cast_station (CastSessionDetectedMessage detected) {
+    var station = new RadioStation ();
+    station.id = RadioStation.new_local_id ();
+    station.name = detected.title != "" ? detected.title
+        : station_name_for_url (detected.content_id);
+    station.url = detected.content_id;
+    station.original_url = detected.content_id;
+    station.is_local = true;
+    return station;
+}
+
+private string station_name_for_url (string url) {
+    try {
+        var uri = Uri.parse (url, UriFlags.NONE);
+        if (uri != null) {
+            var host = uri.get_host ();
+            var path = uri.get_path ();
+            if (host != "")
+                return path == "" || path == "/" ? host : host + path;
+        }
+    } catch (GLib.Error e) {
+    }
+    return url;
+}
+
+private string cast_remote_label (CastSessionDetectedMessage detected) {
+    var app = detected.app_name != "" ? detected.app_name : _("cast device");
+    if (detected.title != "")
+        return _("%s is casting: %s").printf (app, detected.title);
+    if (detected.player_state == "PAUSED")
+        return _("%s is casting (paused)").printf (app);
+    return _("%s is casting").printf (app);
+}
+
+private Elmish.Cmd<Gradio.Message>? update_set_cast_track_titles_interval (
+        Gradio.Message msg, Gradio.AppModel model, Gradio.Commands commands) {
+    var set = msg as SetCastTrackTitlesIntervalMessage;
+    if (set == null)
+        return null;
+    int seconds = AppConfig.normalize_track_titles_interval (set.seconds);
+    if (seconds == model.config.cast_track_titles_interval)
+        return null;
+    model.config.cast_track_titles_interval = seconds;
+    var save = commands.save_config ();
+    if (model.config.cast_track_titles && model.cast_attached && model.playing)
+        return Commands.chain (save,
+            commands.set_cast_metadata_interval (seconds));
+    return save;
+}
+
+private Elmish.Cmd<Gradio.Message>? update_set_cast_keep_on_quit (
+        Gradio.Message msg, Gradio.AppModel model, Gradio.Commands commands) {
+    var set = msg as SetCastKeepOnQuitMessage;
+    if (set == null || set.enabled == model.config.cast_keep_on_quit)
+        return null;
+    model.config.cast_keep_on_quit = set.enabled;
+    return commands.save_config ();
+}
+
+private Elmish.Cmd<Gradio.Message>? update_set_cast_track_titles (
+        Gradio.Message msg, Gradio.AppModel model, Gradio.Commands commands) {
+    var set = msg as SetCastTrackTitlesMessage;
+    if (set == null || set.enabled == model.config.cast_track_titles)
+        return null;
+    model.config.cast_track_titles = set.enabled;
+    var save = commands.save_config ();
+    if (!set.enabled) {
+        // Do not leave the last ICY title on screen after the poller stops.
+        if (model.cast_attached || model.cast_is_active ())
+            model.stream_title = "";
+        model.last_notified_title = "";
+        return Commands.chain (save, commands.stop_cast_metadata ());
+    }
+    if (model.cast_attached && model.playing)
+        return Commands.chain (save, start_cast_metadata_if_enabled (model, commands));
+    return save;
 }
 
 private Elmish.Cmd<Gradio.Message>? update_window_geometry (Gradio.Message msg, Gradio.AppModel model, Gradio.Commands commands) {
@@ -1143,6 +1479,10 @@ private Elmish.Cmd<Gradio.Message>? update_vote_failed (Gradio.Message msg, Grad
 }
 
 private Elmish.Cmd<Gradio.Message>? update_discover_cast_devices (Gradio.Message msg, Gradio.AppModel model, Gradio.Commands commands) {
+    // Do not replace a live cast state with DISCOVERING: the results and the
+    // failure path would otherwise make an audible session look inactive.
+    if (model.cast_is_active () || model.cast_attached)
+        return null;
     model.cast_status = CastStatus.DISCOVERING;
     model.cast_error = "";
     return commands.discover_cast ();
@@ -1155,6 +1495,11 @@ private Elmish.Cmd<Gradio.Message>? update_cast_devices_discovered (Gradio.Messa
     model.cast_devices = discovered.devices;
     if (model.cast_retry_on_discovery) {
         model.cast_retry_on_discovery = false;
+        // The user switched to local playback while discovery was in flight.
+        if (model.playback_target != PlaybackTarget.CAST) {
+            model.cast_resume_pending = false;
+            return null;
+        }
         CastDevice? device = null;
         foreach (var candidate in model.cast_devices) {
             if (candidate.id == model.cast_device_id) {
@@ -1169,13 +1514,15 @@ private Elmish.Cmd<Gradio.Message>? update_cast_devices_discovered (Gradio.Messa
             model.config.cast_port = model.cast_port;
             model.cast_status = CastStatus.CONNECTING;
             model.cast_error = "";
+            model.cast_attached = false;
             model.playing = true;
             model.playback_stopped = false;
             model.playback_failed = false;
             model.player_status = _("Connecting…");
             return Commands.chain (commands.save_config (),
-                commands.cast (device.id, device.host, model.cast_port,
-                    model.current_stream_url));
+                Commands.chain (commands.cast (device.id, device.host,
+                    model.cast_port, model.current_stream_url),
+                    commands.inhibit_sleep ()));
         }
         model.cast_status = CastStatus.FAILED;
         model.cast_error = device != null
@@ -1185,6 +1532,8 @@ private Elmish.Cmd<Gradio.Message>? update_cast_devices_discovered (Gradio.Messa
         model.player_status = model.cast_error;
         return commands.release_sleep ();
     }
+    // A preserved state (PLAYING, PAUSED, BUFFERING, CONNECTING, LOST) keeps
+    // its reason; only a recomputed state clears it.
     if (model.cast_status != CastStatus.PLAYING &&
             model.cast_status != CastStatus.BUFFERING &&
             model.cast_status != CastStatus.CONNECTING &&
@@ -1192,17 +1541,23 @@ private Elmish.Cmd<Gradio.Message>? update_cast_devices_discovered (Gradio.Messa
             model.cast_status != CastStatus.LOST) {
         model.cast_status = model.cast_devices.length > 0
             ? CastStatus.READY : CastStatus.IDLE;
+        model.cast_error = "";
     }
-    model.cast_error = "";
     return null;
 }
 
 private Elmish.Cmd<Gradio.Message>? update_cast_discovery_failed (Gradio.Message msg, Gradio.AppModel model, Gradio.Commands commands) {
     var failed = msg as CastDiscoveryFailedMessage;
+    if (model.cast_is_active () || model.cast_attached)
+        return null;
+    bool retry = model.cast_retry_on_discovery;
     model.cast_status = CastStatus.FAILED;
     model.cast_error = failed != null ? failed.error : _("Cast discovery failed");
     model.cast_retry_on_discovery = false;
     model.cast_resume_pending = false;
+    // A failed auto-resume holds the inhibitor for the retry; release it now.
+    if (retry)
+        return commands.release_sleep ();
     return null;
 }
 
@@ -1210,10 +1565,16 @@ private Elmish.Cmd<Gradio.Message>? update_select_cast_device (Gradio.Message ms
     var selected = msg as SelectCastDeviceMessage;
     if (selected == null)
         return null;
+    // Changing the identity mid-cast would drop later loss messages from the
+    // device that is actually playing.
+    if (model.cast_is_active () || model.cast_attached)
+        return null;
     model.cast_device_id = selected.device_id;
     model.cast_device_name = selected.device_name;
     model.cast_device_host = selected.device_host;
     model.cast_port = selected.device_port > 0 ? selected.device_port : 8009;
+    model.cast_attached = false;
+    model.cast_remote_label = "";
     model.config.cast_device_id = model.cast_device_id;
     model.config.cast_device_name = model.cast_device_name;
     model.config.cast_host = model.cast_device_host;
@@ -1245,6 +1606,8 @@ private Elmish.Cmd<Gradio.Message>? update_cast_to_selected (Gradio.Message msg,
     model.config.cast_mode = true;
     model.cast_status = CastStatus.CONNECTING;
     model.cast_error = "";
+    model.cast_remote_label = "";
+    model.cast_pending_label = "";
     model.playing = true;
     model.playback_stopped = false;
     model.playback_failed = false;
@@ -1262,45 +1625,72 @@ private Elmish.Cmd<Gradio.Message>? update_cast_started (Gradio.Message msg, Gra
     model.cast_status = CastStatus.PLAYING;
     model.playing = true;
     model.player_status = "";
+    model.cast_attached = true;
     model.cast_resume_pending = false;
     model.cast_retry_on_discovery = false;
-    return commands.inhibit_sleep ();
+    return Commands.chain (commands.set_cast_volume (model.config.volume),
+        Commands.chain (commands.inhibit_sleep (),
+            start_cast_metadata_if_enabled (model, commands)));
 }
 
 private Elmish.Cmd<Gradio.Message>? update_cast_stopped (Gradio.Message msg, Gradio.AppModel model, Gradio.Commands commands) {
-    var was_cast = model.playback_target == PlaybackTarget.CAST;
+    bool was_cast = model.playback_target == PlaybackTarget.CAST;
+    bool had_cast_mode = model.config.cast_mode;
     model.cast_status = CastStatus.STOPPED;
+    model.cast_attached = false;
+    model.cast_remote_label = "";
+    model.cast_pending_label = "";
+    model.cast_resume_pending = false;
+    model.cast_retry_on_discovery = false;
+    model.cast_error = "";
+    // The stop command can complete after PlayLocal already started the local
+    // player; only tear down playback when the cast was still the target.
     if (was_cast) {
         model.playing = false;
         model.playback_stopped = true;
         model.stream_title = "";
         model.stream_bitrate = 0;
         model.player_status = "";
-        return commands.release_sleep ();
     }
-    return null;
+    // Stopped is a stop, not a loss: return to local output so Play starts
+    // locally instead of reviving the finished cast.
+    model.playback_target = PlaybackTarget.LOCAL;
+    model.config.cast_mode = false;
+    var save = had_cast_mode ? commands.save_config () : null;
+    var stop_meta = commands.stop_cast_metadata ();
+    if (was_cast)
+        return Commands.chain (save,
+            Commands.chain (stop_meta, commands.release_sleep ()));
+    return Commands.chain (save, stop_meta);
 }
 
 private Elmish.Cmd<Gradio.Message>? update_cast_failed (Gradio.Message msg, Gradio.AppModel model, Gradio.Commands commands) {
     var failed = msg as CastFailedMessage;
+    bool casting = model.playback_target == PlaybackTarget.CAST;
     model.cast_status = CastStatus.FAILED;
+    model.cast_attached = false;
     model.cast_error = failed != null ? failed.error : _("Cast failed");
-    model.playing = false;
-    model.playback_stopped = true;
-    model.stream_title = "";
-    model.stream_bitrate = 0;
-    model.player_status = "";
+    if (casting) {
+        model.playing = false;
+        model.playback_stopped = true;
+        model.stream_title = "";
+        model.stream_bitrate = 0;
+        model.player_status = "";
+        model.cast_remote_label = "";
+        model.cast_pending_label = "";
+    }
     bool retry = model.cast_resume_pending;
     model.cast_resume_pending = false;
-    if (model.playback_target == PlaybackTarget.CAST &&
-            retry && model.cast_device_id != null) {
+    Elmish.Cmd<Gradio.Message> stop_meta = commands.stop_cast_metadata ();
+    if (casting && retry && model.cast_device_id != null) {
         model.cast_retry_on_discovery = true;
         model.cast_status = CastStatus.DISCOVERING;
-        return commands.discover_cast ();
+        model.cast_error = "";
+        return Commands.chain (stop_meta, commands.discover_cast ());
     }
-    if (model.playback_target == PlaybackTarget.CAST)
-        return commands.release_sleep ();
-    return null;
+    if (casting)
+        return Commands.chain (stop_meta, commands.release_sleep ());
+    return stop_meta;
 }
 
 private Elmish.Cmd<Gradio.Message>? update_cast_lost (Gradio.Message msg, Gradio.AppModel model, Gradio.Commands commands) {
@@ -1309,7 +1699,12 @@ private Elmish.Cmd<Gradio.Message>? update_cast_lost (Gradio.Message msg, Gradio
             lost.device_id != model.cast_device_id)
         return null;
     model.cast_status = CastStatus.LOST;
+    model.cast_attached = false;
     model.cast_error = lost.error;
+    // The auto-resume attempt is over: a later cast failure must not trigger
+    // another discovery round.
+    model.cast_resume_pending = false;
+    model.cast_retry_on_discovery = false;
     if (model.config.cast_loss_action == CastLossAction.PLAY_LOCAL &&
             model.current_station != null) {
         model.playback_target = PlaybackTarget.LOCAL;
@@ -1320,8 +1715,12 @@ private Elmish.Cmd<Gradio.Message>? update_cast_lost (Gradio.Message msg, Gradio
         model.stream_title = "";
         model.stream_bitrate = 0;
         model.player_status = _("Connecting…");
-        return Commands.chain (commands.save_config (),
-            commands.play (model.current_station));
+        model.cast_remote_label = "";
+        model.cast_pending_label = "";
+        return Commands.chain (commands.stop_cast_metadata (),
+            Commands.chain (commands.save_config (),
+                Commands.chain (commands.play (model.current_station),
+                    commands.inhibit_sleep ())));
     }
     model.playing = false;
     model.playback_stopped = true;
@@ -1329,7 +1728,10 @@ private Elmish.Cmd<Gradio.Message>? update_cast_lost (Gradio.Message msg, Gradio
     model.stream_title = "";
     model.stream_bitrate = 0;
     model.player_status = lost.error;
-    return commands.release_sleep ();
+    model.cast_remote_label = "";
+    model.cast_pending_label = "";
+    return Commands.chain (commands.stop_cast_metadata (),
+        commands.release_sleep ());
 }
 
 private Elmish.Cmd<Gradio.Message>? update_cast_paused (Gradio.Message msg, Gradio.AppModel model, Gradio.Commands commands) {
@@ -1337,11 +1739,20 @@ private Elmish.Cmd<Gradio.Message>? update_cast_paused (Gradio.Message msg, Grad
     if (paused == null || model.playback_target != PlaybackTarget.CAST ||
             paused.device_id != model.cast_device_id)
         return null;
+    bool was_attached = model.cast_attached;
+    model.cast_attached = true;
     model.cast_status = CastStatus.PAUSED;
     model.playing = false;
     model.playback_stopped = false;
     model.player_status = _("Paused on cast device");
-    return commands.release_sleep ();
+    var stop_meta = commands.stop_cast_metadata ();
+    // A paused first status proves the session exists; attach it and seed the
+    // receiver volume even though CastStarted was never dispatched.
+    if (!was_attached)
+        return Commands.chain (stop_meta,
+            Commands.chain (commands.set_cast_volume (model.config.volume),
+                commands.release_sleep ()));
+    return Commands.chain (stop_meta, commands.release_sleep ());
 }
 
 private Elmish.Cmd<Gradio.Message>? update_cast_buffering (Gradio.Message msg, Gradio.AppModel model, Gradio.Commands commands) {
@@ -1350,10 +1761,15 @@ private Elmish.Cmd<Gradio.Message>? update_cast_buffering (Gradio.Message msg, G
             buffering.device_id != model.cast_device_id)
         return null;
     model.cast_status = CastStatus.BUFFERING;
+    model.cast_attached = true;
     model.playing = true;
     model.playback_stopped = false;
     model.player_status = _("Buffering…");
-    return null;
+    // The media session is live again (possibly after a pause), so keep the
+    // inhibitor held and resume the metadata reader.
+    model.cast_resume_pending = false;
+    return Commands.chain (commands.inhibit_sleep (),
+        start_cast_metadata_if_enabled (model, commands));
 }
 
 private Elmish.Cmd<Gradio.Message>? update_stop_cast (Gradio.Message msg, Gradio.AppModel model, Gradio.Commands commands) {
@@ -1366,12 +1782,19 @@ private Elmish.Cmd<Gradio.Message>? update_stop_cast (Gradio.Message msg, Gradio
     model.stream_bitrate = 0;
     model.player_status = "";
     model.cast_status = CastStatus.STOPPED;
+    model.cast_attached = false;
+    model.cast_remote_label = "";
+    model.cast_pending_label = "";
+    model.cast_resume_pending = false;
+    model.cast_retry_on_discovery = false;
+    model.cast_error = "";
     model.playback_target = PlaybackTarget.LOCAL;
     model.config.cast_mode = false;
-    return Commands.chain (commands.save_config (),
-        Commands.chain (commands.stop_cast (model.cast_device_id,
-            cast_host_for (model), cast_port_for (model)),
-            commands.release_sleep ()));
+    return Commands.chain (commands.stop_cast_metadata (),
+        Commands.chain (commands.save_config (),
+            Commands.chain (commands.stop_cast (model.cast_device_id,
+                cast_host_for (model), cast_port_for (model)),
+                commands.release_sleep ())));
 }
 
 private string cast_host_for (Gradio.AppModel model) {
@@ -1400,19 +1823,26 @@ private Elmish.Cmd<Gradio.Message>? update_play_local (Gradio.Message msg, Gradi
     model.playback_target = PlaybackTarget.LOCAL;
     model.config.cast_mode = false;
     model.cast_status = CastStatus.IDLE;
+    model.cast_attached = false;
+    model.cast_resume_pending = false;
+    model.cast_retry_on_discovery = false;
+    model.cast_remote_label = "";
+    model.cast_pending_label = "";
     model.cast_error = "";
     var save = had_cast_mode ? commands.save_config () : null;
+    var stop_meta = commands.stop_cast_metadata ();
     var stop_cast_cmd = was_cast && model.cast_device_id != null
         ? commands.stop_cast (model.cast_device_id, cast_host_for (model),
             cast_port_for (model)) : null;
     if (model.current_station == null)
-        return Commands.chain (save, stop_cast_cmd);
+        return Commands.chain (stop_meta, Commands.chain (save, stop_cast_cmd));
     model.playing = true;
     model.playback_stopped = false;
     model.playback_failed = false;
     model.player_status = _("Connecting…");
-    return Commands.chain (save,
-        Commands.chain (stop_cast_cmd,
-            Commands.chain (commands.play (model.current_station),
-                commands.inhibit_sleep ())));
+    return Commands.chain (stop_meta,
+        Commands.chain (save,
+            Commands.chain (stop_cast_cmd,
+                Commands.chain (commands.play (model.current_station),
+                    commands.inhibit_sleep ()))));
 }

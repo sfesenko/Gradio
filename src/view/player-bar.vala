@@ -143,7 +143,7 @@ namespace Gradio {
 
             if (volume_button.value != model.config.volume)
                 volume_button.value = model.config.volume;
-            volume_button.sensitive = model.playback_target != PlaybackTarget.CAST;
+            volume_button.sensitive = true;
 
             string signature = string.joinv ("\n", model.track_history);
             if (signature != history_signature) {

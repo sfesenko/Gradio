@@ -40,6 +40,9 @@ namespace Gradio {
                 cancellable = session_cancellable;
 
             var client = new SocketClient ();
+            // Bound the TCP connect. Without this the OS timeout (~2 min on
+            // Linux) can block a startup probe against a stale device IP.
+            client.timeout = 5;
             var conn = yield client.connect_to_host_async (host, (uint16) port,
                 cancellable);
             var tls_conn = TlsClientConnection.@new (conn, null);
@@ -59,6 +62,14 @@ namespace Gradio {
             if (output == null || closing)
                 throw new IOError.FAILED ("not connected");
 
+            var frame = new GLib.Bytes (
+                build_frame (@namespace, destination, json).data);
+            write_queue.push_tail (frame);
+            pump_writes ();
+        }
+
+        private ByteArray build_frame (string @namespace, string destination,
+                string json) {
             var buffer = new ByteArray ();
             var msg = CastMessage ();
             msg.source_id = "12345678-1234-1234-1234-123456789abc";
@@ -67,10 +78,7 @@ namespace Gradio {
             msg.payload_type = 0;
             msg.payload_utf8 = json;
             cast_message_write_frame (buffer, msg);
-
-            var frame = new GLib.Bytes (buffer.data);
-            write_queue.push_tail (frame);
-            pump_writes ();
+            return buffer;
         }
 
         public async void close_async () {

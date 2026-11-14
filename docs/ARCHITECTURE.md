@@ -176,11 +176,68 @@ other. The cast layer is GTK-free and lives in `src/cast/`:
 - `cast-proto.c` — manual protobuf wire encoding; `cast.proto` documents the
   message schema.
 - `cast-service.vala` — Cast v2 commands: mDNS discovery, LAUNCH of the
-  Default Media Receiver, media LOAD, PING/PONG, and STOP.
+  Default Media Receiver, media LOAD, PING/PONG, and STOP. After the first
+  MEDIA_STATUS it polls `GET_STATUS` every 10 s and declares the cast lost
+  after 30 s of silence; receiver states map to `CastStartedMessage`,
+  `CastPausedMessage`, `CastBufferingMessage`, and `CastLostMessage`
+  (`CastStatus.LOST|PAUSED|BUFFERING`).
 
 The device is selected explicitly; its mDNS `id`, friendly name, host, and
 port are persisted in `AppConfig`. Cast stream URLs must be reachable from the
-device itself.
+device itself. While a cast is active the same volume level is sent to the
+receiver with `SET_VOLUME` and to the local player, so switching outputs keeps
+the level consistent; otherwise the controls only drive the local player.
+
+`AppConfig` also persists `cast_mode` (the last output was a cast) and
+`cast_loss_action` (`WAIT` stops playback, `PLAY_LOCAL` replays the current
+station locally). On startup `cast_mode` restores `PlaybackTarget.CAST` and,
+with `resume_playback`, the last station is re-cast once (`cast_resume_pending`
+allows a single re-discovery when the device is not reachable yet). Stopping
+playback while casting clears `cast_mode` and returns to local output; a cast
+lost with `cast_loss_action = WAIT` keeps `PlaybackTarget.CAST` so Play can
+start a new cast.
+
+`SyncCastSessionMessage` probes the persisted device:
+`CONNECT receiver-0` → `GET_STATUS` (no LAUNCH) → `CONNECT` to the running
+media app → `MEDIA_STATUS`. The probe and its TCP connect are bounded; for a
+local output the restore starts immediately while the probe runs, and for a
+cast output the restore waits for the probe so a live session can be adopted
+instead of re-loaded. If the session is playing an http(s) URL the
+connection is adopted (`CastAdoptedMessage`) even when the last output was
+local: no new LOAD, the UI switches to the cast state, the station is
+re-added to the library when missing, and play/pause/stop control the live
+session. A session without a usable URL, or one detected while local playback
+is already running, is only shown in the cast popover (`cast_remote_label`).
+`MEDIA_STATUS` metadata titles are forwarded as `CastMetadataMessage` on
+every liveness poll, so the now-playing line keeps updating while casting.
+A poll without `media.metadata` carries no title information and never clears
+the title that is already shown. An empty `status` array after a known player
+state is reported as a lost session (stopped from another sender).
+A failed adoption never falls back to re-loading the station: that would
+restart the stream the device is already playing.
+`cast_keep_on_quit` (default true) decides whether quitting keeps the cast
+running or sends a STOP. The STOP is best-effort: the app does not wait for
+the receiver to acknowledge it before the main loop exits.
+
+Most receivers (including Android TV's Default Media Receiver) expose no
+`media.metadata` at all, so track titles come from layer 2 when
+`cast_track_titles` (default true) is enabled: `CastMetadataPoller` opens a
+short-lived connection to the casted URL, reads up to the first ICY metadata
+block after `icy-metaint` bytes and aborts. Polls run immediately and then
+every `cast_track_titles_interval` seconds (default 20; 10/20/30/60 in
+Preferences). Because ICY has no seek, a fresh connection is the only way to
+skip the intervening audio; this costs roughly one metaint block per interval
+(~3 MB/h at 16000) instead of a second copy of the whole stream. Titles become
+`CastMetadataMessage`, reusing the same title, history and notification path.
+The poller starts when the cast is playing (adopted/started/buffering), stops
+on pause, stop, loss, failure and shutdown, and backs off on network/server
+errors. When the option is off, no second connection is made and the UI falls
+back to the station's country/bitrate line. A stream without `icy-metaint`
+(HLS, for example) simply yields no title.
+
+`JsonUtil` (`src/model/json-util.vala`) holds the shared "parse and return null
+on bad input" helpers (`object_from`, `string_member`, `object_member`,
+`int_member`).
 
 ## Testing
 
