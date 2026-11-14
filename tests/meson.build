@@ -115,3 +115,10 @@ test_cast_mdns = executable('test_cast_mdns',
   dependencies: [test_deps, lib_core_dep],
 )
 test('cast-mdns', test_cast_mdns)
+
+# Every source file with translatable strings must be in po/POTFILES.in,
+# otherwise its strings silently never reach translators.
+test('i18n-potfiles',
+  find_program('sh'),
+  args: [files('../po/check-pot.sh'), '--coverage'],
+)

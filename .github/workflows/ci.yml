@@ -41,7 +41,4 @@ jobs:
         run: appstreamcli validate --no-net builddir/data/io.github.sfesenko.gradio.appdata.xml
 
       - name: Check POTFILES drift
-        run: |
-          meson compile -C builddir gradio-pot
-          # Ignore the timestamp and gettext version-specific location lines.
-          git diff -I '^"POT-Creation-Date:' -I '^#: ' --exit-code po/gradio.pot
+        run: ./po/check-pot.sh
