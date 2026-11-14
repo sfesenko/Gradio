@@ -1,11 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 namespace Gradio {
-    // Best-effort helpers for untrusted frames (Chromecast) where an unusable
-    // input means "ignore this frame". object_from() returns null on bad JSON
-    // or a non-object root; callers must ignore the frame in that case.
-    // Config and station-transfer parsing keep their explicit errors;
-    // radio-browser station parsing also treats a missing field as empty.
+    // Best-effort helpers for untrusted input: object_from() returns null on
+    // bad JSON or a non-object root and callers ignore that frame. Config and
+    // station-transfer parsing keep their explicit errors instead.
     public class JsonUtil {
         public static Json.Object? object_from (string json) {
             var parser = new Json.Parser ();

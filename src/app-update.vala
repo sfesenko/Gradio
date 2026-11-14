@@ -1025,8 +1025,7 @@ private Elmish.Cmd<Gradio.Message>? update_cast_metadata (Gradio.Message msg,
         return null;
     if (!model.playing || model.playback_target != PlaybackTarget.CAST)
         return null;
-    // A status without media.metadata says nothing about the title. Only an
-    // actual title may replace what is already shown.
+    // A status without media.metadata never erases the shown title.
     if (metadata.title == "")
         return null;
     return apply_stream_metadata (model, commands, metadata.title);

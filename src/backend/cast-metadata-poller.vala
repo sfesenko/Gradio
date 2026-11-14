@@ -7,12 +7,9 @@ namespace Gradio {
     }
 
     // Reads one ICY metadata block from the casted stream, periodically.
-    //
-    // ICY metadata is interleaved every `icy-metaint` bytes, so there is no
-    // way to skip the audio on a single connection. Each poll opens a short
-    // connection, reads up to the next metadata block and drops it. That
-    // keeps the extra traffic at roughly one metaint block per interval
-    // instead of the whole stream bitrate.
+    // ICY interleaves metadata every `icy-metaint` bytes and cannot seek, so
+    // each poll opens a short connection, reads to the next block and drops
+    // it: cost is one block per interval, not the whole stream (docs/CAST.md).
     public class CastMetadataPoller : GLib.Object {
         public signal void title_changed (string title);
 
