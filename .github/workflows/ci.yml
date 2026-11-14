@@ -2,7 +2,12 @@ name: CI
 
 on:
   push:
+    branches: [master]
   pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build-and-test:
@@ -33,6 +38,9 @@ jobs:
 
       - name: Compile
         run: meson compile -C builddir
+
+      - name: Check helper scripts are POSIX sh
+        run: dash -n po/check-pot.sh
 
       - name: Test
         run: meson test -C builddir --print-errorlogs
