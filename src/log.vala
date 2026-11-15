@@ -8,6 +8,11 @@
 // The standard GLib controls still apply: G_MESSAGES_DEBUG picks the level,
 // G_DEBUG=fatal-warnings makes warnings fatal. lib_core is built with
 // G_LOG_DOMAIN="gradio" so the app can be selected without library noise.
+//
+// Call sites use plain GLib.debug/GLib.warning. GLib formats the message
+// before the writer drops it, so a disabled call costs ~0.2 us here. Keep
+// arguments cheap (no .printf, no serialization, no document-sized strings)
+// and out of hot loops; that keeps disabled logging negligible.
 namespace Gradio.Log {
     private static GLib.FileStream? file = null;
     private static GLib.Mutex mutex;

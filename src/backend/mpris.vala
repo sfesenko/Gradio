@@ -89,6 +89,7 @@ namespace Gradio {
             try {
                 connection = yield GLib.Bus.get (GLib.BusType.SESSION);
             } catch (GLib.Error e) {
+                GLib.warning ("mpris: cannot connect to the session bus: %s", e.message);
                 connection = null;
                 return false;
             }
@@ -96,6 +97,7 @@ namespace Gradio {
                 connection.register_object<MprisRootIface> (OBJECT_PATH, this);
                 connection.register_object<MprisPlayerIface> (OBJECT_PATH, this);
             } catch (GLib.Error e) {
+                GLib.warning ("mpris: cannot export interfaces: %s", e.message);
                 return false;
             }
             owner_id = GLib.Bus.own_name_on_connection (connection, BUS_NAME,

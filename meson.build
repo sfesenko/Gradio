@@ -111,6 +111,7 @@ executable(
     config_file,
   ],
   vala_args: [ '--target-glib=2.76' ],
+  c_args: ['-DG_LOG_DOMAIN="gradio"'],
   dependencies: [
     dependency('gtk4', version: '>= 4.12'),
     lib_core_dep,

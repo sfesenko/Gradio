@@ -12,11 +12,14 @@ int main (string[] args) {
     GLib.Intl.bind_textdomain_codeset (GETTEXT_PACKAGE, "UTF-8");
     GLib.Intl.textdomain (GETTEXT_PACKAGE);
 
+    string config_path = Gradio.AppConfig.default_path ();
+    GLib.debug ("gradio %s starting, config %s", VERSION, config_path);
+
     Gradio.AppConfig config;
     string? load_error = null;
     bool read_only = false;
     try {
-        config = Gradio.AppConfig.load (Gradio.AppConfig.default_path ());
+        config = Gradio.AppConfig.load (config_path);
     } catch (Gradio.ConfigError e) {
         config = new Gradio.AppConfig ();
         load_error = e.message;
@@ -25,6 +28,9 @@ int main (string[] args) {
         config = new Gradio.AppConfig ();
         load_error = e.message;
     }
+
+    if (load_error != null)
+        GLib.warning ("config: load failed: %s", load_error);
 
     var runtime = new Gradio.AppRuntime (config, load_error != null && !read_only, read_only);
     var model = new Gradio.AppModel (config);
@@ -159,5 +165,7 @@ int main (string[] args) {
         }
     });
 
-    return app.run (args);
+    int status = app.run (args);
+    GLib.debug ("gradio %s exiting, status %d", VERSION, status);
+    return status;
 }

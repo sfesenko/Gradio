@@ -350,11 +350,14 @@ namespace Gradio {
                 }
             }
 
-            if (healthy.length == 0)
+            if (healthy.length == 0) {
+                GLib.debug ("radio-browser: no server available");
                 throw new HttpError.REQUEST_FAILED ("No radio-browser server available");
+            }
 
             server_candidates = healthy;
             api_base = healthy[0];
+            GLib.debug ("radio-browser: %u server(s), using %s", healthy.length, api_base);
             return api_base;
         }
 
@@ -369,6 +372,7 @@ namespace Gradio {
             if (next == null)
                 return false;
             api_base = next;
+            GLib.debug ("radio-browser: failing over to %s", next);
             return true;
         }
 

@@ -33,6 +33,7 @@ namespace Gradio {
         private RadioStation? current = null;
         private uint replay_id = 0;
         private uint suppress_stop_count = 0;
+        private bool playing_logged = false;
 
         private Thread<bool>? worker = null;
         private GLib.Mutex lock = GLib.Mutex ();
@@ -56,8 +57,11 @@ namespace Gradio {
 
         public void play (RadioStation station) {
             cancel_replay ();
+            playing_logged = false;
+            GLib.debug ("player: play %s", station.url);
 
             if (!Http.is_valid_url (station.url)) {
+                GLib.debug ("player: invalid stream URL: %s", station.url);
                 stop ();
                 playback_error (_("Invalid stream URL"));
                 return;
@@ -72,6 +76,7 @@ namespace Gradio {
 
         public void stop () {
             cancel_replay ();
+            GLib.debug ("player: stop");
             current = null;
             enqueue (new PlayerCommand (PlayerCommandKind.STOP));
         }
@@ -123,6 +128,7 @@ namespace Gradio {
                     playbin.set ("uri", command.url);
                     if (playbin.set_state (Gst.State.PLAYING) ==
                             Gst.StateChangeReturn.FAILURE) {
+                        GLib.debug ("player: could not start %s", command.url);
                         playbin.set_state (Gst.State.NULL);
                         emit_error_on_main (_("Could not start playback"));
                     }
@@ -168,12 +174,21 @@ namespace Gradio {
                     msg.parse_state_changed (out old_state, out new_state, out pending);
                     if (new_state == Gst.State.PLAYING) {
                         suppress_stop_count = 0;
+                        if (!playing_logged) {
+                            playing_logged = true;
+                            GLib.debug ("player: state playing");
+                        }
                         state_changed (true);
                     } else if (new_state == Gst.State.NULL) {
                         if (suppress_stop_count > 0)
                             suppress_stop_count--;
-                        else
+                        else {
+                            if (playing_logged) {
+                                playing_logged = false;
+                                GLib.debug ("player: state stopped");
+                            }
                             state_changed (false);
+                        }
                     }
                     break;
                 case Gst.MessageType.TAG:
@@ -191,11 +206,13 @@ namespace Gradio {
                     GLib.Error error;
                     string debug;
                     msg.parse_error (out error, out debug);
+                    GLib.debug ("player: %s", error.message);
                     suppress_stop_count++;
                     playback_error (error.message);
                     stop ();
                     break;
                 case Gst.MessageType.EOS:
+                    GLib.debug ("player: end of stream, reconnecting");
                     suppress_stop_count++;
                     playback_reconnecting (_("Reconnecting…"));
                     enqueue (new PlayerCommand (PlayerCommandKind.STOP));
@@ -204,6 +221,7 @@ namespace Gradio {
                 case Gst.MessageType.ELEMENT:
                     unowned Gst.Structure structure = msg.get_structure ();
                     if (structure != null && structure.get_name () == "missing-plugin") {
+                        GLib.debug ("player: missing codec");
                         suppress_stop_count++;
                         playback_error (_("A required codec is missing."));
                         stop ();
