@@ -4,6 +4,8 @@
 using Gradio;
 
 int main (string[] args) {
+    Gradio.Log.init ();
+
     Gst.init (ref args);
 
     GLib.Intl.bindtextdomain (GETTEXT_PACKAGE, LOCALEDIR);

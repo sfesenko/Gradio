@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: gradio\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-15 14:52+0200\n"
+"POT-Creation-Date: 2026-11-15 16:04+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -18,7 +18,7 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 
 #: data/io.github.sfesenko.gradio.desktop.in:2
-#: data/io.github.sfesenko.gradio.appdata.xml.in:4 src/main.vala:98
+#: data/io.github.sfesenko.gradio.appdata.xml.in:4 src/main.vala:100
 #: src/app-view.vala:83 src/app-view.vala:125 src/app-view.vala:1112
 msgid "Gradio"
 msgstr ""
@@ -92,7 +92,7 @@ msgstr ""
 msgid "MPRIS Support, vote for stations, search for stations."
 msgstr ""
 
-#: src/main.vala:102
+#: src/main.vala:104
 msgid "Listen to internet radio stations."
 msgstr ""
 

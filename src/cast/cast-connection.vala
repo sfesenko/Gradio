@@ -48,20 +48,6 @@ namespace Gradio {
             source_id = GLib.Uuid.string_random ();
         }
 
-        private static int trace_state = 0;
-
-        private static bool trace_enabled () {
-            if (trace_state == 0)
-                trace_state = GLib.Environment.get_variable (
-                    "GRADIO_CAST_TRACE") != null ? 1 : -1;
-            return trace_state == 1;
-        }
-
-        private static void trace (string text) {
-            if (trace_enabled ())
-                GLib.message ("cast: " + text);
-        }
-
         public async bool connect (string host, int port) throws GLib.Error {
             var client = new SocketClient ();
             // Bound the TCP connect: the OS timeout is ~2 min on Linux.
@@ -93,7 +79,7 @@ namespace Gradio {
             tls = tls_conn;
             input = new DataInputStream (tls_conn.get_input_stream ());
             output = new DataOutputStream (tls_conn.get_output_stream ());
-            trace ("connected to %s:%u as %s".printf (host, port, source_id));
+            GLib.debug ("cast: connected to %s:%u as %s", host, (uint) port, source_id);
             read_loop_async.begin ();
             return true;
         }
@@ -105,7 +91,7 @@ namespace Gradio {
             var frame = new GLib.Bytes (
                 build_frame (@namespace, destination, json).data);
             write_queue.push_tail (frame);
-            trace ("-> %s %s %s".printf (@namespace, destination, json));
+            GLib.debug ("cast: -> %s %s %s", @namespace, destination, json);
             pump_writes ();
         }
 
@@ -118,8 +104,8 @@ namespace Gradio {
                 build_frame (CastService.HEARTBEAT_NAMESPACE, destination,
                     "{\"type\":\"PONG\"}").data);
             write_queue.push_head (frame);
-            trace ("-> %s %s {\"type\":\"PONG\"}".printf (
-                CastService.HEARTBEAT_NAMESPACE, destination));
+            GLib.debug ("cast: -> %s %s {\"type\":\"PONG\"}",
+                CastService.HEARTBEAT_NAMESPACE, destination);
             pump_writes ();
         }
 
@@ -196,7 +182,7 @@ namespace Gradio {
                     yield tls.close_async (GLib.Priority.DEFAULT, close_cancellable);
                 } catch (GLib.Error e) {
                     // A peer that already vanished is not a failure here.
-                    trace ("tls close: %s".printf (e.message));
+                    GLib.debug ("cast: tls close: %s", e.message);
                 }
                 if (guard_id != 0) {
                     GLib.Source.remove (guard_id);
@@ -208,7 +194,7 @@ namespace Gradio {
                     try {
                         yield base_stream.close_async (GLib.Priority.DEFAULT, null);
                     } catch (GLib.Error e) {
-                        trace ("socket close: %s".printf (e.message));
+                        GLib.debug ("cast: socket close: %s", e.message);
                     }
                 }
             }
@@ -318,11 +304,11 @@ namespace Gradio {
                 int out_len;
                 string? decoded = cast_message_decode_json (frame, out out_len);
                 if (decoded == null || decoded == "") {
-                    trace ("<- unparsed frame of %u bytes".printf (length));
+                    GLib.debug ("cast: <- unparsed frame of %u bytes", length);
                     continue;
                 }
 
-                trace ("<- %s".printf (decoded));
+                GLib.debug ("cast: <- %s", decoded);
                 string captured = decoded;
                 message_received (captured);
             }
@@ -331,7 +317,7 @@ namespace Gradio {
                 if (!writing && write_queue.is_empty ())
                     finish_close_async.begin ();
             } else if (!closing) {
-                trace ("closing: %s".printf (reason));
+                GLib.debug ("cast: closing: %s", reason);
                 close_async.begin (reason);
             }
         }
@@ -340,7 +326,7 @@ namespace Gradio {
             if (closed_emitted)
                 return;
             closed_emitted = true;
-            trace ("closed: %s".printf (close_reason));
+            GLib.debug ("cast: closed: %s", close_reason);
             closed (close_reason);
         }
     }
