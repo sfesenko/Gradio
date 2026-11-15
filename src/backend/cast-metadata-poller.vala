@@ -157,17 +157,24 @@ namespace Gradio {
                     string title = parse_stream_title (payload);
                     if (title != "" && title != last_title) {
                         last_title = title;
-                        if (poll_generation == generation && running)
+                        if (poll_generation == generation && running) {
+                            GLib.debug ("cast metadata: title %s", title);
                             title_changed (title);
+                        }
                     }
                 }
                 ok = true;
             } catch (CastMetadataError e) {
-                if (e.code == CastMetadataError.UNSUPPORTED)
+                if (e.code == CastMetadataError.UNSUPPORTED) {
                     permanent = true;
+                    GLib.debug ("cast metadata: %s; ICY titles unavailable for %s",
+                        e.message, current_url);
+                }
             } catch (GLib.Error e) {
                 if (poll_generation != generation || !running)
                     return;
+                // Transient network/server hiccups are expected on a radio
+                // stream; the poll backs off.
                 GLib.debug ("cast metadata poll failed: %s", e.message);
             } finally {
                 if (timeout_id != 0)

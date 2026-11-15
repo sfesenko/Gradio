@@ -31,6 +31,23 @@ void test_int_member () {
     assert (JsonUtil.int_member (obj, "missing") == 0);
 }
 
+void test_int_member_range () {
+    var obj = JsonUtil.object_from (
+        "{\"s\":\"7\",\"d\":2.5,\"huge\":3000000000,\"neg\":-3000000000,\"big\":1e300,\"negbig\":-1e300}");
+    assert (JsonUtil.int_member (obj, "s") == 7);
+    assert (JsonUtil.int_member (obj, "d") == 2);
+    // Fits int64 but not int: reject instead of truncating.
+    assert (JsonUtil.int_member (obj, "huge") == 0);
+    assert (JsonUtil.int_member (obj, "neg") == 0);
+    assert (JsonUtil.int_member (obj, "big") == 0);
+    assert (JsonUtil.int_member (obj, "negbig") == 0);
+    // NaN cannot be written in JSON text; build the node directly.
+    var nan = new Json.Node (Json.NodeType.VALUE);
+    nan.set_double (double.NAN);
+    obj.set_member ("nan", nan);
+    assert (JsonUtil.int_member (obj, "nan") == 0);
+}
+
 void test_object_member () {
     var obj = JsonUtil.object_from ("{\"o\":{\"a\":\"b\"},\"n\":3,\"nil\":null}");
     var nested = JsonUtil.object_member (obj, "o");
@@ -41,12 +58,24 @@ void test_object_member () {
     assert (JsonUtil.object_member (obj, "nil") == null);
 }
 
+void test_array_member () {
+    var obj = JsonUtil.object_from ("{\"a\":[1,2],\"n\":3,\"nil\":null}");
+    var list = JsonUtil.array_member (obj, "a");
+    assert (list != null);
+    assert (list.get_length () == 2);
+    assert (JsonUtil.array_member (obj, "missing") == null);
+    assert (JsonUtil.array_member (obj, "n") == null);
+    assert (JsonUtil.array_member (obj, "nil") == null);
+}
+
 int main (string[] args) {
     Test.init (ref args);
     Test.add_func ("/json/object_from", test_object_from_valid);
     Test.add_func ("/json/object_from_invalid", test_object_from_invalid);
     Test.add_func ("/json/string_member", test_string_member);
     Test.add_func ("/json/int_member", test_int_member);
+    Test.add_func ("/json/int_member_range", test_int_member_range);
     Test.add_func ("/json/object_member", test_object_member);
+    Test.add_func ("/json/array_member", test_array_member);
     return Test.run ();
 }

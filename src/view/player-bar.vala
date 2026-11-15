@@ -117,7 +117,7 @@ namespace Gradio {
 
             playing = model.playing;
             bool has_station = model.current_station != null;
-            play_button.sensitive = has_station;
+            play_button.sensitive = has_station && !model.cast_reconnecting;
             play_button.icon_name = model.playing
                 ? "media-playback-stop-symbolic"
                 : "media-playback-start-symbolic";
@@ -129,7 +129,9 @@ namespace Gradio {
                 // Transient playback states ("Connecting…", "Reconnecting…",
                 // errors) use the track-name line: nothing is playing yet, so
                 // that line is free. Steady playback keeps the technical info.
-                if (model.stream_title != "")
+                if (model.cast_reconnecting && model.player_status != "")
+                    metadata_label.label = model.player_status;
+                else if (model.stream_title != "")
                     metadata_label.label = model.stream_title;
                 else if (model.player_status != "")
                     metadata_label.label = model.player_status;
