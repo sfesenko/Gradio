@@ -291,6 +291,18 @@ void test_set_volume_json () {
     assert (volume.get_double_member ("level") < 0.46);
 }
 
+void test_receiver_volume_from_json () {
+    assert (CastService.receiver_volume_from_json (
+        "{\"type\":\"RECEIVER_STATUS\",\"status\":{\"volume\":{\"level\":0.42,\"muted\":false}}}") > 0.419);
+    assert (CastService.receiver_volume_from_json ("{\"status\":{}}") == -1.0);
+    assert (CastService.receiver_volume_from_json ("{}") == -1.0);
+    assert (CastService.receiver_volume_from_json ("not json") == -1.0);
+    assert (CastService.receiver_volume_from_json (
+        "{\"status\":{\"volume\":{\"level\":2.0}}}") == -1.0);
+    assert (CastService.receiver_volume_from_json (
+        "{\"status\":{\"volume\":{\"muted\":true}}}") == -1.0);
+}
+
 void test_probe_reports_no_session_on_connection_error () {
     Gradio.Message? result = null;
     var cmd = CastService.probe_cmd ("id-1", "127.0.0.1", 1);
@@ -320,9 +332,18 @@ void test_adopt_reports_failure_on_connection_error () {
     assert (result is CastAdoptFailedMessage);
 }
 
+void test_connection_source_ids_are_unique () {
+    var first = new CastConnection ();
+    var second = new CastConnection ();
+    assert (first.source_id != "");
+    assert (second.source_id != "");
+    assert (first.source_id != second.source_id);
+}
+
 int main (string[] args) {
     Test.init (ref args);
     Test.add_func ("/cast/content_type_default", test_content_type_default);
+    Test.add_func ("/cast/connection_source_ids_are_unique", test_connection_source_ids_are_unique);
     Test.add_func ("/cast/stop_dispatches_stopped", test_stop_cast_dispatches_stopped);
     Test.add_func ("/cast/content_type_m3u8", test_content_type_m3u8);
     Test.add_func ("/cast/content_type_aac", test_content_type_aac);
@@ -363,6 +384,7 @@ int main (string[] args) {
     Test.add_func ("/cast/is_http_url", test_is_http_url);
     Test.add_func ("/cast/media_command_json", test_media_command_json);
     Test.add_func ("/cast/set_volume_json", test_set_volume_json);
+    Test.add_func ("/cast/receiver_volume_from_json", test_receiver_volume_from_json);
     Test.add_func ("/cast/probe_no_session_on_connection_error", test_probe_reports_no_session_on_connection_error);
     Test.add_func ("/cast/adopt_failure_on_connection_error", test_adopt_reports_failure_on_connection_error);
     return Test.run ();

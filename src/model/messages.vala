@@ -118,6 +118,8 @@ public enum Gradio.MessageKind {
     CAST_STOPPED,
     CAST_FAILED,
     CAST_LOST,
+    CAST_SENDER_LOST,
+    CAST_VOLUME,
     CAST_PAUSED,
     CAST_BUFFERING,
     STOP_CAST,
@@ -682,6 +684,30 @@ public class Gradio.CastLostMessage : Gradio.Message {
     public override MessageKind kind { get { return MessageKind.CAST_LOST; } }
 }
 
+// The sender socket dropped while the media session may still be playing on
+// the device. The app re-probes and re-attaches instead of declaring a loss.
+public class Gradio.CastSenderLostMessage : Gradio.Message {
+    public string device_id;
+
+    public CastSenderLostMessage (string device_id) { this.device_id = device_id; }
+
+    public override MessageKind kind { get { return MessageKind.CAST_SENDER_LOST; } }
+}
+
+// The receiver's own volume (RECEIVER_STATUS), used to mirror changes made on
+// another sender and to adopt the device level instead of overwriting it.
+public class Gradio.CastVolumeMessage : Gradio.Message {
+    public string device_id;
+    public double volume;
+
+    public CastVolumeMessage (string device_id, double volume) {
+        this.device_id = device_id;
+        this.volume = volume;
+    }
+
+    public override MessageKind kind { get { return MessageKind.CAST_VOLUME; } }
+}
+
 public class Gradio.CastPausedMessage : Gradio.Message {
     public string device_id;
 
@@ -854,6 +880,8 @@ public class Gradio.AppModel {
     // True while a cast media session is attached and controllable
     // (started by Gradio or adopted from the device).
     public bool cast_attached = false;
+    // True while a dropped sender socket is being re-probed and re-attached.
+    public bool cast_reconnecting = false;
     // Device is casting something Gradio is not controlling (no usable URL).
     public string cast_remote_label = "";
     // Label kept while adoption is in flight, used if it fails.

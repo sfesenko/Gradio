@@ -41,6 +41,16 @@ void test_object_member () {
     assert (JsonUtil.object_member (obj, "nil") == null);
 }
 
+void test_array_member () {
+    var obj = JsonUtil.object_from ("{\"a\":[1,2],\"n\":3,\"nil\":null}");
+    var list = JsonUtil.array_member (obj, "a");
+    assert (list != null);
+    assert (list.get_length () == 2);
+    assert (JsonUtil.array_member (obj, "missing") == null);
+    assert (JsonUtil.array_member (obj, "n") == null);
+    assert (JsonUtil.array_member (obj, "nil") == null);
+}
+
 int main (string[] args) {
     Test.init (ref args);
     Test.add_func ("/json/object_from", test_object_from_valid);
@@ -48,5 +58,6 @@ int main (string[] args) {
     Test.add_func ("/json/string_member", test_string_member);
     Test.add_func ("/json/int_member", test_int_member);
     Test.add_func ("/json/object_member", test_object_member);
+    Test.add_func ("/json/array_member", test_array_member);
     return Test.run ();
 }

@@ -36,6 +36,18 @@ namespace Gradio {
             return node.get_object ();
         }
 
+        // Missing or wrongly typed members are common in cast payloads (a
+        // RECEIVER_STATUS may carry only volume/version); reading them with
+        // Json.Object.get_array_member() would emit a GLib critical.
+        public static Json.Array? array_member (Json.Object obj, string name) {
+            if (!obj.has_member (name))
+                return null;
+            var node = obj.get_member (name);
+            if (node == null || node.get_node_type () != Json.NodeType.ARRAY)
+                return null;
+            return node.get_array ();
+        }
+
         public static int int_member (Json.Object obj, string name) {
             if (!obj.has_member (name))
                 return 0;

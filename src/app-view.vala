@@ -53,6 +53,7 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
     private Gtk.Scale cast_volume_scale;
     private Gtk.Box cast_volume_row;
     private Gtk.Image cast_volume_icon;
+    private Gtk.Label cast_volume_value;
     private bool updating_cast_volume = false;
     private Gtk.ListBox cast_device_list;
     private Gtk.Button cast_discover_button;
@@ -227,8 +228,10 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
         });
         header.pack_end (sort_button);
 
+        // The button opens the cast popover, which is also where the volume
+        // lives: a speaker icon says both, and it tracks the current level.
         cast_button = new Gtk.MenuButton () {
-            icon_name = "display-projector-symbolic",
+            icon_name = volume_icon_name (model.config.volume),
             tooltip_text = _("Cast to a device")
         };
         var cast_box = new Gtk.Box (Gtk.Orientation.VERTICAL, 6) {
@@ -253,6 +256,13 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
                 dispatch (new SetVolumeMessage (cast_volume_scale.get_value ()));
         });
         cast_volume_row.append (cast_volume_scale);
+        // A fixed-width value keeps the slider from resizing while dragging.
+        cast_volume_value = new Gtk.Label (volume_percent_text (model.config.volume)) {
+            xalign = 1.0f,
+            width_chars = 4
+        };
+        cast_volume_value.add_css_class ("dim-label");
+        cast_volume_row.append (cast_volume_value);
         cast_box.append (cast_volume_row);
         cast_box.append (new Gtk.Separator (Gtk.Orientation.HORIZONTAL));
         cast_discover_button = new Gtk.Button.with_label (_("Discover devices"));
@@ -966,6 +976,11 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
         return "audio-volume-high-symbolic";
     }
 
+    private static string volume_percent_text (double volume) {
+        // No libm dependency: volume is always in [0, 1].
+        return "%d%%".printf ((int) (volume * 100 + 0.5));
+    }
+
     private void update_cast_ui (Gradio.AppModel model) {
         if (cast_device_list == null)
             return;
@@ -1047,7 +1062,9 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
         cast_discover_button.tooltip_text = can_change_device
             ? _("Discover cast devices")
             : _("Stop casting to change device");
+        cast_button.icon_name = volume_icon_name (model.config.volume);
         cast_volume_icon.icon_name = volume_icon_name (model.config.volume);
+        cast_volume_value.label = volume_percent_text (model.config.volume);
         bool casting = model.cast_is_active ();
         updating_cast_volume = true;
         if (cast_volume_scale.get_value () != model.config.volume)
@@ -1056,7 +1073,9 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
         updating_cast_volume = false;
         cast_volume_row.tooltip_text = casting
             ? _("Volume (local and cast)") : _("Local volume");
-        cast_launch_button.sensitive = model.playback_target == PlaybackTarget.LOCAL &&
+        // Starting a new cast must stay possible after a loss even though the
+        // output is still CAST: only a live session disables it.
+        cast_launch_button.sensitive = !model.cast_is_active () &&
             model.cast_device_id != null && model.current_stream_url != "";
         cast_stop_button.sensitive = model.playback_target == PlaybackTarget.CAST;
         cast_local_button.sensitive = model.playback_target == PlaybackTarget.CAST;

@@ -20,6 +20,10 @@ namespace Gradio {
         public const int LIVENESS_TIMEOUT_SECONDS = 30;
         public const int64 LIVENESS_TIMEOUT_US =
             LIVENESS_TIMEOUT_SECONDS * 1000000L;
+        // The receiver pings every 5 s and closes the socket ~5 s after a
+        // missed PONG, so a sender heartbeat is mandatory, not optional.
+        public const int HEARTBEAT_INTERVAL_SECONDS = 5;
+        public const int HEARTBEAT_TIMEOUT_SECONDS = 10;
 
         private static CastConnection? connection = null;
         private static string session_id = "";
@@ -28,6 +32,8 @@ namespace Gradio {
         private static uint timeout_id = 0;
         private static uint liveness_timeout_id = 0;
         private static uint liveness_watchdog_id = 0;
+        private static uint heartbeat_id = 0;
+        private static int64 last_pong_us = 0;
         private static int64 last_status_us = 0;
         private static uint session_generation = 0;
         private static bool load_sent = false;
@@ -80,12 +86,14 @@ namespace Gradio {
                         handle_message (dispatch, device_id, json, device_connection,
                             generation);
                 });
-                device_connection.closed.connect (() => {
+                device_connection.closed.connect ((reason) => {
                     if (connection != device_connection || generation != session_generation)
                         return;
+                    GLib.warning ("cast: connection to %s closed (%s)", device_id,
+                        reason);
                     if (started) {
-                        cast_lost (dispatch, device_id, _("Device disconnected"),
-                            device_connection, generation);
+                        sender_lost (dispatch, device_id, device_connection,
+                            generation);
                         return;
                     }
                     if (finished)
@@ -144,7 +152,10 @@ namespace Gradio {
                 probe.connection.message_received.connect ((json) => {
                     handle_probe_message (dispatch, probe, json);
                 });
-                probe.connection.closed.connect (() => {
+                probe.connection.closed.connect ((reason) => {
+                    if (!probe.reported && reason != "drain")
+                        GLib.message ("cast: probe to %s closed (%s)",
+                            probe.device_id, reason);
                     finish_probe (dispatch, probe);
                 });
                 // Bound the whole probe, including the TCP connect. The
@@ -172,6 +183,8 @@ namespace Gradio {
                             "{\"type\":\"GET_STATUS\",\"requestId\":%u}".printf (
                                 next_request_id++));
                     } catch (GLib.Error e) {
+                        GLib.message ("cast: probe to %s failed: %s",
+                            probe.device_id, e.message);
                         finish_probe (dispatch, probe);
                     }
                 });
@@ -200,18 +213,20 @@ namespace Gradio {
                         handle_adopt_message (dispatch, state, json,
                             device_connection, generation);
                 });
-                device_connection.closed.connect (() => {
+                device_connection.closed.connect ((reason) => {
                     if (connection != device_connection ||
                             generation != session_generation)
                         return;
+                    GLib.warning ("cast: attach to %s closed (%s)", device_id,
+                        reason);
                     if (!state.reported) {
                         fail_adopt (dispatch, state, device_connection,
                             generation);
                         return;
                     }
                     if (started)
-                        cast_lost (dispatch, device_id, _("Device disconnected"),
-                            device_connection, generation);
+                        sender_lost (dispatch, device_id, device_connection,
+                            generation);
                 });
                 // Bound the whole handshake, including a stalled TLS connect.
                 timeout_id = GLib.Timeout.add_seconds (10, () => {
@@ -238,6 +253,8 @@ namespace Gradio {
                             "{\"type\":\"GET_STATUS\",\"requestId\":%u}".printf (
                                 next_request_id++));
                     } catch (GLib.Error e) {
+                        GLib.message ("cast: attach to %s failed: %s", device_id,
+                            e.message);
                         fail_adopt (dispatch, state, device_connection,
                             generation);
                     }
@@ -259,6 +276,7 @@ namespace Gradio {
                         media_command_json (next_request_id++, command,
                             media_session_id));
                 } catch (GLib.Error e) {
+                    GLib.warning ("cast: %s failed: %s", command, e.message);
                     cast_lost (dispatch, device_id, _("Cast connection lost"),
                         connection, session_generation);
                 }
@@ -267,12 +285,15 @@ namespace Gradio {
 
         public static Elmish.Cmd<Gradio.Message>? set_volume_cmd (double level) {
             return new Elmish.Cmd<Gradio.Message> ((dispatch) => {
-                if (connection == null)
+                if (connection == null) {
+                    GLib.warning ("cast: SET_VOLUME dropped: no cast connection");
                     return;
+                }
                 try {
                     connection.send_json (RECEIVER_NAMESPACE, "receiver-0",
                         set_volume_json (next_request_id++, level));
                 } catch (GLib.Error e) {
+                    GLib.warning ("cast: SET_VOLUME failed: %s", e.message);
                 }
             });
         }
@@ -308,8 +329,9 @@ namespace Gradio {
                         current.close_after_drain ();
                     }
                 } catch (GLib.Error e) {
+                    GLib.warning ("cast: stop failed: %s", e.message);
                     if (current != null)
-                        current.close_async.begin ();
+                        current.close_async.begin ("stop: " + e.message);
                 }
                 finished = true;
                 reset_state ();
@@ -339,8 +361,9 @@ namespace Gradio {
                 if (current != null)
                     current.close_after_drain ();
             } catch (GLib.Error e) {
+                GLib.warning ("cast: shutdown stop failed: %s", e.message);
                 if (current != null)
-                    current.close_async.begin ();
+                    current.close_async.begin ("shutdown: " + e.message);
             }
             finished = true;
             reset_state ();
@@ -358,13 +381,34 @@ namespace Gradio {
             if (type == "")
                 type = JsonUtil.string_member (obj, "responseType");
 
+            if (type == "PONG") {
+                // Proof that our writes reach the receiver: the heartbeat
+                // watchdog is measured against this.
+                last_pong_us = GLib.get_monotonic_time ();
+                return;
+            }
             if (type == "PING") {
                 try {
-                    session.send_json (HEARTBEAT_NAMESPACE, "receiver-0",
-                        "{\"type\":\"PONG\"}");
+                    session.send_pong ("receiver-0");
                 } catch (GLib.Error e) {
+                    GLib.warning ("cast: PONG failed: %s", e.message);
                 }
                 return;
+            }
+            if (type == "CLOSE") {
+                // The receiver terminates a virtual connection in error cases.
+                // The socket normally follows; treat it as a sender loss so the
+                // app re-attaches instead of waiting for the watchdog.
+                GLib.warning ("cast: receiver sent CLOSE");
+                sender_lost (dispatch, device_id, session, generation);
+                return;
+            }
+            if (type == "RECEIVER_STATUS") {
+                // The receiver owns the real volume; mirror it instead of
+                // pushing our stored level over it.
+                var level = receiver_volume_from_json (json);
+                if (level >= 0.0)
+                    dispatch (new CastVolumeMessage (device_id, level));
             }
             if (type == "MEDIA_STATUS") {
                 last_status_us = GLib.get_monotonic_time ();
@@ -453,12 +497,14 @@ namespace Gradio {
                 type = JsonUtil.string_member (obj, "responseType");
             if (type == "PING") {
                 try {
-                    probe.connection.send_json (HEARTBEAT_NAMESPACE, "receiver-0",
-                        "{\"type\":\"PONG\"}");
+                    probe.connection.send_pong ("receiver-0");
                 } catch (GLib.Error e) {
+                    GLib.warning ("cast: probe PONG failed: %s", e.message);
                 }
                 return;
             }
+            if (type == "PONG")
+                return;
             if (type == "RECEIVER_STATUS") {
                 var app = media_app_from_json (json);
                 if (app == null) {
@@ -491,14 +537,10 @@ namespace Gradio {
                 var generation = probe.generation;
                 var probe_connection = probe.connection;
                 probe.connection = null;
-                // Close before the adopter opens its own connection: a second
-                // socket with the same source id can make the receiver drop
-                // the new one, and the fallback would restart the stream.
-                probe_connection.close_async.begin ((obj, res) => {
-                    try {
-                        probe_connection.close_async.end (res);
-                    } catch (GLib.Error e) {
-                    }
+                // Close before the adopter opens its own connection so the
+                // receiver never sees two sockets from the same probe.
+                probe_connection.close_async.begin ("probe done", (obj, res) => {
+                    probe_connection.close_async.end (res);
                     // A cast started or stopped while the socket was closing.
                     if (generation != session_generation)
                         return;
@@ -527,12 +569,9 @@ namespace Gradio {
                 return;
             }
             // Close before dispatching: a new cast opened from the response
-            // must not race a second socket with the same source id.
-            connection.close_async.begin ((obj, res) => {
-                try {
-                    connection.close_async.end (res);
-                } catch (GLib.Error e) {
-                }
+            // must not race this socket.
+            connection.close_async.begin ("probe done", (obj, res) => {
+                connection.close_async.end (res);
                 if (generation == session_generation)
                     dispatch (new CastSessionDetectedMessage (probe.device_id,
                         "", "", "", ""));
@@ -559,11 +598,22 @@ namespace Gradio {
                 type = JsonUtil.string_member (obj, "responseType");
             if (type == "PING") {
                 try {
-                    session.send_json (HEARTBEAT_NAMESPACE, "receiver-0",
-                        "{\"type\":\"PONG\"}");
+                    session.send_pong ("receiver-0");
                 } catch (GLib.Error e) {
+                    GLib.warning ("cast: PONG failed: %s", e.message);
                 }
                 return;
+            }
+            if (type == "PONG") {
+                last_pong_us = GLib.get_monotonic_time ();
+                return;
+            }
+            if (type == "RECEIVER_STATUS") {
+                // Adopt the device's volume during attachment instead of
+                // overwriting it with the value saved on this computer.
+                var level = receiver_volume_from_json (json);
+                if (level >= 0.0)
+                    dispatch (new CastVolumeMessage (state.device_id, level));
             }
             if (type == "MEDIA_STATUS") {
                 last_status_us = GLib.get_monotonic_time ();
@@ -646,6 +696,7 @@ namespace Gradio {
             clear_timeout ();
             clear_liveness ();
             close_current_async ();
+            GLib.message ("cast: adoption failed for %s", state.device_id);
             dispatch (new CastAdoptFailedMessage (state.device_id));
         }
 
@@ -657,7 +708,25 @@ namespace Gradio {
             finished = true;
             clear_timeout ();
             close_current_async ();
+            GLib.message ("cast: %s failed: %s", device_id, message);
             dispatch (new CastFailedMessage (message));
+        }
+
+        // The sender socket dropped while the media session may still be
+        // playing. The receiver keeps the session alive after its sender goes
+        // away, so re-probe and re-attach instead of declaring a lost cast.
+        private static void sender_lost (
+                Elmish.Dispatch<Gradio.Message> dispatch, string device_id,
+                CastConnection session, uint generation) {
+            if (!should_report_lost (started, connection == session, generation,
+                    session_generation))
+                return;
+            started = false;
+            finished = true;
+            clear_timeout ();
+            clear_liveness ();
+            close_current_async ();
+            dispatch (new CastSenderLostMessage (device_id));
         }
 
         private static void cast_lost (Elmish.Dispatch<Gradio.Message> dispatch,
@@ -666,6 +735,7 @@ namespace Gradio {
             if (!should_report_lost (started, connection == session, generation,
                     session_generation))
                 return;
+            GLib.warning ("cast: %s lost: %s", device_id, message);
             started = false;
             finished = true;
             clear_timeout ();
@@ -680,6 +750,7 @@ namespace Gradio {
             clear_liveness ();
             last_status_us = GLib.get_monotonic_time ();
             arm_liveness_watchdog (dispatch, device_id, session, generation);
+            start_heartbeat (dispatch, device_id, session, generation);
             liveness_timeout_id = GLib.Timeout.add_seconds (
                 LIVENESS_INTERVAL_SECONDS, () => {
                     if (!started || connection != session ||
@@ -697,6 +768,45 @@ namespace Gradio {
                         liveness_timeout_id = 0;
                         cast_lost (dispatch, device_id,
                             _("Cast connection lost"), session, generation);
+                        return false;
+                    }
+                    return true;
+                });
+        }
+
+        // The receiver pings us every 5 s and drops the socket ~5 s after a
+        // missed PONG. Answering PINGs is not enough on its own: if the write
+        // path stalls the socket dies with no error, so run a sender heartbeat
+        // and treat a missing PONG as a dropped sender.
+        private static void start_heartbeat (
+                Elmish.Dispatch<Gradio.Message> dispatch, string device_id,
+                CastConnection session, uint generation) {
+            clear_heartbeat ();
+            last_pong_us = GLib.get_monotonic_time ();
+            heartbeat_id = GLib.Timeout.add_seconds (HEARTBEAT_INTERVAL_SECONDS,
+                () => {
+                    if (!started || connection != session ||
+                            generation != session_generation) {
+                        heartbeat_id = 0;
+                        return false;
+                    }
+                    int64 now = GLib.get_monotonic_time ();
+                    if (liveness_expired (last_pong_us, now,
+                            HEARTBEAT_TIMEOUT_SECONDS * 1000000L)) {
+                        heartbeat_id = 0;
+                        GLib.warning ("cast: heartbeat timeout: no PONG from %s",
+                            device_id);
+                        sender_lost (dispatch, device_id, session, generation);
+                        return false;
+                    }
+                    try {
+                        session.send_json (HEARTBEAT_NAMESPACE, "receiver-0",
+                            "{\"type\":\"PING\"}");
+                    } catch (GLib.Error e) {
+                        heartbeat_id = 0;
+                        GLib.warning ("cast: heartbeat PING failed: %s",
+                            e.message);
+                        sender_lost (dispatch, device_id, session, generation);
                         return false;
                     }
                     return true;
@@ -798,6 +908,7 @@ namespace Gradio {
         }
 
         private static void clear_liveness () {
+            clear_heartbeat ();
             if (liveness_timeout_id != 0) {
                 GLib.Source.remove (liveness_timeout_id);
                 liveness_timeout_id = 0;
@@ -805,6 +916,13 @@ namespace Gradio {
             if (liveness_watchdog_id != 0) {
                 GLib.Source.remove (liveness_watchdog_id);
                 liveness_watchdog_id = 0;
+            }
+        }
+
+        private static void clear_heartbeat () {
+            if (heartbeat_id != 0) {
+                GLib.Source.remove (heartbeat_id);
+                heartbeat_id = 0;
             }
         }
 
@@ -819,7 +937,7 @@ namespace Gradio {
             if (connection != null) {
                 var old = connection;
                 connection = null;
-                old.close_async.begin ((obj, res) => {
+                old.close_async.begin ("replaced", (obj, res) => {
                     old.close_async.end (res);
                 });
             }
@@ -842,7 +960,7 @@ namespace Gradio {
         private static string current_content_type = "";
 
         private static string receiver_session_from_status (Json.Object status) {
-            var apps = status.get_array_member ("applications");
+            var apps = JsonUtil.array_member (status, "applications");
             if (apps == null)
                 return "";
             foreach (var node in apps.get_elements ()) {
@@ -856,6 +974,24 @@ namespace Gradio {
                     return id;
             }
             return "";
+        }
+
+        // The receiver's own volume level from a RECEIVER_STATUS payload, or
+        // -1 when the message does not carry a usable level.
+        public static double receiver_volume_from_json (string json) {
+            var obj = JsonUtil.object_from (json);
+            if (obj == null)
+                return -1.0;
+            var status = JsonUtil.object_member (obj, "status");
+            if (status == null)
+                return -1.0;
+            var volume = JsonUtil.object_member (status, "volume");
+            if (volume == null || !volume.has_member ("level"))
+                return -1.0;
+            double level = volume.get_double_member_with_default ("level", -1.0);
+            if (level < 0.0 || level > 1.0)
+                return -1.0;
+            return level;
         }
 
         public static string receiver_session_id (string json) {
@@ -888,7 +1024,7 @@ namespace Gradio {
             var obj = JsonUtil.object_from (json);
             if (obj == null)
                 return null;
-            var status = obj.get_array_member ("status");
+            var status = JsonUtil.array_member (obj, "status");
             if (status == null || status.get_length () == 0)
                 return null;
             var first = status.get_element (0);
@@ -904,7 +1040,7 @@ namespace Gradio {
             var status = JsonUtil.object_member (obj, "status");
             if (status == null)
                 return null;
-            var apps = status.get_array_member ("applications");
+            var apps = JsonUtil.array_member (status, "applications");
             if (apps == null)
                 return null;
             foreach (var node in apps.get_elements ()) {
@@ -923,7 +1059,7 @@ namespace Gradio {
         }
 
         private static bool has_media_namespace (Json.Object app) {
-            var namespaces = app.get_array_member ("namespaces");
+            var namespaces = JsonUtil.array_member (app, "namespaces");
             if (namespaces == null)
                 return false;
             foreach (var node in namespaces.get_elements ()) {
@@ -1033,7 +1169,7 @@ namespace Gradio {
             var obj = JsonUtil.object_from (json_text);
             if (obj == null)
                 return null;
-            var list = obj.get_array_member ("devices");
+            var list = JsonUtil.array_member (obj, "devices");
             if (list == null)
                 return null;
             var devices = new CastDevice[] {};

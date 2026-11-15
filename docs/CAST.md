@@ -12,6 +12,22 @@ other. The layer is GTK-free and lives in `src/cast/`:
 - `cast-service.vala` — Cast v2 commands: discovery, LAUNCH of the Default
   Media Receiver, media LOAD, PING/PONG, STOP.
 
+## Transport rules
+
+- Every `CastConnection` has its own UUID source id. Reusing one id makes the
+  receiver treat a new socket as the same sender and it can drop the older,
+  live connection.
+- The receiver pings every 5 s and closes the socket ~5 s after a missed
+  `PONG`. `CastService` answers `PING` immediately and runs its own `PING`
+  every 5 s; a missing `PONG` for 10 s is treated as a dropped sender and
+  re-attached, not as a lost cast.
+- A receiver `CLOSE` message ends the virtual connection and is handled as a
+  sender loss.
+- `CastConnection.closed` carries the reason (`eof`, `read: ...`, `write: ...`,
+  `empty frame`, `frame too large: N`, `drain`). The service logs it; no read,
+  write, PONG, `SET_VOLUME`, probe, or adoption error is discarded. Set
+  `GRADIO_CAST_TRACE=1` to log every frame and state change.
+
 ## Device and config
 
 The device is selected explicitly; its mDNS `id`, friendly name, host, and port
@@ -26,9 +42,12 @@ device itself.
 | `cast_track_titles` | default `true`; layer-2 ICY title polling |
 | `cast_track_titles_interval` | seconds, default 20 (10/20/30/60 in Preferences) |
 
-While a cast is active the same volume level goes to the receiver
-(`SET_VOLUME`) and to the local player, so switching outputs keeps the level
-consistent; otherwise the controls only drive the local player.
+The receiver owns the volume level. While a cast is active a volume change
+drives the local player and the receiver (`SET_VOLUME`). The level is never
+pushed when a cast starts or is attached: the receiver's
+`RECEIVER_STATUS.volume` is adopted into the model instead, and changes made
+from another sender are mirrored back so the slider follows the device.
+Otherwise the controls only drive the local player.
 
 ## Session lifecycle
 
@@ -60,12 +79,21 @@ Adoption rules:
   already running, is only shown in the cast popover (`cast_remote_label`).
 - A failed adoption never falls back to re-loading the station: that would
   restart the stream the device is already playing.
+- A probe that reports no `media.metadata` (the common case) does not erase the
+  title already shown for the same stream; only a different `contentId` starts
+  with a fresh, possibly empty, title.
 
 `MEDIA_STATUS` metadata titles are forwarded as `CastMetadataMessage` on every
 liveness poll, so the now-playing line keeps updating. A poll without
 `media.metadata` never clears the title already shown. An empty `status` array
 after a known player state means the session stopped on another sender and is
-reported as lost.
+reported as lost. Local player tags never overwrite a cast title: while casting
+the receiver (or the ICY poller) owns the title.
+
+A dropped sender socket is not a lost cast: the receiver keeps the media
+session playing. The service re-probes the device and re-attaches without a new
+`LOAD`, and only reports `CastLostMessage` when the probe finds no live,
+adoptable session or the re-attach fails.
 
 ## Track titles (layer 2)
 
