@@ -12,15 +12,15 @@ namespace Gradio {
         private Gtk.Entry tags_entry;
         private Gtk.Label error_label;
         private RadioStation? station;
-        private AppModel model;
+        private AppConfig config;
         private unowned Elmish.Dispatch<Message> dispatch;
 
-        public StationEditorDialog (Gtk.Window parent, AppModel model,
+        public StationEditorDialog (Gtk.Window parent, AppConfig config,
                 Elmish.Dispatch<Message> dispatch, RadioStation? station) {
             Object (transient_for: parent, modal: true,
                 title: station == null ? _("Add local station") : _("Edit station"),
                 default_width: 420);
-            this.model = model;
+            this.config = config;
             this.dispatch = dispatch;
             this.station = station;
 
@@ -113,7 +113,7 @@ namespace Gradio {
             result.bitrate = station == null ? 0 : station.bitrate;
 
             string? error = StationValidation.validate (result.name, result.url,
-                result.homepage, model.config, station == null ? null : station.id);
+                result.homepage, config, station == null ? null : station.id);
             if (error != null) {
                 error_label.label = error;
                 error_label.visible = true;

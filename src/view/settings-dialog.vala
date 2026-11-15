@@ -3,7 +3,7 @@
 namespace Gradio {
 
     public class SettingsDialog : Gtk.Window {
-        public SettingsDialog (Gtk.Window parent, AppModel model, Elmish.Dispatch<Message> dispatch) {
+        public SettingsDialog (Gtk.Window parent, AppConfig config, Elmish.Dispatch<Message> dispatch) {
             Object (transient_for: parent, modal: true, title: _("Preferences"), default_width: 360);
 
             var header = new Gtk.HeaderBar ();
@@ -18,7 +18,7 @@ namespace Gradio {
             };
 
             var technical_toggle = new Gtk.Switch () {
-                active = model.config.show_technical_info,
+                active = config.show_technical_info,
                 valign = Gtk.Align.CENTER
             };
             technical_toggle.state_set.connect ((state) => {
@@ -28,7 +28,7 @@ namespace Gradio {
             list.append (build_row (_("Show technical information"), technical_toggle));
 
             var resume_toggle = new Gtk.Switch () {
-                active = model.config.resume_playback,
+                active = config.resume_playback,
                 valign = Gtk.Align.CENTER
             };
             resume_toggle.state_set.connect ((state) => {
@@ -38,7 +38,7 @@ namespace Gradio {
             list.append (build_row (_("Resume playback on startup"), resume_toggle));
 
             var background_toggle = new Gtk.Switch () {
-                active = model.config.background_playback,
+                active = config.background_playback,
                 valign = Gtk.Align.CENTER
             };
             background_toggle.state_set.connect ((state) => {
@@ -48,7 +48,7 @@ namespace Gradio {
             list.append (build_row (_("Keep playing when the window is closed"), background_toggle));
 
             var cast_quit_toggle = new Gtk.Switch () {
-                active = model.config.cast_keep_on_quit,
+                active = config.cast_keep_on_quit,
                 valign = Gtk.Align.CENTER
             };
             cast_quit_toggle.state_set.connect ((state) => {
@@ -59,7 +59,7 @@ namespace Gradio {
                 cast_quit_toggle));
 
             var cast_titles_toggle = new Gtk.Switch () {
-                active = model.config.cast_track_titles,
+                active = config.cast_track_titles,
                 valign = Gtk.Align.CENTER
             };
             int[] intervals = Gradio.AppConfig.track_titles_interval_choices ();
@@ -70,11 +70,11 @@ namespace Gradio {
                 new Gtk.DropDown.from_strings (interval_labels);
             uint selected_interval = 1;
             for (int i = 0; i < intervals.length; i++) {
-                if (intervals[i] == model.config.cast_track_titles_interval)
+                if (intervals[i] == config.cast_track_titles_interval)
                     selected_interval = (uint) i;
             }
             cast_titles_interval.selected = selected_interval;
-            cast_titles_interval.sensitive = model.config.cast_track_titles;
+            cast_titles_interval.sensitive = config.cast_track_titles;
             cast_titles_interval.notify["selected"].connect (() => {
                 uint index = cast_titles_interval.selected;
                 if (index < intervals.length)
@@ -92,7 +92,7 @@ namespace Gradio {
                 cast_titles_interval));
 
             var notifications_toggle = new Gtk.Switch () {
-                active = model.config.notifications_enabled,
+                active = config.notifications_enabled,
                 valign = Gtk.Align.CENTER
             };
             notifications_toggle.state_set.connect ((state) => {
@@ -105,7 +105,7 @@ namespace Gradio {
                 _("Stop playback"), _("Play on this computer")
             });
             cast_loss_dropdown.selected =
-                model.config.cast_loss_action == CastLossAction.PLAY_LOCAL ? 1 : 0;
+                config.cast_loss_action == CastLossAction.PLAY_LOCAL ? 1 : 0;
             cast_loss_dropdown.notify["selected"].connect (() => {
                 dispatch (new SetCastLossActionMessage (
                     cast_loss_dropdown.selected == 1
@@ -114,7 +114,7 @@ namespace Gradio {
             list.append (build_row (_("When a cast is lost"), cast_loss_dropdown));
 
             var status_bar_toggle = new Gtk.Switch () {
-                active = model.config.show_status_bar,
+                active = config.show_status_bar,
                 valign = Gtk.Align.CENTER
             };
             status_bar_toggle.state_set.connect ((state) => {
@@ -124,7 +124,7 @@ namespace Gradio {
             list.append (build_row (_("Show app feedback in the status bar"), status_bar_toggle));
 
             var player_in_header_toggle = new Gtk.Switch () {
-                active = model.config.player_in_header,
+                active = config.player_in_header,
                 valign = Gtk.Align.CENTER
             };
             player_in_header_toggle.state_set.connect ((state) => {
@@ -137,7 +137,7 @@ namespace Gradio {
             var icon_size = new Gtk.DropDown.from_strings ({ "32", "48", "64", "96" });
             uint selected = 0;
             for (int i = 0; i < icon_sizes.length; i++) {
-                if (icon_sizes[i] == model.config.icon_size)
+                if (icon_sizes[i] == config.icon_size)
                     selected = (uint) i;
             }
             icon_size.selected = selected;

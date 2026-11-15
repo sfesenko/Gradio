@@ -14,6 +14,8 @@ namespace Gradio {
         private string history_signature = "";
         private bool updating = false;
         private bool playing = false;
+        private bool placed = false;
+        private bool header_mode = false;
 
         public PlayerBar (Elmish.Dispatch<Message> dispatch) {
             Object (orientation: Gtk.Orientation.HORIZONTAL, spacing: 12);
@@ -79,7 +81,7 @@ namespace Gradio {
             append (volume_button);
         }
 
-        public void set_compact (bool compact) {
+        private void set_compact (bool compact) {
             margin_top = compact ? 2 : 8;
             margin_bottom = compact ? 2 : 8;
             margin_start = compact ? 6 : 12;
@@ -93,6 +95,12 @@ namespace Gradio {
         // merged cast popover while the player is in the header, so the header
         // keeps a single control for both.
         public void place_in_header (Gtk.Box text_host, Gtk.Box controls_host) {
+            if (placed && header_mode)
+                return;
+            placed = true;
+            header_mode = true;
+            unparent ();
+            set_compact (true);
             text_box.unparent ();
             text_host.append (text_box);
             play_button.unparent ();
@@ -101,7 +109,13 @@ namespace Gradio {
             controls_host.append (history_button);
         }
 
-        public void restore_to_bar () {
+        public void place_in_bar (Gtk.Box bar_host) {
+            if (placed && !header_mode)
+                return;
+            placed = true;
+            header_mode = false;
+            unparent ();
+            set_compact (false);
             text_box.unparent ();
             play_button.unparent ();
             volume_button.unparent ();
@@ -110,6 +124,7 @@ namespace Gradio {
             append (text_box);
             append (history_button);
             append (volume_button);
+            bar_host.append (this);
         }
 
         public void update (AppModel model) {

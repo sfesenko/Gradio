@@ -15,8 +15,6 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
     private Gtk.Box header_controls_area;
     private Gtk.Label empty_title;
     private Gtk.Box player_area;
-    private bool placement_initialized = false;
-    private bool player_in_header_active = false;
     private Gradio.PlayerBar player_bar;
     private Gtk.Box status_bar;
     private Gtk.Label status_label;
@@ -28,7 +26,9 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
     private Gtk.CheckButton sort_language_button;
     private Gtk.CheckButton sort_bitrate_button;
     private Gtk.Switch sort_descending_switch;
-    private Gradio.AppModel app_model;
+    private LibrarySortMode rendered_sort_mode = LibrarySortMode.CUSTOM;
+    private bool rendered_sort_descending = false;
+    private Gradio.AppConfig config;
     private Gradio.CastButton cast_button;
 
     public MainView (Gtk.Application app) {
@@ -37,6 +37,7 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
 
     public void build_ui (Elmish.Dispatch<Gradio.Message> dispatch, Gradio.AppModel model) {
         this.dispatch = dispatch;
+        this.config = model.config;
 
         var css = new Gtk.CssProvider ();
         string rules = ".current-station { background-color: alpha(@accent_bg_color, 0.25); }\n" +
@@ -189,9 +190,9 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
                 dispatch_library_sort (LibrarySortMode.BITRATE);
         });
         sort_descending_switch.notify["active"].connect (() => {
-            if (syncing_sort || app_model == null)
+            if (syncing_sort)
                 return;
-            dispatch (new SetLibrarySortMessage (app_model.config.library_sort,
+            dispatch (new SetLibrarySortMessage (rendered_sort_mode,
                 sort_descending_switch.active));
         });
         header.pack_end (sort_button);
@@ -261,7 +262,6 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
 
         player_area = new Gtk.Box (Gtk.Orientation.VERTICAL, 0);
         player_area.append (new Gtk.Separator (Gtk.Orientation.HORIZONTAL));
-        player_area.append (player_bar);
 
         status_bar = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 0) {
             margin_top = 4,
@@ -286,48 +286,41 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
         set_child (root);
 
         apply_player_placement (model.config.player_in_header);
-        update (new Gradio.SetViewMessage (model.view), model);
+        render (model);
     }
 
     private void apply_player_placement (bool header_mode) {
-        if (placement_initialized && header_mode == player_in_header_active)
-            return;
-        placement_initialized = true;
-        player_in_header_active = header_mode;
-
-        player_bar.unparent ();
         if (header_mode) {
             header.set_title_widget (empty_title);
             header_text_area.visible = true;
             header_controls_area.visible = true;
             player_area.visible = false;
-            player_bar.set_compact (true);
             player_bar.place_in_header (header_text_area, header_controls_area);
         } else {
             header.set_title_widget (title_box);
             header_text_area.visible = false;
             header_controls_area.visible = false;
             player_area.visible = true;
-            player_bar.set_compact (false);
-            player_bar.restore_to_bar ();
-            player_area.append (player_bar);
+            player_bar.place_in_bar (player_area);
         }
     }
 
     private void open_station_editor (RadioStation? station) {
-        var dialog = new StationEditorDialog (this, app_model, dispatch, station);
+        var dialog = new StationEditorDialog (this, config, dispatch, station);
         dialog.present ();
     }
 
     private void dispatch_library_sort (LibrarySortMode mode) {
-        if (syncing_sort || app_model == null)
+        if (syncing_sort)
             return;
-        dispatch (new SetLibrarySortMessage (mode, sort_descending_switch.active));
+        dispatch (new SetLibrarySortMessage (mode, rendered_sort_descending));
     }
 
     private void sync_sort_controls (Gradio.AppModel model) {
         syncing_sort = true;
         var mode = model.config.library_sort;
+        rendered_sort_mode = mode;
+        rendered_sort_descending = model.config.library_sort_descending;
         sort_custom_button.active = mode == LibrarySortMode.CUSTOM;
         sort_name_button.active = mode == LibrarySortMode.NAME;
         sort_country_button.active = mode == LibrarySortMode.COUNTRY;
@@ -343,7 +336,7 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
     }
 
     private void open_preferences () {
-        var dialog = new Gradio.SettingsDialog (this, app_model, dispatch);
+        var dialog = new Gradio.SettingsDialog (this, config, dispatch);
         dialog.present ();
     }
 
@@ -426,8 +419,8 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
         });
     }
 
-    public void update (Gradio.Message msg, Gradio.AppModel model) {
-        app_model = model;
+    private void render (Gradio.AppModel model) {
+        config = model.config;
 
         bool adding = model.view == ViewMode.ADD_STATION;
         stack.set_visible_child_name (adding ? "add" : "library");
@@ -457,5 +450,9 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
 
         status_label.label = model.status_message;
         status_bar.visible = model.config.show_status_bar && model.status_message != "";
+    }
+
+    public void update (Gradio.Message msg, Gradio.AppModel model) {
+        render (model);
     }
 }
