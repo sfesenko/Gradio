@@ -47,7 +47,6 @@ namespace Gradio {
                     list.append (row);
                     if (mode == StationListMode.LIBRARY)
                         attach_drag (row);
-                    row.set_drag_enabled (reorderable);
                 }
             }
 
@@ -56,6 +55,7 @@ namespace Gradio {
                 var row = list.get_row_at_index ((int) i) as StationRow;
                 if (row == null)
                     continue;
+                row.set_drag_enabled (reorderable);
                 row.set_favicon (model.favicon_for (station));
                 if (mode == StationListMode.LIBRARY) {
                     bool is_current = model.current_station != null &&

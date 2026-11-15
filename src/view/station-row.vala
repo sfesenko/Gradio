@@ -88,7 +88,7 @@ namespace Gradio {
                 add_button = new Gtk.Button.with_label (already_added ? _("Added") : _("Add")) {
                     valign = Gtk.Align.CENTER
                 };
-                add_button.sensitive = !already_added;
+                add_button.sensitive = false;
                 add_button.clicked.connect (() => {
                     if (!already_added)
                         dispatch (new AddStationMessage (station));
@@ -157,7 +157,7 @@ namespace Gradio {
                     ? "media-playback-stop-symbolic" : "media-playback-start-symbolic";
                 play_button.tooltip_text = current_playing ? _("Stop") : _("Play");
             }
-            if (this.already_added != already_added && add_button != null) {
+            if (add_button != null) {
                 add_button.label = already_added ? _("Added") : _("Add");
                 add_button.sensitive = !already_added;
             }

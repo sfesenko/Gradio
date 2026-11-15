@@ -26,8 +26,6 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
     private Gtk.CheckButton sort_language_button;
     private Gtk.CheckButton sort_bitrate_button;
     private Gtk.Switch sort_descending_switch;
-    private LibrarySortMode rendered_sort_mode = LibrarySortMode.CUSTOM;
-    private bool rendered_sort_descending = false;
     private Gradio.AppConfig config;
     private Gradio.CastButton cast_button;
 
@@ -192,7 +190,7 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
         sort_descending_switch.notify["active"].connect (() => {
             if (syncing_sort)
                 return;
-            dispatch (new SetLibrarySortMessage (rendered_sort_mode,
+            dispatch (new SetLibrarySortMessage (active_sort_mode (),
                 sort_descending_switch.active));
         });
         header.pack_end (sort_button);
@@ -310,17 +308,29 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
         dialog.present ();
     }
 
+    private LibrarySortMode active_sort_mode () {
+        if (sort_name_button.active)
+            return LibrarySortMode.NAME;
+        if (sort_country_button.active)
+            return LibrarySortMode.COUNTRY;
+        if (sort_state_button.active)
+            return LibrarySortMode.STATE;
+        if (sort_language_button.active)
+            return LibrarySortMode.LANGUAGE;
+        if (sort_bitrate_button.active)
+            return LibrarySortMode.BITRATE;
+        return LibrarySortMode.CUSTOM;
+    }
+
     private void dispatch_library_sort (LibrarySortMode mode) {
         if (syncing_sort)
             return;
-        dispatch (new SetLibrarySortMessage (mode, rendered_sort_descending));
+        dispatch (new SetLibrarySortMessage (mode, sort_descending_switch.active));
     }
 
     private void sync_sort_controls (Gradio.AppModel model) {
         syncing_sort = true;
         var mode = model.config.library_sort;
-        rendered_sort_mode = mode;
-        rendered_sort_descending = model.config.library_sort_descending;
         sort_custom_button.active = mode == LibrarySortMode.CUSTOM;
         sort_name_button.active = mode == LibrarySortMode.NAME;
         sort_country_button.active = mode == LibrarySortMode.COUNTRY;
@@ -333,6 +343,8 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
 
     private void open_add_view () {
         dispatch (new SetViewMessage (ViewMode.ADD_STATION));
+        if (add_page != null)
+            add_page.focus_search ();
     }
 
     private void open_preferences () {

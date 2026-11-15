@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: gradio\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-15 16:55+0200\n"
+"POT-Creation-Date: 2026-11-15 17:09+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -19,7 +19,7 @@ msgstr ""
 
 #: data/io.github.sfesenko.gradio.desktop.in:2
 #: data/io.github.sfesenko.gradio.appdata.xml.in:4 src/main.vala:106
-#: src/app-view.vala:52 src/app-view.vala:94 src/app-view.vala:439
+#: src/app-view.vala:50 src/app-view.vala:92 src/app-view.vala:451
 msgid "Gradio"
 msgstr ""
 
@@ -96,102 +96,102 @@ msgstr ""
 msgid "Listen to internet radio stations."
 msgstr ""
 
-#: src/app-view.vala:67 src/app-view.vala:432 src/view/library-page.vala:35
+#: src/app-view.vala:65 src/app-view.vala:444 src/view/library-page.vala:35
 msgid "Add station"
 msgstr ""
 
-#: src/app-view.vala:74
+#: src/app-view.vala:72
 msgid "Back to library"
 msgstr ""
 
-#: src/app-view.vala:112
+#: src/app-view.vala:110
 msgid "Menu"
 msgstr ""
 
-#: src/app-view.vala:115
+#: src/app-view.vala:113
 msgid "Add local station…"
 msgstr ""
 
-#: src/app-view.vala:116
+#: src/app-view.vala:114
 msgid "Import stations…"
 msgstr ""
 
-#: src/app-view.vala:117
+#: src/app-view.vala:115
 msgid "Export stations…"
 msgstr ""
 
-#: src/app-view.vala:118
+#: src/app-view.vala:116
 msgid "Export playlist…"
 msgstr ""
 
-#: src/app-view.vala:119 src/view/settings-dialog.vala:7
+#: src/app-view.vala:117 src/view/settings-dialog.vala:7
 msgid "Preferences"
 msgstr ""
 
-#: src/app-view.vala:120
+#: src/app-view.vala:118
 msgid "About"
 msgstr ""
 
-#: src/app-view.vala:121
+#: src/app-view.vala:119
 msgid "Quit"
 msgstr ""
 
-#: src/app-view.vala:127
+#: src/app-view.vala:125
 msgid "Sort library"
 msgstr ""
 
-#: src/app-view.vala:135
+#: src/app-view.vala:133
 msgid "Custom order"
 msgstr ""
 
-#: src/app-view.vala:136 src/view/station-editor-dialog.vala:70
+#: src/app-view.vala:134 src/view/station-editor-dialog.vala:70
 msgid "Name"
 msgstr ""
 
-#: src/app-view.vala:137 src/view/add-station-page.vala:70
+#: src/app-view.vala:135 src/view/add-station-page.vala:70
 #: src/view/station-editor-dialog.vala:73
 msgid "Country"
 msgstr ""
 
-#: src/app-view.vala:138 src/view/add-station-page.vala:74
+#: src/app-view.vala:136 src/view/add-station-page.vala:74
 #: src/view/station-editor-dialog.vala:74
 msgid "State"
 msgstr ""
 
-#: src/app-view.vala:139 src/view/add-station-page.vala:88
+#: src/app-view.vala:137 src/view/add-station-page.vala:88
 #: src/view/station-editor-dialog.vala:75
 msgid "Language"
 msgstr ""
 
-#: src/app-view.vala:140 src/view/add-station-page.vala:51
+#: src/app-view.vala:138 src/view/add-station-page.vala:51
 msgid "Bitrate"
 msgstr ""
 
-#: src/app-view.vala:154
+#: src/app-view.vala:152
 msgid "Descending"
 msgstr ""
 
-#: src/app-view.vala:345
+#: src/app-view.vala:357
 msgid "JSON files"
 msgstr ""
 
-#: src/app-view.vala:359
+#: src/app-view.vala:371
 msgid "Import stations"
 msgstr ""
 
-#: src/app-view.vala:379
+#: src/app-view.vala:391
 msgid "Export stations"
 msgstr ""
 
-#: src/app-view.vala:400
+#: src/app-view.vala:412
 msgid "Export playlist"
 msgstr ""
 
-#: src/app-view.vala:405
+#: src/app-view.vala:417
 msgid "M3U playlists"
 msgstr ""
 
-#: src/app-view.vala:435
+#: src/app-view.vala:447
 #, c-format
 msgid "Gradio: %s"
 msgstr ""
@@ -411,8 +411,8 @@ msgstr ""
 msgid "No stations found."
 msgstr ""
 
-#: src/view/add-station-page.vala:284 src/view/add-station-page.vala:297
-#: src/view/add-station-page.vala:341
+#: src/view/add-station-page.vala:288 src/view/add-station-page.vala:301
+#: src/view/add-station-page.vala:345
 msgid "Any"
 msgstr ""
 

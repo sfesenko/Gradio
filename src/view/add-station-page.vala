@@ -190,10 +190,7 @@ namespace Gradio {
             bool visible = model.view == ViewMode.ADD_STATION;
             if (visible && !was_visible) {
                 search_entry.text = "";
-                GLib.Idle.add (() => {
-                    search_entry.grab_focus ();
-                    return false;
-                });
+                focus_search ();
             }
             was_visible = visible;
             sync_filter_pickers (model);
@@ -241,6 +238,13 @@ namespace Gradio {
                     add_stack.set_visible_child_name ("results");
                 }
             }
+        }
+
+        public void focus_search () {
+            GLib.Idle.add (() => {
+                search_entry.grab_focus ();
+                return false;
+            });
         }
 
         private static Gtk.ListItemFactory plain_value_factory () {
