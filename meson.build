@@ -107,6 +107,7 @@ executable(
     'src/view/station-list.vala',
     'src/view/library-page.vala',
     'src/view/add-station-page.vala',
+    'src/view/cast-button.vala',
     'src/view/station-editor-dialog.vala',
     'src/view/details-panel.vala',
     'src/view/player-bar.vala',

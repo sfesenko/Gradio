@@ -9,6 +9,7 @@ src/view/settings-dialog.vala
 src/view/station-row.vala
 src/view/library-page.vala
 src/view/add-station-page.vala
+src/view/cast-button.vala
 src/view/station-editor-dialog.vala
 src/backend/player.vala
 src/cast/cast-service.vala
