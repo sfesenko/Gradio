@@ -2,11 +2,22 @@
 
 namespace Gradio {
 
-    public class StationRow : Gtk.ListBoxRow {
-        public RadioStation station { get; private set; }
-        public bool library_row { get; private set; }
-        public Gtk.Widget? drag_handle { get; private set; }
+    public enum StationRowMode {
+        LIBRARY,
+        BROWSE
+    }
 
+    public enum StationDropSide {
+        NONE,
+        BEFORE,
+        AFTER
+    }
+
+    public class StationRow : Gtk.ListBoxRow {
+        public string station_id { get; private set; }
+
+        private RadioStation station;
+        private StationRowMode mode;
         private unowned Elmish.Dispatch<Message> dispatch;
         private bool is_current;
         private bool playing;
@@ -18,16 +29,15 @@ namespace Gradio {
         private int icon_size;
         private Gtk.Button? add_button = null;
         private Gtk.Button? play_button = null;
+        private Gtk.Image? drag_handle = null;
 
-        public StationRow (RadioStation station, bool library_row, bool show_technical_info,
-                bool is_current, bool playing, bool already_added, string? favicon_path,
-                int icon_size, Elmish.Dispatch<Message> dispatch) {
+        public StationRow (RadioStation station, StationRowMode mode,
+                bool show_technical_info, int icon_size,
+                Elmish.Dispatch<Message> dispatch) {
             this.station = station;
-            this.library_row = library_row;
+            this.station_id = station.id;
+            this.mode = mode;
             this.dispatch = dispatch;
-            this.is_current = is_current;
-            this.playing = playing;
-            this.already_added = already_added;
             this.show_technical_info = show_technical_info;
             this.icon_size = icon_size;
 
@@ -41,7 +51,7 @@ namespace Gradio {
             var icon = new Gtk.Image.from_icon_name ("application-rss+xml-symbolic") {
                 pixel_size = icon_size
             };
-            if (library_row) {
+            if (mode == StationRowMode.LIBRARY) {
                 var handle = new Gtk.Image.from_icon_name ("list-drag-handle-symbolic") {
                     pixel_size = 16,
                     valign = Gtk.Align.CENTER,
@@ -53,7 +63,6 @@ namespace Gradio {
             }
             row.append (icon);
             station_icon = icon;
-            set_favicon (favicon_path);
 
             var text = new Gtk.Box (Gtk.Orientation.VERTICAL, 2) {
                 hexpand = true,
@@ -73,7 +82,7 @@ namespace Gradio {
             text.append (secondary_label);
             row.append (text);
 
-            if (library_row) {
+            if (mode == StationRowMode.LIBRARY) {
                 row.append (build_actions ());
             } else {
                 add_button = new Gtk.Button.with_label (already_added ? _("Added") : _("Add")) {
@@ -90,7 +99,7 @@ namespace Gradio {
             set_child (row);
 
             activate.connect (() => {
-                if (library_row) {
+                if (mode == StationRowMode.LIBRARY) {
                     if (is_current && playing)
                         dispatch (new TogglePlayMessage ());
                     else
@@ -158,6 +167,27 @@ namespace Gradio {
         public void set_drag_enabled (bool enabled) {
             if (drag_handle != null)
                 drag_handle.visible = enabled;
+        }
+
+        public void attach_drag_source (Gtk.DragSource source) {
+            if (drag_handle != null)
+                drag_handle.add_controller (source);
+        }
+
+        public void set_dragging (bool dragging) {
+            if (dragging)
+                add_css_class ("dragging");
+            else
+                remove_css_class ("dragging");
+        }
+
+        public void set_drop_mark (StationDropSide side) {
+            remove_css_class ("drop-before");
+            remove_css_class ("drop-after");
+            if (side == StationDropSide.BEFORE)
+                add_css_class ("drop-before");
+            else if (side == StationDropSide.AFTER)
+                add_css_class ("drop-after");
         }
 
         private Gtk.Box build_actions () {

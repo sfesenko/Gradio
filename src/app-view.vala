@@ -4,7 +4,7 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
     private unowned Elmish.Dispatch<Gradio.Message> dispatch;
     private Gtk.Stack stack;
     private Gtk.Stack library_stack;
-    private Gtk.ListBox list_box;
+    private Gradio.StationList list_box;
     private Gtk.Button add_button;
     private Gtk.Button back_button;
     private Gtk.Label title_label;
@@ -24,9 +24,9 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
     private Gtk.Revealer details_revealer;
     private Gtk.SearchEntry search_entry;
     private Gtk.Stack add_stack;
-    private Gtk.ListBox search_list_box;
-    private Gtk.ListBox discover_popular_list;
-    private Gtk.ListBox discover_new_list;
+    private Gradio.StationList search_list_box;
+    private Gradio.StationList discover_popular_list;
+    private Gradio.StationList discover_new_list;
     private Gtk.Label discover_empty_label;
     private Gtk.Label discover_error_label;
     private Gtk.Spinner spinner;
@@ -46,9 +46,6 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
     private string filter_signature = "";
     private bool last_adding = false;
     private Gradio.AppModel app_model;
-    private string library_signature = "";
-    private string search_signature = "";
-    private string discover_signature = "";
     private Gtk.MenuButton cast_button;
     private Gtk.Scale cast_volume_scale;
     private Gtk.Box cast_volume_row;
@@ -446,10 +443,7 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
         empty.append (empty_add);
         library_stack.add_named (empty, "empty");
 
-        list_box = new Gtk.ListBox () {
-            selection_mode = Gtk.SelectionMode.NONE,
-            show_separators = true
-        };
+        list_box = new Gradio.StationList (dispatch, StationListMode.LIBRARY);
         var scroll = new Gtk.ScrolledWindow () {
             child = list_box,
             vexpand = true,
@@ -569,10 +563,7 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
         };
         add_stack.add_named (spinner, "loading");
 
-        search_list_box = new Gtk.ListBox () {
-            selection_mode = Gtk.SelectionMode.NONE,
-            show_separators = true
-        };
+        search_list_box = new Gradio.StationList (dispatch, StationListMode.BROWSE);
         var scroll = new Gtk.ScrolledWindow () {
             child = search_list_box,
             vexpand = true,
@@ -591,10 +582,7 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
         };
         popular_label.add_css_class ("title-4");
         discover_content.append (popular_label);
-        discover_popular_list = new Gtk.ListBox () {
-            selection_mode = Gtk.SelectionMode.NONE,
-            show_separators = true
-        };
+        discover_popular_list = new Gradio.StationList (dispatch, StationListMode.BROWSE);
         discover_content.append (discover_popular_list);
 
         var new_label = new Gtk.Label (_("New stations")) {
@@ -603,10 +591,7 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
         };
         new_label.add_css_class ("title-4");
         discover_content.append (new_label);
-        discover_new_list = new Gtk.ListBox () {
-            selection_mode = Gtk.SelectionMode.NONE,
-            show_separators = true
-        };
+        discover_new_list = new Gradio.StationList (dispatch, StationListMode.BROWSE);
         discover_content.append (discover_new_list);
 
         discover_empty_label = new Gtk.Label (_("No stations found.")) {
@@ -798,80 +783,6 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
         sort_bitrate_button.active = mode == LibrarySortMode.BITRATE;
         sort_descending_switch.active = model.config.library_sort_descending;
         syncing_sort = false;
-    }
-
-    private static string rows_signature (GLib.GenericArray<Gradio.RadioStation> stations,
-            bool show_technical_info, int icon_size) {
-        var builder = new GLib.StringBuilder ();
-        for (uint i = 0; i < stations.length; i++) {
-            var station = stations.get (i);
-            builder.append_printf ("%s|%s|%s|%s|%d|%s\n", station.id, station.name, station.country,
-                station.codec, station.bitrate, station.url);
-        }
-        builder.append_printf ("%s|%d", show_technical_info ? "tech" : "plain", icon_size);
-        return builder.str;
-    }
-
-    private void attach_library_drag (Gradio.StationRow row) {
-        string station_id = row.station.id;
-        var handle = row.drag_handle;
-        if (handle == null)
-            return;
-
-        var source = new Gtk.DragSource () {
-            actions = Gdk.DragAction.MOVE
-        };
-        source.prepare.connect ((x, y) => {
-            var value = GLib.Value (typeof (string));
-            value.set_string (station_id);
-            return new Gdk.ContentProvider.for_value (value);
-        });
-        source.drag_begin.connect ((drag) => {
-            row.add_css_class ("dragging");
-        });
-        source.drag_end.connect ((drag, delete_data) => {
-            row.remove_css_class ("dragging");
-            clear_drop_marks ();
-        });
-        handle.add_controller (source);
-
-        var target = new Gtk.DropTarget (typeof (string), Gdk.DragAction.MOVE);
-        target.enter.connect ((x, y) => {
-            set_drop_mark (row, y >= row.get_height () / 2.0);
-            return Gdk.DragAction.MOVE;
-        });
-        target.motion.connect ((x, y) => {
-            set_drop_mark (row, y >= row.get_height () / 2.0);
-            return Gdk.DragAction.MOVE;
-        });
-        target.leave.connect (() => {
-            row.remove_css_class ("drop-before");
-            row.remove_css_class ("drop-after");
-        });
-        target.drop.connect ((value, x, y) => {
-            string source_id = (string) value;
-            bool after = y >= row.get_height () / 2.0;
-            clear_drop_marks ();
-            if (source_id != "" && source_id != station_id)
-                dispatch (new MoveStationMessage (source_id, station_id, after));
-            return true;
-        });
-        row.add_controller (target);
-    }
-
-    private void set_drop_mark (Gtk.Widget row, bool after) {
-        clear_drop_marks ();
-        row.add_css_class (after ? "drop-after" : "drop-before");
-    }
-
-    private void clear_drop_marks () {
-        for (int i = 0; ; i++) {
-            var row = list_box.get_row_at_index (i);
-            if (row == null)
-                break;
-            row.remove_css_class ("drop-before");
-            row.remove_css_class ("drop-after");
-        }
     }
 
     private void open_add_view () {
@@ -1124,96 +1035,15 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
         sync_filter_pickers (model);
         sync_sort_controls (model);
 
-        var library = model.library_order;
-        string lib_sig = rows_signature (library, model.config.show_technical_info,
-            model.config.icon_size) + "|sort:" +
-            StationSort.library_sort_to_string (model.config.library_sort) +
-            (model.config.library_sort_descending ? ":desc" : ":asc");
-        if (lib_sig != library_signature) {
-            library_signature = lib_sig;
-            list_box.remove_all ();
-            for (uint i = 0; i < library.length; i++) {
-                var station = library.get (i);
-                var row = new Gradio.StationRow (station, true, model.config.show_technical_info,
-                    false, false, false, model.favicon_for (station), model.config.icon_size, dispatch);
-                list_box.append (row);
-                if (model.config.library_sort == LibrarySortMode.CUSTOM)
-                    attach_library_drag (row);
-                row.set_drag_enabled (model.config.library_sort == LibrarySortMode.CUSTOM);
-            }
-        }
-        for (uint i = 0; i < library.length; i++) {
-            var station = library.get (i);
-            var row = list_box.get_row_at_index ((int) i) as Gradio.StationRow;
-            if (row == null)
-                continue;
-            bool is_current = model.current_station != null && model.current_station.id == station.id;
-            row.set_favicon (model.favicon_for (station));
-            row.set_state (is_current, model.playing, false, model.stream_title);
-        }
-
-        bool empty = library.length == 0;
+        list_box.update (model.library_order, model);
+        bool empty = model.library_order.length == 0;
         library_stack.set_visible_child_name (empty ? "empty" : "list");
 
-        string discover_sig = "P|" + rows_signature (model.discover_popular,
-            model.config.show_technical_info, model.config.icon_size) + "N|" +
-            rows_signature (model.discover_new, model.config.show_technical_info,
-                model.config.icon_size);
-        if (discover_sig != discover_signature) {
-            discover_signature = discover_sig;
-            discover_popular_list.remove_all ();
-            for (uint i = 0; i < model.discover_popular.length; i++) {
-                var station = model.discover_popular.get (i);
-                discover_popular_list.append (new Gradio.StationRow (station, false,
-                    model.config.show_technical_info, false, false, false,
-                    model.favicon_for (station), model.config.icon_size, dispatch));
-            }
-            discover_new_list.remove_all ();
-            for (uint i = 0; i < model.discover_new.length; i++) {
-                var station = model.discover_new.get (i);
-                discover_new_list.append (new Gradio.StationRow (station, false,
-                    model.config.show_technical_info, false, false, false,
-                    model.favicon_for (station), model.config.icon_size, dispatch));
-            }
-        }
-        for (uint i = 0; i < model.discover_popular.length; i++) {
-            var station = model.discover_popular.get (i);
-            var row = discover_popular_list.get_row_at_index ((int) i) as Gradio.StationRow;
-            if (row == null)
-                continue;
-            row.set_favicon (model.favicon_for (station));
-            row.set_state (false, false, model.config.contains_station (station.id));
-        }
-        for (uint i = 0; i < model.discover_new.length; i++) {
-            var station = model.discover_new.get (i);
-            var row = discover_new_list.get_row_at_index ((int) i) as Gradio.StationRow;
-            if (row == null)
-                continue;
-            row.set_favicon (model.favicon_for (station));
-            row.set_state (false, false, model.config.contains_station (station.id));
-        }
+        discover_popular_list.update (model.discover_popular, model);
+        discover_new_list.update (model.discover_new, model);
 
         var results = StationSort.sort_search (model.search_results, model.config.search_sort);
-        string result_sig = rows_signature (results, model.config.show_technical_info,
-            model.config.icon_size);
-        if (result_sig != search_signature) {
-            search_signature = result_sig;
-            search_list_box.remove_all ();
-            for (uint i = 0; i < results.length; i++) {
-                var station = results.get (i);
-                var row = new Gradio.StationRow (station, false, model.config.show_technical_info,
-                    false, false, false, model.favicon_for (station), model.config.icon_size, dispatch);
-                search_list_box.append (row);
-            }
-        }
-        for (uint i = 0; i < results.length; i++) {
-            var station = results.get (i);
-            var row = search_list_box.get_row_at_index ((int) i) as Gradio.StationRow;
-            if (row == null)
-                continue;
-            row.set_favicon (model.favicon_for (station));
-            row.set_state (false, false, model.config.contains_station (station.id));
-        }
+        search_list_box.update (results, model);
 
         bool discover_mode = adding && model.search_query == "" &&
             !model.search_active && model.config.search_filters.is_empty ();
