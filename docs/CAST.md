@@ -34,9 +34,7 @@ other. The layer is GTK-free and lives in `src/cast/`:
   `replaced`, `abandoned`, `local close`, `probe done`, `stop: ...`,
   `shutdown: ...`). The service logs it. Expected recovery (a drop, a `CLOSE`, a
   failed probe) is logged at debug level; only a user-visible cast failure is a
-  warning. Set `GRADIO_CAST_TRACE=1` to log transport frames and close reasons;
-  the service state lines are `GLib.debug`, so they also need
-  `G_MESSAGES_DEBUG`.
+  warning. Frame tracing is `G_MESSAGES_DEBUG=gradio`.
 - The drain after a STOP is bounded (5 s): once `socket.timeout` is disabled a
   write that never completes would otherwise keep the socket open forever.
 

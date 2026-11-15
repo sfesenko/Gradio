@@ -31,6 +31,11 @@ namespace Gradio {
             dirty = true;
         }
 
+        private void report_save_failed (string message) {
+            GLib.debug ("config: save %s failed: %s", path, message);
+            save_failed (message);
+        }
+
         public bool save () {
             if (read_only)
                 return false;
@@ -41,7 +46,7 @@ namespace Gradio {
             try {
                 data = config.to_json ();
             } catch (GLib.Error e) {
-                save_failed (e.message);
+                report_save_failed (e.message);
                 return false;
             }
 
@@ -91,9 +96,10 @@ namespace Gradio {
             try {
                 config.save ();
                 dirty = false;
+                GLib.debug ("config: saved %s", path);
                 return true;
             } catch (GLib.Error e) {
-                save_failed (e.message);
+                report_save_failed (e.message);
                 return false;
             }
         }
@@ -129,12 +135,13 @@ namespace Gradio {
                 yield FileIO.save_text_atomic_async (path, data);
                 if (gen == generation) {
                     dirty = false;
+                    GLib.debug ("config: saved %s", path);
                     saved ();
                 }
             } catch (GLib.Error e) {
                 if (gen == generation) {
                     dirty = false;
-                    save_failed (e.message);
+                    report_save_failed (e.message);
                 }
             }
 

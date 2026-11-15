@@ -19,5 +19,9 @@ A GTK4 app for finding and listening to internet radio stations.
   ./_build/gradio
   ```
 
+* **Logging**
+  `GRADIO_LOG_FILE=/path ./_build/gradio` duplicates all logs to a file;
+  `G_MESSAGES_DEBUG=gradio` adds application debug output.
+
 * **License**
   GNU General Public License, Version 3. See [LICENSE.md](LICENSE.md).

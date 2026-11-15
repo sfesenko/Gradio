@@ -29,9 +29,10 @@ gnome.post_install(
 # Shared library for pure logic (testable without GTK).
 # Everything in here must stay GTK-free: no widgets, no Gtk imports.
 # --- Cast support (Google Cast v2) ---
-lib_core_c_args = ['-DHAVE_CAST=1']
+lib_core_c_args = ['-DHAVE_CAST=1', '-DG_LOG_DOMAIN="gradio"']
 
 lib_core_sources = [
+  'src/log.vala',
   'src/elmish.vala',
   'src/model/messages.vala',
   'src/commands.vala',
@@ -74,8 +75,9 @@ lib_core_deps = [
 lib_core = static_library('gradio-core',
   lib_core_sources,
   'src/cast/cast-proto.c',
+  'src/log-writer.c',
   c_args: lib_core_c_args,
-  include_directories: include_directories('.'),
+  include_directories: include_directories('.', 'src'),
   dependencies: lib_core_deps,
 )
 
@@ -109,6 +111,7 @@ executable(
     config_file,
   ],
   vala_args: [ '--target-glib=2.76' ],
+  c_args: ['-DG_LOG_DOMAIN="gradio"'],
   dependencies: [
     dependency('gtk4', version: '>= 4.12'),
     lib_core_dep,

@@ -50,6 +50,7 @@ Arch package: `./scripts/build-package.sh`
 - SPDX: MIT on template-derived files, GPL-3.0-or-later on new Gradio files.
 - Namespaces: `Elmish`, `Gradio`.
 - User-visible strings: `_()`.
+- Commit messages: imperative subject, terse bullets, no prose paragraphs.
 
 ## Verify
 

@@ -110,6 +110,12 @@ test_json_util = executable('test_json_util',
 )
 test('json-util', test_json_util)
 
+test_log = executable('test_log',
+  'test_log.vala',
+  dependencies: [test_deps, lib_core_dep],
+)
+test('log', test_log)
+
 test_cast_mdns = executable('test_cast_mdns',
   'test_mdns.vala',
   dependencies: [test_deps, lib_core_dep],

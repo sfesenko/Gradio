@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: gradio\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-15 14:52+0200\n"
+"POT-Creation-Date: 2026-11-15 16:19+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -18,7 +18,7 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 
 #: data/io.github.sfesenko.gradio.desktop.in:2
-#: data/io.github.sfesenko.gradio.appdata.xml.in:4 src/main.vala:98
+#: data/io.github.sfesenko.gradio.appdata.xml.in:4 src/main.vala:106
 #: src/app-view.vala:83 src/app-view.vala:125 src/app-view.vala:1112
 msgid "Gradio"
 msgstr ""
@@ -92,7 +92,7 @@ msgstr ""
 msgid "MPRIS Support, vote for stations, search for stations."
 msgstr ""
 
-#: src/main.vala:102
+#: src/main.vala:110
 msgid "Listen to internet radio stations."
 msgstr ""
 
@@ -333,7 +333,7 @@ msgid "Cast connection lost"
 msgstr ""
 
 #: src/app-view.vala:1046 src/app-view.vala:1052 src/app-view.vala:1072
-#: src/backend/player.vala:200 src/app-update.vala:1862
+#: src/backend/player.vala:217 src/app-update.vala:1862
 msgid "Reconnecting…"
 msgstr ""
 
@@ -531,15 +531,15 @@ msgstr ""
 msgid "Tags"
 msgstr ""
 
-#: src/backend/player.vala:62
+#: src/backend/player.vala:66
 msgid "Invalid stream URL"
 msgstr ""
 
-#: src/backend/player.vala:127
+#: src/backend/player.vala:133
 msgid "Could not start playback"
 msgstr ""
 
-#: src/backend/player.vala:208
+#: src/backend/player.vala:226
 msgid "A required codec is missing."
 msgstr ""
 
@@ -572,19 +572,19 @@ msgstr ""
 msgid "Cast playback stopped"
 msgstr ""
 
-#: src/app-runtime.vala:402
+#: src/app-runtime.vala:415
 msgid "Playback error"
 msgstr ""
 
-#: src/app-runtime.vala:417
+#: src/app-runtime.vala:430
 msgid "Now playing"
 msgstr ""
 
-#: src/app-runtime.vala:419
+#: src/app-runtime.vala:432
 msgid "Playing"
 msgstr ""
 
-#: src/app-runtime.vala:726
+#: src/app-runtime.vala:741
 msgid "Voting failed"
 msgstr ""
 

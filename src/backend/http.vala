@@ -83,12 +83,14 @@ namespace Gradio {
             if (!is_valid_url (normalized))
                 throw new HttpError.REQUEST_FAILED ("Invalid URL: %s", url);
 
+            GLib.debug ("http: GET %s", normalized);
             var message = new Soup.Message ("GET", normalized);
             var bytes = yield session.send_and_read_async (message, GLib.Priority.DEFAULT, cancellable);
 
             int status = (int) message.get_status ();
+            GLib.debug ("http: GET %s -> %d", normalized, status);
             if (status < 200 || status >= 300)
-                throw status_error (status, message.get_uri ().to_string ());
+                throw status_error (status, normalized);
 
             return bytes;
         }
@@ -106,14 +108,16 @@ namespace Gradio {
             if (!is_valid_url (normalized))
                 throw new HttpError.REQUEST_FAILED ("Invalid URL: %s", url);
 
+            GLib.debug ("http: POST %s", normalized);
             var message = new Soup.Message ("POST", normalized);
             message.set_request_body_from_bytes (content_type, new GLib.Bytes (body.data));
             var bytes = yield session.send_and_read_async (message, GLib.Priority.DEFAULT,
                 cancellable);
 
             int status = (int) message.get_status ();
+            GLib.debug ("http: POST %s -> %d", normalized, status);
             if (status < 200 || status >= 300)
-                throw status_error (status, message.get_uri ().to_string ());
+                throw status_error (status, normalized);
 
             return bytes_to_string (bytes);
         }

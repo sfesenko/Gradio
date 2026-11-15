@@ -91,12 +91,14 @@ namespace Gradio {
 
         public override Elmish.Cmd<Message>? play (RadioStation station) {
             return new Elmish.Cmd<Message> ((dispatch) => {
+                GLib.debug ("play: %s %s", station.name, station.url);
                 player.play (station);
             });
         }
 
         public override Elmish.Cmd<Message>? stop () {
             return new Elmish.Cmd<Message> ((dispatch) => {
+                GLib.debug ("stop: requested");
                 player.stop ();
             });
         }
@@ -195,6 +197,7 @@ namespace Gradio {
         }
 
         public void shutdown () {
+            GLib.debug ("shutdown: stopping services");
             stop_cast_metadata_now ();
             CastService.shutdown (config.cast_keep_on_quit);
             sleep_inhibitor.release ();
@@ -331,19 +334,25 @@ namespace Gradio {
                 yield RadioBrowser.report_click_async (session, station_id);
             } catch (GLib.Error e) {
                 // Click reporting is fire-and-forget; playback already runs.
+                GLib.debug ("click: %s failed: %s", station_id, e.message);
             }
         }
 
         private async void discover_mode_async (DiscoverMode mode, uint generation) {
+            string region = Locale.region_code ();
+            GLib.debug ("discover: mode %d region %s", (int) mode, region);
             try {
                 int limit = mode == DiscoverMode.POPULAR
                     ? RadioBrowser.DISCOVER_POPULAR_LIMIT
                     : RadioBrowser.DISCOVER_NEW_LIMIT;
                 var stations = yield RadioBrowser.discover_async (session, mode,
-                    Locale.region_code (), limit);
+                    region, limit);
+                GLib.debug ("discover: mode %d returned %u station(s)",
+                    (int) mode, stations.length);
                 if (dispatch != null)
                     dispatch (new DiscoverResultsMessage (mode, stations, generation));
             } catch (GLib.Error e) {
+                GLib.debug ("discover: mode %d failed: %s", (int) mode, e.message);
                 if (dispatch != null)
                     dispatch (new DiscoverFailedMessage (mode, e.message, generation));
             }
@@ -352,9 +361,12 @@ namespace Gradio {
         private async void discover_server_async () {
             try {
                 string? discovered_base = yield RadioBrowser.discover_server_async (session);
+                if (discovered_base != null)
+                    GLib.debug ("discover: server %s", discovered_base);
                 if (dispatch != null && discovered_base != null)
                     dispatch (new ServerDiscoveredMessage (discovered_base));
             } catch (GLib.Error e) {
+                GLib.debug ("discover: no server: %s", e.message);
                 if (dispatch != null)
                     dispatch (new ServerDiscoveryFailedMessage (e.message));
             }
@@ -386,6 +398,7 @@ namespace Gradio {
                 } catch (GLib.Error e) {
                     // A refresh is best-effort. Discard the whole result rather than
                     // marking stations orphaned because a batch failed.
+                    GLib.debug ("library: refresh failed: %s", e.message);
                     return;
                 }
             }
@@ -606,6 +619,7 @@ namespace Gradio {
                     return;
                 }
             } catch (GLib.Error e) {
+                GLib.debug ("favicon: %s failed: %s", url, e.message);
             }
 
             if (generation == favicon_generation)
@@ -712,6 +726,7 @@ namespace Gradio {
             } catch (GLib.Error e) {
                 // Filter lists are a convenience: fall back to the entries the
                 // user already has instead of reporting an error.
+                GLib.debug ("filters: %s failed: %s", endpoint, e.message);
             }
         }
 
@@ -731,11 +746,14 @@ namespace Gradio {
         }
 
         private async void search_async (string query, uint generation) {
+            GLib.debug ("search: \"%s\"", query);
             try {
                 var stations = yield RadioBrowser.search_async (session, query, 50, config.search_filters);
+                GLib.debug ("search: %u result(s) for \"%s\"", stations.length, query);
                 if (dispatch != null)
                     dispatch (new SearchResultsMessage (stations, generation));
             } catch (GLib.Error e) {
+                GLib.debug ("search: \"%s\" failed: %s", query, e.message);
                 if (dispatch != null)
                     dispatch (new SearchFailedMessage (e.message, generation));
             }
