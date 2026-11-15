@@ -67,7 +67,7 @@ and details selection.
 
 `JsonUtil` (`src/model/json-util.vala`) holds the shared "parse and return null
 on bad input" helpers (`object_from`, `string_member`, `object_member`,
-`int_member`).
+`array_member`, `int_member`).
 
 ## Messages: plain classes + enum discriminator
 

@@ -9,6 +9,13 @@ namespace Gradio {
         LOST
     }
 
+    // What a receiver CLOSE means for the attempt that owns the socket.
+    public enum CastCloseAction {
+        IGNORE,
+        SENDER_LOST,
+        ATTEMPT_FAILED
+    }
+
     public class CastService : GLib.Object {
         private const string CONNECTION_NAMESPACE = "urn:x-cast:com.google.cast.tp.connection";
         private const string RECEIVER_NAMESPACE = "urn:x-cast:com.google.cast.receiver";
@@ -20,10 +27,14 @@ namespace Gradio {
         public const int LIVENESS_TIMEOUT_SECONDS = 30;
         public const int64 LIVENESS_TIMEOUT_US =
             LIVENESS_TIMEOUT_SECONDS * 1000000L;
-        // The receiver pings every 5 s and closes the socket ~5 s after a
-        // missed PONG, so a sender heartbeat is mandatory, not optional.
+        // The receiver closes the socket ~5 s after a missed PONG, so the sender
+        // must heartbeat too.
         public const int HEARTBEAT_INTERVAL_SECONDS = 5;
         public const int HEARTBEAT_TIMEOUT_SECONDS = 10;
+        public const int64 HEARTBEAT_TIMEOUT_US =
+            HEARTBEAT_TIMEOUT_SECONDS * 1000000L;
+        // One silent window may be a late PONG, not a dropped sender.
+        public const int HEARTBEAT_MISSES = 2;
 
         private static CastConnection? connection = null;
         private static string session_id = "";
@@ -33,6 +44,7 @@ namespace Gradio {
         private static uint liveness_timeout_id = 0;
         private static uint liveness_watchdog_id = 0;
         private static uint heartbeat_id = 0;
+        private static int heartbeat_misses = 0;
         private static int64 last_pong_us = 0;
         private static int64 last_status_us = 0;
         private static uint session_generation = 0;
@@ -89,18 +101,20 @@ namespace Gradio {
                 device_connection.closed.connect ((reason) => {
                     if (connection != device_connection || generation != session_generation)
                         return;
-                    GLib.warning ("cast: connection to %s closed (%s)", device_id,
+                    GLib.debug ("cast: connection to %s closed (%s)", device_id,
                         reason);
-                    if (started) {
+                    switch (close_action (started, finished)) {
+                    case CastCloseAction.SENDER_LOST:
                         sender_lost (dispatch, device_id, device_connection,
                             generation);
-                        return;
+                        break;
+                    case CastCloseAction.ATTEMPT_FAILED:
+                        fail (dispatch, device_id, _("Device disconnected"),
+                            device_connection, generation);
+                        break;
+                    default:
+                        break;
                     }
-                    if (finished)
-                        return;
-                    finished = true;
-                    clear_timeout ();
-                    dispatch (new CastFailedMessage (_("Device disconnected")));
                 });
 
                 // Bound the whole handshake, including a stalled TLS connect.
@@ -110,13 +124,18 @@ namespace Gradio {
                         finished = true;
                         clear_timeout ();
                         close_current_async ();
-                        dispatch (new CastFailedMessage (_("Cast timed out")));
+                        GLib.warning ("cast: %s connection timed out", device_id);
+                        dispatch (new CastFailedMessage (device_id, _("Cast timed out")));
                     }
                     return false;
                 });
-                device_connection.connect.begin (host, port, null, (obj, res) => {
-                    if (connection != device_connection || generation != session_generation)
+                device_connection.connect.begin (host, port, (obj, res) => {
+                    if (connection != device_connection || generation != session_generation) {
+                        // The attempt was abandoned (e.g. Stop during the TLS
+                        // handshake), but this socket was opened: close it.
+                        device_connection.close_async.begin ("abandoned");
                         return;
+                    }
                     try {
                         if (!device_connection.connect.end (res)) {
                             fail (dispatch, device_id, _("Could not connect"),
@@ -139,13 +158,9 @@ namespace Gradio {
         public static Elmish.Cmd<Gradio.Message>? probe_cmd (string device_id,
                 string host, int port) {
             return new Elmish.Cmd<Gradio.Message> ((dispatch) => {
-                // A live cast owns the connection; do not open a second one
-                // with the same source id while it is running.
-                if (connection != null && started) {
-                    dispatch (new CastSessionDetectedMessage (device_id, "", "",
-                        "", ""));
+                // A live session owns the socket: nothing to probe, nothing to report.
+                if (connection != null && started)
                     return;
-                }
                 var probe = new CastProbe (device_id);
                 probe.generation = session_generation;
                 probe.connection = new CastConnection ();
@@ -154,7 +169,7 @@ namespace Gradio {
                 });
                 probe.connection.closed.connect ((reason) => {
                     if (!probe.reported && reason != "drain")
-                        GLib.message ("cast: probe to %s closed (%s)",
+                        GLib.debug ("cast: probe to %s closed (%s)",
                             probe.device_id, reason);
                     finish_probe (dispatch, probe);
                 });
@@ -166,7 +181,7 @@ namespace Gradio {
                     return false;
                 });
                 var probe_connection = probe.connection;
-                probe_connection.connect.begin (host, port, null, (obj, res) => {
+                probe_connection.connect.begin (host, port, (obj, res) => {
                     // The probe may have been finished by the close signal
                     // before this callback ran; probe.connection is null then.
                     if (probe.reported)
@@ -183,7 +198,7 @@ namespace Gradio {
                             "{\"type\":\"GET_STATUS\",\"requestId\":%u}".printf (
                                 next_request_id++));
                     } catch (GLib.Error e) {
-                        GLib.message ("cast: probe to %s failed: %s",
+                        GLib.debug ("cast: probe to %s failed: %s",
                             probe.device_id, e.message);
                         finish_probe (dispatch, probe);
                     }
@@ -217,16 +232,20 @@ namespace Gradio {
                     if (connection != device_connection ||
                             generation != session_generation)
                         return;
-                    GLib.warning ("cast: attach to %s closed (%s)", device_id,
+                    GLib.debug ("cast: attach to %s closed (%s)", device_id,
                         reason);
-                    if (!state.reported) {
-                        fail_adopt (dispatch, state, device_connection,
-                            generation);
-                        return;
-                    }
-                    if (started)
+                    switch (close_action (started, state.reported)) {
+                    case CastCloseAction.SENDER_LOST:
                         sender_lost (dispatch, device_id, device_connection,
                             generation);
+                        break;
+                    case CastCloseAction.ATTEMPT_FAILED:
+                        fail_adopt (dispatch, state, device_connection,
+                            generation);
+                        break;
+                    default:
+                        break;
+                    }
                 });
                 // Bound the whole handshake, including a stalled TLS connect.
                 timeout_id = GLib.Timeout.add_seconds (10, () => {
@@ -236,10 +255,14 @@ namespace Gradio {
                             generation);
                     return false;
                 });
-                device_connection.connect.begin (host, port, null, (obj, res) => {
+                device_connection.connect.begin (host, port, (obj, res) => {
                     if (connection != device_connection ||
-                            generation != session_generation)
+                            generation != session_generation) {
+                        // The attempt was abandoned (e.g. Stop during the TLS
+                        // handshake), but this socket was opened: close it.
+                        device_connection.close_async.begin ("abandoned");
                         return;
+                    }
                     try {
                         if (!device_connection.connect.end (res)) {
                             fail_adopt (dispatch, state, device_connection,
@@ -253,7 +276,7 @@ namespace Gradio {
                             "{\"type\":\"GET_STATUS\",\"requestId\":%u}".printf (
                                 next_request_id++));
                     } catch (GLib.Error e) {
-                        GLib.message ("cast: attach to %s failed: %s", device_id,
+                        GLib.debug ("cast: attach to %s failed: %s", device_id,
                             e.message);
                         fail_adopt (dispatch, state, device_connection,
                             generation);
@@ -267,7 +290,7 @@ namespace Gradio {
             return new Elmish.Cmd<Gradio.Message> ((dispatch) => {
                 if (connection == null || !started || session_id == "" ||
                         media_session_id <= 0) {
-                    dispatch (new CastFailedMessage (
+                    dispatch (new CastFailedMessage (device_id,
                         _("Cast media session is not ready")));
                     return;
                 }
@@ -276,9 +299,11 @@ namespace Gradio {
                         media_command_json (next_request_id++, command,
                             media_session_id));
                 } catch (GLib.Error e) {
-                    GLib.warning ("cast: %s failed: %s", command, e.message);
-                    cast_lost (dispatch, device_id, _("Cast connection lost"),
-                        connection, session_generation);
+                    GLib.debug ("cast: %s failed: %s", command, e.message);
+                    // The socket is gone; the receiver may still be playing, so
+                    // re-attach instead of declaring the cast lost.
+                    sender_lost (dispatch, device_id, connection,
+                        session_generation);
                 }
             });
         }
@@ -286,14 +311,14 @@ namespace Gradio {
         public static Elmish.Cmd<Gradio.Message>? set_volume_cmd (double level) {
             return new Elmish.Cmd<Gradio.Message> ((dispatch) => {
                 if (connection == null) {
-                    GLib.warning ("cast: SET_VOLUME dropped: no cast connection");
+                    GLib.debug ("cast: SET_VOLUME dropped: no cast connection");
                     return;
                 }
                 try {
                     connection.send_json (RECEIVER_NAMESPACE, "receiver-0",
                         set_volume_json (next_request_id++, level));
                 } catch (GLib.Error e) {
-                    GLib.warning ("cast: SET_VOLUME failed: %s", e.message);
+                    GLib.debug ("cast: SET_VOLUME failed: %s", e.message);
                 }
             });
         }
@@ -329,13 +354,13 @@ namespace Gradio {
                         current.close_after_drain ();
                     }
                 } catch (GLib.Error e) {
-                    GLib.warning ("cast: stop failed: %s", e.message);
+                    GLib.debug ("cast: stop failed: %s", e.message);
                     if (current != null)
                         current.close_async.begin ("stop: " + e.message);
                 }
                 finished = true;
                 reset_state ();
-                dispatch (new CastStoppedMessage ());
+                dispatch (new CastStoppedMessage (device_id));
             });
         }
 
@@ -361,12 +386,28 @@ namespace Gradio {
                 if (current != null)
                     current.close_after_drain ();
             } catch (GLib.Error e) {
-                GLib.warning ("cast: shutdown stop failed: %s", e.message);
+                GLib.debug ("cast: shutdown stop failed: %s", e.message);
                 if (current != null)
                     current.close_async.begin ("shutdown: " + e.message);
             }
             finished = true;
             reset_state ();
+        }
+
+        // Any parsed inbound frame proves the read path is alive. Receivers ping
+        // too, so answering their PING is enough even when they never answer ours.
+        private static void note_liveness () {
+            last_pong_us = GLib.get_monotonic_time ();
+            heartbeat_misses = 0;
+        }
+
+        // The receiver owns the volume; adopt it instead of pushing ours.
+        private static void dispatch_receiver_volume (
+                Elmish.Dispatch<Gradio.Message> dispatch, string device_id,
+                string json) {
+            var level = receiver_volume_from_json (json);
+            if (level >= 0.0)
+                dispatch (new CastVolumeMessage (device_id, level));
         }
 
         private static void handle_message (Elmish.Dispatch<Gradio.Message> dispatch,
@@ -377,39 +418,41 @@ namespace Gradio {
             var obj = JsonUtil.object_from (json);
             if (obj == null)
                 return;
+            note_liveness ();
             var type = JsonUtil.string_member (obj, "type");
             if (type == "")
                 type = JsonUtil.string_member (obj, "responseType");
 
             if (type == "PONG") {
-                // Proof that our writes reach the receiver: the heartbeat
-                // watchdog is measured against this.
-                last_pong_us = GLib.get_monotonic_time ();
                 return;
             }
             if (type == "PING") {
                 try {
                     session.send_pong ("receiver-0");
                 } catch (GLib.Error e) {
-                    GLib.warning ("cast: PONG failed: %s", e.message);
+                    GLib.debug ("cast: PONG failed: %s", e.message);
                 }
                 return;
             }
             if (type == "CLOSE") {
-                // The receiver terminates a virtual connection in error cases.
-                // The socket normally follows; treat it as a sender loss so the
-                // app re-attaches instead of waiting for the watchdog.
-                GLib.warning ("cast: receiver sent CLOSE");
-                sender_lost (dispatch, device_id, session, generation);
+                // The socket normally follows a receiver CLOSE; after a media
+                // session starts it is a sender loss, earlier it fails the attempt.
+                GLib.debug ("cast: receiver sent CLOSE");
+                switch (close_action (started, finished)) {
+                case CastCloseAction.SENDER_LOST:
+                    sender_lost (dispatch, device_id, session, generation);
+                    break;
+                case CastCloseAction.ATTEMPT_FAILED:
+                    fail (dispatch, device_id, _("Device disconnected"),
+                        session, generation);
+                    break;
+                default:
+                    break;
+                }
                 return;
             }
-            if (type == "RECEIVER_STATUS") {
-                // The receiver owns the real volume; mirror it instead of
-                // pushing our stored level over it.
-                var level = receiver_volume_from_json (json);
-                if (level >= 0.0)
-                    dispatch (new CastVolumeMessage (device_id, level));
-            }
+            if (type == "RECEIVER_STATUS")
+                dispatch_receiver_volume (dispatch, device_id, json);
             if (type == "MEDIA_STATUS") {
                 last_status_us = GLib.get_monotonic_time ();
                 report_media_title (dispatch, device_id, json);
@@ -499,12 +542,19 @@ namespace Gradio {
                 try {
                     probe.connection.send_pong ("receiver-0");
                 } catch (GLib.Error e) {
-                    GLib.warning ("cast: probe PONG failed: %s", e.message);
+                    GLib.debug ("cast: probe PONG failed: %s", e.message);
                 }
                 return;
             }
             if (type == "PONG")
                 return;
+            if (type == "CLOSE") {
+                // A probe has no media session: a CLOSE only means none is
+                // running. finish_probe is idempotent.
+                GLib.debug ("cast: receiver sent CLOSE during probe");
+                finish_probe (dispatch, probe);
+                return;
+            }
             if (type == "RECEIVER_STATUS") {
                 var app = media_app_from_json (json);
                 if (app == null) {
@@ -518,6 +568,8 @@ namespace Gradio {
                     probe.connection.send_json (MEDIA_NAMESPACE, app.session_id,
                         media_status_json (next_request_id++, 0));
                 } catch (GLib.Error e) {
+                    GLib.debug ("cast: probe status request failed: %s",
+                        e.message);
                     finish_probe (dispatch, probe);
                 }
                 return;
@@ -593,6 +645,7 @@ namespace Gradio {
             var obj = JsonUtil.object_from (json);
             if (obj == null)
                 return;
+            note_liveness ();
             var type = JsonUtil.string_member (obj, "type");
             if (type == "")
                 type = JsonUtil.string_member (obj, "responseType");
@@ -600,21 +653,31 @@ namespace Gradio {
                 try {
                     session.send_pong ("receiver-0");
                 } catch (GLib.Error e) {
-                    GLib.warning ("cast: PONG failed: %s", e.message);
+                    GLib.debug ("cast: PONG failed: %s", e.message);
                 }
                 return;
             }
             if (type == "PONG") {
-                last_pong_us = GLib.get_monotonic_time ();
                 return;
             }
-            if (type == "RECEIVER_STATUS") {
-                // Adopt the device's volume during attachment instead of
-                // overwriting it with the value saved on this computer.
-                var level = receiver_volume_from_json (json);
-                if (level >= 0.0)
-                    dispatch (new CastVolumeMessage (state.device_id, level));
+            if (type == "CLOSE") {
+                // A re-attach is not a live session yet, so a CLOSE fails the
+                // adoption unless the media session was already adopted.
+                GLib.debug ("cast: receiver sent CLOSE during attach");
+                switch (close_action (started, state.reported)) {
+                case CastCloseAction.SENDER_LOST:
+                    sender_lost (dispatch, state.device_id, session, generation);
+                    break;
+                case CastCloseAction.ATTEMPT_FAILED:
+                    fail_adopt (dispatch, state, session, generation);
+                    break;
+                default:
+                    break;
+                }
+                return;
             }
+            if (type == "RECEIVER_STATUS")
+                dispatch_receiver_volume (dispatch, state.device_id, json);
             if (type == "MEDIA_STATUS") {
                 last_status_us = GLib.get_monotonic_time ();
                 report_media_title (dispatch, state.device_id, json);
@@ -679,6 +742,8 @@ namespace Gradio {
                     session.send_json (MEDIA_NAMESPACE, app.session_id,
                         media_status_json (next_request_id++, 0));
                 } catch (GLib.Error e) {
+                    GLib.debug ("cast: attach status request failed: %s",
+                        e.message);
                     fail_adopt (dispatch, state, session, generation);
                 }
             }
@@ -696,7 +761,7 @@ namespace Gradio {
             clear_timeout ();
             clear_liveness ();
             close_current_async ();
-            GLib.message ("cast: adoption failed for %s", state.device_id);
+            GLib.debug ("cast: adoption failed for %s", state.device_id);
             dispatch (new CastAdoptFailedMessage (state.device_id));
         }
 
@@ -708,25 +773,21 @@ namespace Gradio {
             finished = true;
             clear_timeout ();
             close_current_async ();
-            GLib.message ("cast: %s failed: %s", device_id, message);
-            dispatch (new CastFailedMessage (message));
+            GLib.warning ("cast: %s failed: %s", device_id, message);
+            dispatch (new CastFailedMessage (device_id, message));
         }
 
         // The sender socket dropped while the media session may still be
-        // playing. The receiver keeps the session alive after its sender goes
-        // away, so re-probe and re-attach instead of declaring a lost cast.
+        // playing: the receiver keeps it alive, so re-probe and re-attach.
         private static void sender_lost (
                 Elmish.Dispatch<Gradio.Message> dispatch, string device_id,
                 CastConnection session, uint generation) {
             if (!should_report_lost (started, connection == session, generation,
                     session_generation))
                 return;
-            started = false;
-            finished = true;
-            clear_timeout ();
-            clear_liveness ();
-            close_current_async ();
-            dispatch (new CastSenderLostMessage (device_id));
+            end_session ();
+            dispatch (new CastSenderLostMessage (device_id,
+                GLib.get_monotonic_time ()));
         }
 
         private static void cast_lost (Elmish.Dispatch<Gradio.Message> dispatch,
@@ -736,12 +797,18 @@ namespace Gradio {
                     session_generation))
                 return;
             GLib.warning ("cast: %s lost: %s", device_id, message);
+            end_session ();
+            dispatch (new CastLostMessage (device_id, message));
+        }
+
+        // This sender's session is over: drop every timer and the socket so the
+        // next attempt starts clean.
+        private static void end_session () {
             started = false;
             finished = true;
             clear_timeout ();
             clear_liveness ();
             close_current_async ();
-            dispatch (new CastLostMessage (device_id, message));
         }
 
         private static void start_liveness_monitor (
@@ -758,31 +825,37 @@ namespace Gradio {
                         liveness_timeout_id = 0;
                         return false;
                     }
+                    // A write failure means the socket is gone, not that the
+                    // session ended: the receiver may still be playing.
+                    if (session_id == "") {
+                        liveness_timeout_id = 0;
+                        GLib.debug ("cast: liveness status failed: %s",
+                            "no media session");
+                        cast_lost (dispatch, device_id,
+                            _("Cast connection lost"), session, generation);
+                        return false;
+                    }
                     try {
-                        if (session_id == "")
-                            throw new IOError.FAILED ("no media session");
                         session.send_json (MEDIA_NAMESPACE, session_id,
                             media_status_json (next_request_id++,
                                 media_session_id));
                     } catch (GLib.Error e) {
                         liveness_timeout_id = 0;
-                        cast_lost (dispatch, device_id,
-                            _("Cast connection lost"), session, generation);
+                        GLib.debug ("cast: liveness status failed: %s",
+                            e.message);
+                        sender_lost (dispatch, device_id, session, generation);
                         return false;
                     }
                     return true;
                 });
         }
 
-        // The receiver pings us every 5 s and drops the socket ~5 s after a
-        // missed PONG. Answering PINGs is not enough on its own: if the write
-        // path stalls the socket dies with no error, so run a sender heartbeat
-        // and treat a missing PONG as a dropped sender.
         private static void start_heartbeat (
                 Elmish.Dispatch<Gradio.Message> dispatch, string device_id,
                 CastConnection session, uint generation) {
             clear_heartbeat ();
             last_pong_us = GLib.get_monotonic_time ();
+            heartbeat_misses = 0;
             heartbeat_id = GLib.Timeout.add_seconds (HEARTBEAT_INTERVAL_SECONDS,
                 () => {
                     if (!started || connection != session ||
@@ -791,20 +864,25 @@ namespace Gradio {
                         return false;
                     }
                     int64 now = GLib.get_monotonic_time ();
-                    if (liveness_expired (last_pong_us, now,
-                            HEARTBEAT_TIMEOUT_SECONDS * 1000000L)) {
+                    bool lost;
+                    heartbeat_misses = heartbeat_tick (last_pong_us, now,
+                        heartbeat_misses, out lost);
+                    if (lost) {
                         heartbeat_id = 0;
-                        GLib.warning ("cast: heartbeat timeout: no PONG from %s",
+                        GLib.debug ("cast: heartbeat timeout: no PONG from %s",
                             device_id);
                         sender_lost (dispatch, device_id, session, generation);
                         return false;
                     }
+                    // Ping on every tick, including a quiet window: a late PONG
+                    // may still be on its way, and a dead write path surfaces
+                    // here as a send error.
                     try {
                         session.send_json (HEARTBEAT_NAMESPACE, "receiver-0",
                             "{\"type\":\"PING\"}");
                     } catch (GLib.Error e) {
                         heartbeat_id = 0;
-                        GLib.warning ("cast: heartbeat PING failed: %s",
+                        GLib.debug ("cast: heartbeat PING failed: %s",
                             e.message);
                         sender_lost (dispatch, device_id, session, generation);
                         return false;
@@ -837,10 +915,8 @@ namespace Gradio {
                 });
         }
 
-        // The device is the only source of track metadata while casting; every
-        // MEDIA_STATUS (including the liveness polls) may carry a new title.
-        // A status without metadata is not a title update: never let it erase
-        // the title that is already shown.
+        // Every MEDIA_STATUS may carry a new title; one without metadata never
+        // erases the title that is already shown.
         private static void report_media_title (
                 Elmish.Dispatch<Gradio.Message> dispatch, string device_id,
                 string json) {
@@ -902,9 +978,41 @@ namespace Gradio {
             return started && same_session && generation == current_generation;
         }
 
+        // attempt_ended is the per-attempt "already resolved" flag: a CLOSE
+        // after the attempt reported is ignored instead of reported twice.
+        public static CastCloseAction close_action (bool started,
+                bool attempt_ended) {
+            if (started)
+                return CastCloseAction.SENDER_LOST;
+            if (attempt_ended)
+                return CastCloseAction.IGNORE;
+            return CastCloseAction.ATTEMPT_FAILED;
+        }
+
         public static bool liveness_expired (int64 last_us, int64 now_us,
                 int64 timeout_us) {
             return now_us - last_us >= timeout_us;
+        }
+
+        // A drop needs the quiet window and a repeated miss. The caller checks
+        // the window first: that check is what lets a healthy tick send a PING.
+        public static bool heartbeat_lost (int64 last_pong_us, int64 now_us,
+                int misses) {
+            if (!liveness_expired (last_pong_us, now_us, HEARTBEAT_TIMEOUT_US))
+                return false;
+            return misses >= HEARTBEAT_MISSES;
+        }
+
+        // One heartbeat tick: a quiet window raises the miss count, any liveness
+        // resets it. `lost` is true once the miss count passes the threshold.
+        public static int heartbeat_tick (int64 last_liveness_us, int64 now_us,
+                int misses, out bool lost) {
+            lost = false;
+            if (!liveness_expired (last_liveness_us, now_us, HEARTBEAT_TIMEOUT_US))
+                return 0;
+            int next = misses + 1;
+            lost = heartbeat_lost (last_liveness_us, now_us, next);
+            return next;
         }
 
         private static void clear_liveness () {
@@ -924,6 +1032,7 @@ namespace Gradio {
                 GLib.Source.remove (heartbeat_id);
                 heartbeat_id = 0;
             }
+            heartbeat_misses = 0;
         }
 
         private static void clear_timeout () {
@@ -964,6 +1073,8 @@ namespace Gradio {
             if (apps == null)
                 return "";
             foreach (var node in apps.get_elements ()) {
+                if (node.get_node_type () != Json.NodeType.OBJECT)
+                    continue;
                 var app = node.get_object ();
                 if (app == null)
                     continue;
@@ -986,9 +1097,21 @@ namespace Gradio {
             if (status == null)
                 return -1.0;
             var volume = JsonUtil.object_member (status, "volume");
-            if (volume == null || !volume.has_member ("level"))
+            if (volume == null)
                 return -1.0;
-            double level = volume.get_double_member_with_default ("level", -1.0);
+            // Read the node explicitly: get_double_member() on a string or
+            // object member emits a GValue warning and yields 0.0 ("muted").
+            var node = volume.get_member ("level");
+            if (node == null)
+                return -1.0;
+            var type = node.get_value_type ();
+            double level;
+            if (type == typeof (double))
+                level = node.get_double ();
+            else if (type == typeof (int64))
+                level = (double) node.get_int ();
+            else
+                return -1.0;
             if (level < 0.0 || level > 1.0)
                 return -1.0;
             return level;
@@ -1017,7 +1140,9 @@ namespace Gradio {
             var first = first_media_status_object (json);
             if (first == null)
                 return 0;
-            return (int) first.get_int_member_with_default ("mediaSessionId", 0);
+            // Same hazard as the volume level: the raw accessor reads the value
+            // union without a type check, so a mistyped member yields garbage.
+            return JsonUtil.int_member (first, "mediaSessionId");
         }
 
         private static Json.Object? first_media_status_object (string json) {
@@ -1044,6 +1169,8 @@ namespace Gradio {
             if (apps == null)
                 return null;
             foreach (var node in apps.get_elements ()) {
+                if (node.get_node_type () != Json.NodeType.OBJECT)
+                    continue;
                 var app = node.get_object ();
                 if (app == null)
                     continue;
@@ -1174,6 +1301,8 @@ namespace Gradio {
                 return null;
             var devices = new CastDevice[] {};
             foreach (var node in list.get_elements ()) {
+                if (node.get_node_type () != Json.NodeType.OBJECT)
+                    continue;
                 var dev = node.get_object ();
                 if (dev == null)
                     continue;

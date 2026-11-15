@@ -977,8 +977,10 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
     }
 
     private static string volume_percent_text (double volume) {
-        // No libm dependency: volume is always in [0, 1].
-        return "%d%%".printf ((int) (volume * 100 + 0.5));
+        // No libm dependency. The config clamps the level, so this only guards
+        // a hand-set value from printing "140%".
+        double clamped = volume.clamp (0.0, 1.0);
+        return "%d%%".printf ((int) (clamped * 100 + 0.5));
     }
 
     private void update_cast_ui (Gradio.AppModel model) {
@@ -1040,10 +1042,15 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
                     ? model.cast_error : _("Cast connection lost");
                 break;
         }
-        if (model.cast_remote_label != "" && !model.cast_is_active ())
+        if (model.cast_reconnecting)
+            cast_status_label.label = _("Reconnecting…");
+        if (model.cast_remote_label != "" && !model.cast_is_active () &&
+                !model.cast_reconnecting)
             cast_status_label.label = model.cast_remote_label;
         string cast_tooltip = _("Cast to a device");
-        if (model.cast_status == CastStatus.PLAYING && model.cast_device_name != null)
+        if (model.cast_reconnecting)
+            cast_tooltip = _("Reconnecting…");
+        else if (model.cast_status == CastStatus.PLAYING && model.cast_device_name != null)
             cast_tooltip = _("Casting to %s").printf (model.cast_device_name);
         else if (model.cast_status == CastStatus.BUFFERING && model.cast_device_name != null)
             cast_tooltip = _("Buffering on %s").printf (model.cast_device_name);
@@ -1061,15 +1068,17 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
         cast_device_list.sensitive = can_change_device;
         cast_discover_button.tooltip_text = can_change_device
             ? _("Discover cast devices")
-            : _("Stop casting to change device");
+            : model.cast_reconnecting
+                ? _("Reconnecting…")
+                : _("Stop casting to change device");
         cast_button.icon_name = volume_icon_name (model.config.volume);
         cast_volume_icon.icon_name = volume_icon_name (model.config.volume);
         cast_volume_value.label = volume_percent_text (model.config.volume);
-        bool casting = model.cast_is_active ();
+        bool casting = model.playback_target == PlaybackTarget.CAST &&
+            model.cast_attached && !model.cast_reconnecting;
         updating_cast_volume = true;
         if (cast_volume_scale.get_value () != model.config.volume)
             cast_volume_scale.set_value (model.config.volume);
-        cast_volume_scale.sensitive = true;
         updating_cast_volume = false;
         cast_volume_row.tooltip_text = casting
             ? _("Volume (local and cast)") : _("Local volume");
@@ -1077,8 +1086,10 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
         // output is still CAST: only a live session disables it.
         cast_launch_button.sensitive = !model.cast_is_active () &&
             model.cast_device_id != null && model.current_stream_url != "";
-        cast_stop_button.sensitive = model.playback_target == PlaybackTarget.CAST;
-        cast_local_button.sensitive = model.playback_target == PlaybackTarget.CAST;
+        cast_stop_button.sensitive = model.playback_target == PlaybackTarget.CAST &&
+            !model.cast_reconnecting;
+        cast_local_button.sensitive = model.playback_target == PlaybackTarget.CAST &&
+            !model.cast_reconnecting;
     }
 
     public void update (Gradio.Message msg, Gradio.AppModel model) {

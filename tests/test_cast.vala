@@ -46,11 +46,57 @@ void test_load_json_escapes_control_characters () {
 
 void test_stop_cast_dispatches_stopped () {
     Gradio.Message? last = null;
-    var cmd = CastService.stop_cmd ("id", "127.0.0.1", 8009);
+    var cmd = CastService.stop_cmd ("id-1", "127.0.0.1", 8009);
     assert (cmd != null);
     Elmish.Cmd.exec<Gradio.Message> ((msg) => { last = msg; }, cmd);
     assert (last is CastStoppedMessage);
+    var stopped = last as CastStoppedMessage;
+    assert (stopped != null);
+    assert (stopped.device_id == "id-1");
 }
+
+void test_heartbeat_tick () {
+    int64 now = 100000000;
+    int64 step = 1000000;
+    bool lost;
+    // A recent frame is liveness: no miss, no loss, even with missed ticks.
+    assert (CastService.heartbeat_tick (now, now, 5, out lost) == 0);
+    assert (!lost);
+    assert (CastService.heartbeat_tick (now, now, 0, out lost) == 0);
+    assert (!lost);
+    // First quiet tick raises the count but does not lose the sender.
+    int64 quiet = now - CastService.HEARTBEAT_TIMEOUT_SECONDS * step;
+    assert (CastService.heartbeat_tick (quiet, now, 0, out lost) == 1);
+    assert (!lost);
+    // The second quiet tick passes the threshold.
+    assert (CastService.heartbeat_tick (quiet, now, 1, out lost) == 2);
+    assert (lost);
+}
+
+void test_close_after_drain_emits_closed_once () {
+    var connection = new CastConnection ();
+    int closed_count = 0;
+    string closed_reason = "";
+    connection.closed.connect ((reason) => {
+        closed_count++;
+        closed_reason = reason;
+    });
+    connection.close_after_drain ();
+    connection.close_after_drain ();
+    var context = GLib.MainContext.@default ();
+    var deadline = GLib.get_monotonic_time () + 2 * 1000000;
+    while (closed_count == 0 && GLib.get_monotonic_time () < deadline)
+        context.iteration (true);
+    assert (closed_count == 1);
+    assert (closed_reason == "drain");
+    // A later close must not emit again.
+    connection.close_async.begin ("late");
+    for (int i = 0; i < 20 && context.pending (); i++)
+        context.iteration (false);
+    assert (closed_count == 1);
+    assert (closed_reason == "drain");
+}
+
 
 void test_media_status_json () {
     var parser = new Json.Parser ();
@@ -85,6 +131,33 @@ void test_should_report_lost () {
     assert (!CastService.should_report_lost (false, true, 4, 4));
     assert (!CastService.should_report_lost (true, false, 4, 4));
     assert (!CastService.should_report_lost (true, true, 3, 4));
+}
+
+void test_close_action_active_session_is_sender_loss () {
+    // A live media session survives its sender socket: re-attach.
+    assert (CastService.close_action (true, false) ==
+        CastCloseAction.SENDER_LOST);
+}
+
+void test_close_action_adopted_session_is_sender_loss () {
+    // An adopted session is already resolved (attempt_ended), but the receiver
+    // may still be playing: a CLOSE is still a dropped sender.
+    assert (CastService.close_action (true, true) ==
+        CastCloseAction.SENDER_LOST);
+}
+
+void test_close_action_before_start_fails_attempt () {
+    // Initial cast and adoption: no media session is known yet, so the attempt
+    // produced nothing to re-attach to.
+    assert (CastService.close_action (false, false) ==
+        CastCloseAction.ATTEMPT_FAILED);
+}
+
+void test_close_action_ignores_finished_attempt () {
+    // The socket may deliver CLOSE after the attempt already reported a
+    // failure: it must not be reported twice.
+    assert (CastService.close_action (false, true) ==
+        CastCloseAction.IGNORE);
 }
 
 void test_player_transition_playing_starts () {
@@ -294,6 +367,8 @@ void test_set_volume_json () {
 void test_receiver_volume_from_json () {
     assert (CastService.receiver_volume_from_json (
         "{\"type\":\"RECEIVER_STATUS\",\"status\":{\"volume\":{\"level\":0.42,\"muted\":false}}}") > 0.419);
+    assert (Math.fabs (CastService.receiver_volume_from_json (
+        "{\"type\":\"RECEIVER_STATUS\",\"status\":{\"volume\":{\"level\":0.42}}}") - 0.42) < 0.001);
     assert (CastService.receiver_volume_from_json ("{\"status\":{}}") == -1.0);
     assert (CastService.receiver_volume_from_json ("{}") == -1.0);
     assert (CastService.receiver_volume_from_json ("not json") == -1.0);
@@ -301,6 +376,41 @@ void test_receiver_volume_from_json () {
         "{\"status\":{\"volume\":{\"level\":2.0}}}") == -1.0);
     assert (CastService.receiver_volume_from_json (
         "{\"status\":{\"volume\":{\"muted\":true}}}") == -1.0);
+    // A non-numeric level must be rejected, not read as 0.0 ("muted").
+    assert (CastService.receiver_volume_from_json (
+        "{\"status\":{\"volume\":{\"level\":\"0.5\"}}}") == -1.0);
+    // An integer level is valid JSON for a receiver that sends 0 or 1.
+    assert (CastService.receiver_volume_from_json (
+        "{\"status\":{\"volume\":{\"level\":1}}}") == 1.0);
+}
+
+void test_heartbeat_lost_requires_repeated_miss () {
+    int64 now = 100000000;
+    int64 step = 1000000;
+    // Nothing is lost while a PONG is arriving, or inside one quiet window.
+    assert (!CastService.heartbeat_lost (now, now, 0));
+    assert (!CastService.heartbeat_lost (now - 5 * step, now, 0));
+    assert (!CastService.heartbeat_lost (
+        now - (CastService.HEARTBEAT_TIMEOUT_SECONDS + 1) * step, now, 1));
+    // Repeated misses do not help while the window is still open.
+    assert (!CastService.heartbeat_lost (now, now,
+        CastService.HEARTBEAT_MISSES));
+    assert (!CastService.heartbeat_lost (now - 5 * step, now,
+        CastService.HEARTBEAT_MISSES));
+    // The boundary itself counts as quiet.
+    assert (!CastService.heartbeat_lost (
+        now - CastService.HEARTBEAT_TIMEOUT_SECONDS * step, now, 1));
+    assert (CastService.heartbeat_lost (
+        now - CastService.HEARTBEAT_TIMEOUT_SECONDS * step, now,
+        CastService.HEARTBEAT_MISSES));
+    // The live timer only reaches HEARTBEAT_MISSES after a second quiet tick,
+    // i.e. one interval past the timeout. That is the pair that must be lost.
+    int64 detected = (CastService.HEARTBEAT_TIMEOUT_SECONDS +
+        CastService.HEARTBEAT_INTERVAL_SECONDS) * step;
+    assert (CastService.heartbeat_lost (
+        now - detected, now, CastService.HEARTBEAT_MISSES));
+    assert (!CastService.heartbeat_lost (
+        now - detected, now, CastService.HEARTBEAT_MISSES - 1));
 }
 
 void test_probe_reports_no_session_on_connection_error () {
@@ -345,6 +455,7 @@ int main (string[] args) {
     Test.add_func ("/cast/content_type_default", test_content_type_default);
     Test.add_func ("/cast/connection_source_ids_are_unique", test_connection_source_ids_are_unique);
     Test.add_func ("/cast/stop_dispatches_stopped", test_stop_cast_dispatches_stopped);
+    Test.add_func ("/cast/close_after_drain_once", test_close_after_drain_emits_closed_once);
     Test.add_func ("/cast/content_type_m3u8", test_content_type_m3u8);
     Test.add_func ("/cast/content_type_aac", test_content_type_aac);
     Test.add_func ("/cast/parse_devices_valid", test_parse_devices_valid);
@@ -361,6 +472,10 @@ int main (string[] args) {
     Test.add_func ("/cast/player_transition_buffering", test_player_transition_buffering_does_not_start);
     Test.add_func ("/cast/player_transition_resumes_from_buffering", test_player_transition_resumes_from_buffering);
     Test.add_func ("/cast/should_report_lost", test_should_report_lost);
+    Test.add_func ("/cast/close_action_active_session", test_close_action_active_session_is_sender_loss);
+    Test.add_func ("/cast/close_action_adopted_session", test_close_action_adopted_session_is_sender_loss);
+    Test.add_func ("/cast/close_action_before_start", test_close_action_before_start_fails_attempt);
+    Test.add_func ("/cast/close_action_finished_attempt", test_close_action_ignores_finished_attempt);
     Test.add_func ("/cast/player_transition_playing", test_player_transition_playing_starts);
     Test.add_func ("/cast/player_transition_idle", test_player_transition_idle_is_lost);
     Test.add_func ("/cast/player_transition_empty_is_lost", test_player_transition_empty_status_is_lost);
@@ -385,6 +500,8 @@ int main (string[] args) {
     Test.add_func ("/cast/media_command_json", test_media_command_json);
     Test.add_func ("/cast/set_volume_json", test_set_volume_json);
     Test.add_func ("/cast/receiver_volume_from_json", test_receiver_volume_from_json);
+    Test.add_func ("/cast/heartbeat_lost_requires_repeated_miss", test_heartbeat_lost_requires_repeated_miss);
+    Test.add_func ("/cast/heartbeat_tick", test_heartbeat_tick);
     Test.add_func ("/cast/probe_no_session_on_connection_error", test_probe_reports_no_session_on_connection_error);
     Test.add_func ("/cast/adopt_failure_on_connection_error", test_adopt_reports_failure_on_connection_error);
     return Test.run ();

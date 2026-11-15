@@ -18,15 +18,27 @@ other. The layer is GTK-free and lives in `src/cast/`:
   receiver treat a new socket as the same sender and it can drop the older,
   live connection.
 - The receiver pings every 5 s and closes the socket ~5 s after a missed
-  `PONG`. `CastService` answers `PING` immediately and runs its own `PING`
-  every 5 s; a missing `PONG` for 10 s is treated as a dropped sender and
-  re-attached, not as a lost cast.
-- A receiver `CLOSE` message ends the virtual connection and is handled as a
-  sender loss.
-- `CastConnection.closed` carries the reason (`eof`, `read: ...`, `write: ...`,
-  `empty frame`, `frame too large: N`, `drain`). The service logs it; no read,
-  write, PONG, `SET_VOLUME`, probe, or adoption error is discarded. Set
-  `GRADIO_CAST_TRACE=1` to log every frame and state change.
+  `PONG`. `CastService` answers `PING` immediately and sends its own `PING` on
+  every 5 s tick, including a quiet one, so a late `PONG` can still be
+  solicited. Any parsed inbound frame counts as liveness: a receiver that only
+  pings us is healthy even if it never answers our `PING`. A 10 s
+  quiet window that is still quiet on the next tick is a dropped sender and is
+  re-attached, not a lost cast.
+- A receiver `CLOSE` ends the virtual connection; the socket normally follows.
+  Once a media session is known it is a dropped sender, earlier it fails the
+  attempt. The decision is made in one place, `CastService.close_action`, which
+  the socket `closed` signal shares; its ignore case is defensive, for a `CLOSE`
+  that arrives after the attempt already resolved.
+- `CastConnection.closed` carries the reason (`eof`, `short read`, `read: ...`,
+  `short frame`, `empty frame`, `frame too large: N`, `write: ...`, `drain`,
+  `replaced`, `abandoned`, `local close`, `probe done`, `stop: ...`,
+  `shutdown: ...`). The service logs it. Expected recovery (a drop, a `CLOSE`, a
+  failed probe) is logged at debug level; only a user-visible cast failure is a
+  warning. Set `GRADIO_CAST_TRACE=1` to log transport frames and close reasons;
+  the service state lines are `GLib.debug`, so they also need
+  `G_MESSAGES_DEBUG`.
+- The drain after a STOP is bounded (5 s): once `socket.timeout` is disabled a
+  write that never completes would otherwise keep the socket open forever.
 
 ## Device and config
 
@@ -43,11 +55,16 @@ device itself.
 | `cast_track_titles_interval` | seconds, default 20 (10/20/30/60 in Preferences) |
 
 The receiver owns the volume level. While a cast is active a volume change
-drives the local player and the receiver (`SET_VOLUME`). The level is never
-pushed when a cast starts or is attached: the receiver's
-`RECEIVER_STATUS.volume` is adopted into the model instead, and changes made
-from another sender are mirrored back so the slider follows the device.
-Otherwise the controls only drive the local player.
+drives the local player and the receiver (`SET_VOLUME`), but only once a media
+session is attached: during the connect handshake the level stays local. The
+level is never pushed when a cast starts or is attached: the receiver's
+`RECEIVER_STATUS.volume` is adopted into the model instead, so the slider
+follows the device's quantised level, and the adopted level is never pushed
+back. A report is a duplicate only while a session is attached and only when it
+equals both the previous report and the current level; otherwise the reported
+level is adopted, including the first report after a re-attach. Reports are
+ignored once the cast is stopped or lost. Otherwise the controls only drive the
+local player.
 
 ## Session lifecycle
 
@@ -93,7 +110,18 @@ the receiver (or the ICY poller) owns the title.
 A dropped sender socket is not a lost cast: the receiver keeps the media
 session playing. The service re-probes the device and re-attaches without a new
 `LOAD`, and only reports `CastLostMessage` when the probe finds no live,
-adoptable session or the re-attach fails.
+adoptable session or the re-attach fails. While the re-attach is in flight
+(`cast_reconnecting`) no command can reach the device, so play/pause, Stop, Play
+on this computer, Stop casting and removing the station are ignored (the player
+bar and the cast popover disable their buttons, and removing the casted station
+sets a status message) and volume changes stay local; the receiver's reported
+level is adopted when it arrives. The metadata poller is stopped for the
+duration so a receiver that switched streams cannot publish the old title.
+
+A receiver that drops the sender again right after every attach is not
+recovering. Consecutive drops less than two minutes apart count as one flapping
+incident; more than three report the cast lost instead of retrying, so the
+controls work again. A gap of more than two minutes resets the count.
 
 ## Track titles (layer 2)
 

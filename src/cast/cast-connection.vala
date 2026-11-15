@@ -18,13 +18,11 @@ namespace Gradio {
 
     public class CastConnection : GLib.Object {
         public signal void message_received (string json);
-        // The reason is a short, human-readable cause ("eof", "read: ...",
-        // "write: ..."). The service logs it when the socket drops.
+        // A short cause, logged by the service when the socket drops.
         public signal void closed (string reason);
 
-        // A sender id identifies the transport. It must be unique per
-        // connection: reusing one id makes the receiver treat a new socket as
-        // the same sender and it can drop the older, live connection.
+        // Unique per connection: reusing a sender id makes the receiver drop the
+        // older, live socket.
         public string source_id { get; private set; }
 
         private TlsClientConnection? tls = null;
@@ -41,6 +39,10 @@ namespace Gradio {
         private bool finishing = false;
         private bool closed_emitted = false;
         private string close_reason = "";
+        // Bounds the drain: the socket timeout is disabled, so a write that
+        // never completes would otherwise keep the socket open forever.
+        private uint drain_timeout_id = 0;
+        private const int DRAIN_TIMEOUT_SECONDS = 5;
 
         public CastConnection () {
             source_id = GLib.Uuid.string_random ();
@@ -60,21 +62,14 @@ namespace Gradio {
                 GLib.message ("cast: " + text);
         }
 
-        public async bool connect (string host, int port,
-                GLib.Cancellable? session_cancellable = null) throws GLib.Error {
-            if (session_cancellable != null)
-                cancellable = session_cancellable;
-
+        public async bool connect (string host, int port) throws GLib.Error {
             var client = new SocketClient ();
-            // Bound the TCP connect. Without this the OS timeout (~2 min on
-            // Linux) can block a startup probe against a stale device IP.
+            // Bound the TCP connect: the OS timeout is ~2 min on Linux.
             client.timeout = 5;
             var conn = yield client.connect_to_host_async (host, (uint16) port,
                 cancellable);
-            // GSocketClient applies its timeout to the returned socket as well.
-            // A 5 s I/O timeout races the receiver's 5 s heartbeat and drops the
-            // connection with "Socket I/O timed out"; the connect is already
-            // done, so the long-lived socket must not have one.
+            // GSocketClient also applies its timeout to the returned socket,
+            // which would race the receiver's heartbeat.
             var socket = conn.get_socket ();
             if (socket != null)
                 socket.timeout = 0;
@@ -83,6 +78,17 @@ namespace Gradio {
             // from mDNS, so accept it.
             tls_conn.accept_certificate.connect ((cert, errors) => true);
             yield tls_conn.handshake_async (GLib.Priority.DEFAULT, cancellable);
+
+            if (closing) {
+                // close_async() ran while the handshake was in flight: release the
+                // socket instead of installing it on a dead connection.
+                try {
+                    yield conn.close_async (GLib.Priority.DEFAULT, null);
+                } catch (GLib.Error e) {
+                    // The peer is already gone.
+                }
+                throw new IOError.CANCELLED ("closed during connect");
+            }
 
             tls = tls_conn;
             input = new DataInputStream (tls_conn.get_input_stream ());
@@ -103,8 +109,7 @@ namespace Gradio {
             pump_writes ();
         }
 
-        // Heartbeat replies must leave immediately, even when other frames are
-        // queued: the receiver drops the socket ~5 s after a missed PONG.
+        // Replies must leave immediately, even behind queued frames.
         public void send_pong (string destination) throws GLib.Error {
             if (output == null || closing)
                 throw new IOError.FAILED ("not connected");
@@ -155,6 +160,13 @@ namespace Gradio {
             closing = true;
             close_reason = "drain";
             draining = true;
+            drain_timeout_id = GLib.Timeout.add_seconds (DRAIN_TIMEOUT_SECONDS,
+                () => {
+                    drain_timeout_id = 0;
+                    if (!closed_emitted)
+                        finish_close_async.begin ();
+                    return false;
+                });
             if (!writing && write_queue.is_empty ())
                 finish_close_async.begin ();
             else
@@ -165,14 +177,40 @@ namespace Gradio {
             if (closed_emitted || finishing)
                 return;
             finishing = true;
+            if (drain_timeout_id != 0) {
+                GLib.Source.remove (drain_timeout_id);
+                drain_timeout_id = 0;
+            }
 
             cancellable.cancel ();
-            try {
-                if (tls != null)
-                    yield tls.close_async (GLib.Priority.DEFAULT, null);
-            } catch (GLib.Error e) {
-                // The peer usually closed first; that is not a failure here.
-                trace ("tls close: %s".printf (e.message));
+            if (tls != null) {
+                GLib.IOStream base_stream = tls.base_io_stream;
+                var close_cancellable = new GLib.Cancellable ();
+                uint guard_id = 0;
+                guard_id = GLib.Timeout.add_seconds (1, () => {
+                    guard_id = 0;
+                    close_cancellable.cancel ();
+                    return false;
+                });
+                try {
+                    yield tls.close_async (GLib.Priority.DEFAULT, close_cancellable);
+                } catch (GLib.Error e) {
+                    // A peer that already vanished is not a failure here.
+                    trace ("tls close: %s".printf (e.message));
+                }
+                if (guard_id != 0) {
+                    GLib.Source.remove (guard_id);
+                    guard_id = 0;
+                }
+                // A cancelled TLS close skips the base close. Release the socket here
+                // instead of leaving it to finalization, which closes synchronously.
+                if (!base_stream.is_closed ()) {
+                    try {
+                        yield base_stream.close_async (GLib.Priority.DEFAULT, null);
+                    } catch (GLib.Error e) {
+                        trace ("socket close: %s".printf (e.message));
+                    }
+                }
             }
 
             tls = null;
@@ -202,7 +240,11 @@ namespace Gradio {
                     } catch (GLib.Error e) {
                         writing = false;
                         in_flight = null;
-                        GLib.warning ("cast: write failed: %s", e.message);
+                        if (closing) {
+                            finish_close_async.begin ();
+                            return;
+                        }
+                        GLib.debug ("cast: write failed: %s", e.message);
                         close_async.begin ("write: " + e.message);
                         return;
                     }
@@ -226,7 +268,10 @@ namespace Gradio {
                         cancellable, out read);
                 } catch (GLib.Error e) {
                     reason = "read: " + e.message;
-                    GLib.warning ("cast: read failed: %s", e.message);
+                    // close_async() cancels the read loop; that is a normal
+                    // shutdown, not a failure worth a warning.
+                    if (!closing)
+                        GLib.debug ("cast: read failed: %s", e.message);
                     break;
                 }
 
@@ -259,7 +304,8 @@ namespace Gradio {
                         cancellable, out read);
                 } catch (GLib.Error e) {
                     reason = "read: " + e.message;
-                    GLib.warning ("cast: read failed: %s", e.message);
+                    if (!closing)
+                        GLib.debug ("cast: read failed: %s", e.message);
                     break;
                 }
                 if (closing)

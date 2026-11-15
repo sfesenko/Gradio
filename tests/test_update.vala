@@ -2229,6 +2229,7 @@ class CastRecordingCommands : Gradio.Commands {
     public int set_cast_volume_calls = 0;
     public double last_cast_volume = 0.0;
     public int set_volume_calls = 0;
+    public double last_volume = -1.0;
     public int start_cast_metadata_calls = 0;
     public int stop_cast_metadata_calls = 0;
     public int play_calls = 0;
@@ -2332,6 +2333,7 @@ class CastRecordingCommands : Gradio.Commands {
 
     public override Elmish.Cmd<Gradio.Message>? set_volume (double volume) {
         set_volume_calls++;
+        last_volume = volume;
         return dummy ();
     }
 
@@ -2407,11 +2409,13 @@ void test_cast_discovery_failed () {
 void test_select_cast_device () {
     var model = make_model ();
     var commands = new CastRecordingCommands ();
+    model.cast_device_volume = 0.5;
     updateModel (new SelectCastDeviceMessage ("id-1", "Kitchen", "127.0.0.1", 8009),
         model, commands);
     assert (model.cast_device_id == "id-1");
     assert (model.cast_device_name == "Kitchen");
     assert (model.cast_status == CastStatus.READY);
+    assert (model.cast_device_volume == -1.0);
 }
 
 void test_cast_to_selected_starts_command () {
@@ -2420,6 +2424,7 @@ void test_cast_to_selected_starts_command () {
     model.cast_device_id = "id-1";
     model.cast_device_host = "127.0.0.1";
     model.current_stream_url = "https://example.test/stream";
+    model.cast_device_volume = 0.5;
     var cmd = updateModel (new CastToSelectedMessage (), model, commands);
     assert (cmd != null);
     assert (commands.cast_calls == 1);
@@ -2427,6 +2432,7 @@ void test_cast_to_selected_starts_command () {
     assert (commands.last_cast_url == "https://example.test/stream");
     assert (model.playback_target == PlaybackTarget.CAST);
     assert (model.cast_status == CastStatus.CONNECTING);
+    assert (model.cast_device_volume == -1.0);
     assert (model.config.cast_mode);
     assert (model.cast_remote_label == "");
     assert (model.cast_pending_label == "");
@@ -2490,7 +2496,8 @@ void test_cast_failed_releases_sleep () {
     var model = make_model ();
     var commands = new CastRecordingCommands ();
     model.playback_target = PlaybackTarget.CAST;
-    var cmd = updateModel (new CastFailedMessage ("boom"), model, commands);
+    model.cast_device_id = "id-1";
+    var cmd = updateModel (new CastFailedMessage ("id-1", "boom"), model, commands);
     assert (cmd != null);
     assert (commands.release_sleep_calls == 1);
 }
@@ -2500,6 +2507,7 @@ void test_cast_volume_controls_receiver_while_casting () {
     var commands = new CastRecordingCommands ();
     prepare_cast_model (model);
     model.cast_status = CastStatus.PLAYING;
+    model.cast_attached = true;
     updateModel (new SetVolumeMessage (0.4), model, commands);
     assert (model.config.volume == 0.4);
     assert (commands.set_cast_volume_calls == 1);
@@ -2509,16 +2517,79 @@ void test_cast_volume_controls_receiver_while_casting () {
     assert (commands.set_cast_volume_calls == 1);
 }
 
+void test_cast_volume_connecting_stays_local () {
+    // No media session exists while CONNECTING: SET_VOLUME cannot reach the
+    // receiver, so the level must stay local.
+    var model = make_model ();
+    var commands = new CastRecordingCommands ();
+    prepare_cast_model (model);
+    model.cast_status = CastStatus.CONNECTING;
+    model.cast_attached = false;
+    updateModel (new SetVolumeMessage (0.4), model, commands);
+    assert (commands.set_cast_volume_calls == 0);
+    assert (commands.set_volume_calls == 1);
+    assert (model.config.volume == 0.4);
+}
+
+void test_cast_volume_adopted_after_reattach () {
+    var model = make_model ();
+    var commands = new CastRecordingCommands ();
+    prepare_cast_model (model);
+    model.cast_status = CastStatus.PLAYING;
+    model.cast_attached = true;
+    model.cast_device_volume = 0.8;
+    model.config.volume = 0.8;
+    updateModel (new CastSenderLostMessage ("id-1", 1000000), model, commands);
+    // The remembered level is cleared on the drop.
+    assert (model.cast_device_volume == -1.0);
+    // The attached session reports the same level the model already holds.
+    // Without the reset this would be dropped as a duplicate report.
+    model.cast_attached = true;
+    updateModel (new CastVolumeMessage ("id-1", 0.8), model, commands);
+    assert (commands.set_volume_calls == 1);
+    assert (Math.fabs (model.config.volume - 0.8) < 0.001);
+}
+
+void test_cast_volume_detached_report_not_duplicate () {
+    // While detached the previous report is not authority: the receiver's
+    // level is news even when it equals the last report and the model.
+    var model = make_model ();
+    var commands = new CastRecordingCommands ();
+    prepare_cast_model (model);
+    model.cast_status = CastStatus.PLAYING;
+    model.cast_attached = false;
+    model.cast_device_volume = 0.8;
+    model.config.volume = 0.8;
+    updateModel (new CastVolumeMessage ("id-1", 0.8), model, commands);
+    assert (commands.set_volume_calls == 1);
+}
+
+void test_cast_volume_ignored_after_loss () {
+    // WAIT keeps playback_target = CAST after a loss, but no session exists:
+    // a stale receiver report must not overwrite the local volume.
+    var model = make_model ();
+    var commands = new CastRecordingCommands ();
+    prepare_cast_model (model);
+    model.cast_status = CastStatus.LOST;
+    model.cast_attached = false;
+    model.config.volume = 0.3;
+    updateModel (new CastVolumeMessage ("id-1", 0.9), model, commands);
+    assert (Math.fabs (model.config.volume - 0.3) < 0.001);
+    assert (commands.set_volume_calls == 0);
+    assert (commands.set_cast_volume_calls == 0);
+}
+
 void test_cast_failed_while_local_keeps_playback () {
     var model = make_model ();
     var commands = new CastRecordingCommands ();
     model.playback_target = PlaybackTarget.LOCAL;
+    model.cast_device_id = "id-1";
     model.playing = true;
     model.playback_stopped = false;
     model.stream_title = "Local stream";
     model.stream_bitrate = 128;
     model.player_status = "Playing";
-    updateModel (new CastFailedMessage ("boom"), model, commands);
+    updateModel (new CastFailedMessage ("id-1", "boom"), model, commands);
     assert (model.cast_status == CastStatus.FAILED);
     assert (model.cast_error == "boom");
     assert (model.playing);
@@ -2533,11 +2604,13 @@ void test_cast_failed_keeps_cast_target () {
     var commands = new CastRecordingCommands ();
     model.playback_target = PlaybackTarget.CAST;
     model.cast_device_id = "id-1";
-    updateModel (new CastFailedMessage ("boom"), model, commands);
+    model.cast_device_volume = 0.5;
+    updateModel (new CastFailedMessage ("id-1", "boom"), model, commands);
     assert (model.cast_status == CastStatus.FAILED);
     assert (model.cast_error == "boom");
     assert (model.playback_target == PlaybackTarget.CAST);
     assert (!model.playing);
+    assert (model.cast_device_volume == -1.0);
     assert (commands.release_sleep_calls == 1);
 }
 
@@ -2547,7 +2620,7 @@ void test_cast_failed_autoresume_discovers () {
     model.playback_target = PlaybackTarget.CAST;
     model.cast_device_id = "id-1";
     model.cast_resume_pending = true;
-    var cmd = updateModel (new CastFailedMessage ("boom"), model, commands);
+    var cmd = updateModel (new CastFailedMessage ("id-1", "boom"), model, commands);
     assert (cmd != null);
     assert (commands.discover_cast_calls == 1);
     assert (model.cast_retry_on_discovery);
@@ -2574,8 +2647,30 @@ void test_cast_devices_discovered_retries_cast () {
     assert (model.cast_device_host == "127.0.0.1");
     assert (model.config.cast_host == "127.0.0.1");
     assert (model.cast_status == CastStatus.CONNECTING);
+    // The retry starts playback again: the receiver may already be playing, so
+    // the model must not stay in the "stopped" state `update_cast_failed`
+    // left behind.
+    assert (model.playing);
+    assert (!model.playback_stopped);
     assert (commands.save_calls >= 1);
     assert (commands.inhibit_sleep_calls == 1);
+}
+
+void test_cast_rediscovery_clears_reconnecting () {
+    // The discovery retry starts a fresh cast, so the socket is connected
+    // again: leaving the re-attach flag set would keep the controls inert.
+    var model = make_model ();
+    var commands = new CastRecordingCommands ();
+    prepare_cast_model (model);
+    model.cast_status = CastStatus.DISCOVERING;
+    model.cast_reconnecting = true;
+    model.cast_retry_on_discovery = true;
+    model.current_stream_url = "https://example.test/stream";
+    updateModel (new CastDevicesDiscoveredMessage (
+        new CastDevice[] { make_cast_device ("id-1", "Kitchen") }), model,
+        commands);
+    assert (commands.cast_calls == 1);
+    assert (!model.cast_reconnecting);
 }
 
 void test_cast_devices_discovered_not_found_stops () {
@@ -2705,6 +2800,22 @@ void test_stop_playback_cast_target_stops_cast () {
     assert (commands.release_sleep_calls == 1);
 }
 
+void test_stop_playback_ignored_while_reconnecting () {
+    // StopPlayback is the MPRIS/header stop: it cannot reach the device either.
+    var model = make_model ();
+    var commands = new CastRecordingCommands ();
+    model.playback_target = PlaybackTarget.CAST;
+    model.cast_device_id = "id-1";
+    model.cast_device_host = "127.0.0.1";
+    model.playing = true;
+    model.cast_reconnecting = true;
+    updateModel (new StopPlaybackMessage (), model, commands);
+    assert (model.cast_reconnecting);
+    assert (model.playback_target == PlaybackTarget.CAST);
+    assert (model.playing);
+    assert (commands.stop_cast_calls == 0);
+}
+
 void test_cast_stopped_returns_local () {
     var model = make_model ();
     var commands = new CastRecordingCommands ();
@@ -2713,12 +2824,14 @@ void test_cast_stopped_returns_local () {
     model.playing = true;
     model.config.cast_mode = true;
     model.cast_remote_label = "Kitchen is casting";
-    updateModel (new CastStoppedMessage (), model, commands);
+    model.cast_device_volume = 0.5;
+    updateModel (new CastStoppedMessage ("id-1"), model, commands);
     assert (model.cast_status == CastStatus.STOPPED);
     assert (model.playback_target == PlaybackTarget.LOCAL);
     assert (!model.playing);
     assert (!model.config.cast_mode);
     assert (model.cast_remote_label == "");
+    assert (model.cast_device_volume == -1.0);
     assert (commands.release_sleep_calls == 1);
 }
 
@@ -2733,7 +2846,7 @@ void test_cast_stopped_after_play_local_keeps_playing () {
     model.playing = true;
     // PlayLocal starts the local player, then the cast stop arrives.
     updateModel (new PlayLocalMessage (), model, commands);
-    updateModel (new CastStoppedMessage (), model, commands);
+    updateModel (new CastStoppedMessage ("id-1"), model, commands);
     assert (model.playback_target == PlaybackTarget.LOCAL);
     assert (model.playing);
     assert (!model.playback_stopped);
@@ -2748,7 +2861,7 @@ void test_cast_stopped_then_toggle_plays_locally () {
     model.current_station = make_station ("s1");
     model.current_stream_url = "https://example.test/stream";
     model.config.cast_mode = true;
-    updateModel (new CastStoppedMessage (), model, commands);
+    updateModel (new CastStoppedMessage ("id-1"), model, commands);
     updateModel (new TogglePlayMessage (), model, commands);
     assert (commands.cast_calls == 0);
     assert (commands.play_calls == 1);
@@ -2765,7 +2878,7 @@ void test_stop_playback_then_play_plays_locally () {
     model.current_station = make_station ("s1");
     model.playing = true;
     updateModel (new StopPlaybackMessage (), model, commands);
-    updateModel (new CastStoppedMessage (), model, commands);
+    updateModel (new CastStoppedMessage ("id-1"), model, commands);
     assert (model.playback_target == PlaybackTarget.LOCAL);
     updateModel (new TogglePlayMessage (), model, commands);
     assert (commands.cast_calls == 0);
@@ -2791,12 +2904,14 @@ void test_cast_lost_wait_stops_playback () {
     model.playback_target = PlaybackTarget.CAST;
     model.cast_status = CastStatus.PLAYING;
     model.playing = true;
+    model.cast_device_volume = 0.5;
     var cmd = updateModel (new CastLostMessage ("id-1", "lost"), model, commands);
     assert (cmd != null);
     assert (model.cast_status == CastStatus.LOST);
     assert (model.playback_target == PlaybackTarget.CAST);
     assert (!model.playing);
     assert (model.playback_stopped);
+    assert (model.cast_device_volume == -1.0);
     assert (commands.play_calls == 0);
     assert (commands.release_sleep_calls == 1);
 }
@@ -3386,6 +3501,7 @@ void test_cast_toggle_resumes_attached () {
     var commands = new CastRecordingCommands ();
     prepare_cast_model (model);
     model.cast_attached = true;
+    model.cast_device_volume = 0.5;
     model.current_stream_url = "https://example.test/s1";
     model.playing = false;
     updateModel (new TogglePlayMessage (), model, commands);
@@ -3393,6 +3509,7 @@ void test_cast_toggle_resumes_attached () {
     assert (commands.cast_calls == 0);
     assert (model.playing);
     assert (model.cast_status == CastStatus.CONNECTING);
+    assert (model.cast_device_volume == -1.0);
 }
 
 void test_cast_lost_clears_attached () {
@@ -3460,6 +3577,50 @@ void test_cast_adopted_keeps_receiver_volume () {
     assert (model.config.volume == 0.2);
 }
 
+void test_cast_adopted_clears_reconnecting () {
+    var model = make_model ();
+    var commands = new CastRecordingCommands ();
+    prepare_cast_model (model);
+    model.cast_status = CastStatus.CONNECTING;
+    model.cast_reconnecting = true;
+    model.config.cast_track_titles = true;
+    model.current_stream_url = "https://example.test/live";
+    updateModel (new CastAdoptedMessage ("id-1", "PLAYING"), model, commands);
+    assert (!model.cast_reconnecting);
+    assert (model.cast_attached);
+    // The reader is restarted: a re-attach stopped it.
+    assert (commands.stop_cast_metadata_calls == 1);
+    assert (commands.start_cast_metadata_calls == 1);
+}
+
+void test_cast_to_selected_clears_reconnecting () {
+    var model = make_model ();
+    var commands = new CastRecordingCommands ();
+    prepare_cast_model (model);
+    model.cast_status = CastStatus.PLAYING;
+    model.cast_reconnecting = true;
+    model.current_stream_url = "https://example.test/live";
+    updateModel (new CastToSelectedMessage (), model, commands);
+    assert (!model.cast_reconnecting);
+    assert (model.cast_status == CastStatus.CONNECTING);
+    assert (commands.cast_calls == 1);
+}
+
+void test_cast_volume_adopted_while_detached () {
+    // The receiver owns the level even when the sender is detached: its
+    // RECEIVER_STATUS volume is adopted without a live attachment.
+    var model = make_model ();
+    var commands = new CastRecordingCommands ();
+    prepare_cast_model (model);
+    model.cast_status = CastStatus.PLAYING;
+    model.cast_attached = false;
+    model.config.volume = 0.4;
+    updateModel (new CastVolumeMessage ("id-1", 0.6), model, commands);
+    assert (model.config.volume == 0.6);
+    assert (commands.set_volume_calls == 1);
+    assert (commands.set_cast_volume_calls == 0);
+}
+
 void test_cast_volume_syncs_from_device () {
     var model = make_model ();
     var commands = new CastRecordingCommands ();
@@ -3471,25 +3632,239 @@ void test_cast_volume_syncs_from_device () {
     assert (model.config.volume == 0.55);
     assert (commands.set_cast_volume_calls == 0);
     assert (commands.set_volume_calls == 1);
+    // The local player must follow the adopted level, not just the model.
+    assert (commands.last_volume == 0.55);
 }
 
-void test_cast_volume_echo_ignored () {
+void test_cast_volume_repeat_report_ignored () {
     var model = make_model ();
     var commands = new CastRecordingCommands ();
     prepare_cast_model (model);
     model.cast_status = CastStatus.PLAYING;
     model.cast_attached = true;
     model.config.volume = 0.5;
-    updateModel (new CastVolumeMessage ("id-1", 0.505), model, commands);
-    assert (model.config.volume == 0.5);
+    // The receiver's quantised level wins: the model follows the device.
+    updateModel (new CastVolumeMessage ("id-1", 0.52), model, commands);
+    assert (Math.fabs (model.config.volume - 0.52) < 0.001);
+    assert (commands.set_volume_calls == 1);
+    // Re-reporting the same level is not a change.
+    updateModel (new CastVolumeMessage ("id-1", 0.52), model, commands);
+    assert (commands.set_volume_calls == 1);
+}
+
+void test_cast_volume_one_step_remote_change_adopted () {
+    // A single tap on another sender moves the level by one quantisation step.
+    // Comparing against our own requested level used to swallow it.
+    var model = make_model ();
+    var commands = new CastRecordingCommands ();
+    prepare_cast_model (model);
+    model.cast_status = CastStatus.PLAYING;
+    model.cast_attached = true;
+    model.cast_device_volume = 0.45;
+    model.config.volume = 0.45;
+    updateModel (new CastVolumeMessage ("id-1", 0.50), model, commands);
+    assert (Math.fabs (model.config.volume - 0.50) < 0.001);
+    assert (commands.set_volume_calls == 1);
+    assert (commands.set_cast_volume_calls == 0);
+}
+
+void test_cast_volume_adopts_beyond_echo_step () {
+    var model = make_model ();
+    var commands = new CastRecordingCommands ();
+    prepare_cast_model (model);
+    model.cast_status = CastStatus.PLAYING;
+    model.cast_attached = true;
+    model.config.volume = 0.5;
+    updateModel (new CastVolumeMessage ("id-1", 0.56), model, commands);
+    assert (model.config.volume == 0.56);
+    assert (commands.set_volume_calls == 1);
+    assert (commands.set_cast_volume_calls == 0);
 }
 
 void test_cast_volume_ignored_while_local () {
     var model = make_model ();
     var commands = new CastRecordingCommands ();
+    prepare_cast_model (model);
+    model.playback_target = PlaybackTarget.LOCAL;
+    model.cast_status = CastStatus.IDLE;
     model.config.volume = 0.3;
     updateModel (new CastVolumeMessage ("id-1", 0.9), model, commands);
     assert (model.config.volume == 0.3);
+}
+
+void test_play_station_clears_reconnecting () {
+    var model = make_model ();
+    var commands = new CastRecordingCommands ();
+    prepare_cast_model (model);
+    model.cast_status = CastStatus.PLAYING;
+    model.cast_attached = true;
+    model.cast_device_volume = 0.5;
+    model.cast_reconnecting = true;
+    updateModel (new PlayStationMessage (make_station ("s1")), model, commands);
+    assert (!model.cast_reconnecting);
+    assert (model.cast_status == CastStatus.CONNECTING);
+    assert (model.cast_device_volume == -1.0);
+    assert (commands.cast_calls == 1);
+}
+
+void test_toggle_play_restarts_cast_when_not_reconnecting () {
+    var model = make_model ();
+    var commands = new CastRecordingCommands ();
+    prepare_cast_model (model);
+    model.cast_status = CastStatus.PLAYING;
+    model.cast_attached = false;
+    model.playing = false;
+    model.cast_reconnecting = false;
+    model.cast_device_volume = 0.5;
+    model.current_stream_url = "https://example.test/live";
+    updateModel (new TogglePlayMessage (), model, commands);
+    assert (!model.cast_reconnecting);
+    assert (model.cast_status == CastStatus.CONNECTING);
+    assert (model.cast_device_volume == -1.0);
+    assert (commands.cast_calls == 1);
+}
+
+void test_cast_reconnecting_cleared_by_lifecycle_messages () {
+    assert_reconnecting_cleared (new CastStartedMessage ("id-1"));
+    assert_reconnecting_cleared (new CastPausedMessage ("id-1"));
+    assert_reconnecting_cleared (new CastBufferingMessage ("id-1"));
+    assert_reconnecting_cleared (new CastLostMessage ("id-1", "lost"));
+    assert_reconnecting_cleared (new CastStoppedMessage ("id-1"));
+    assert_reconnecting_cleared (new CastFailedMessage ("id-1", "failed"));
+    // StopCast is ignored while the socket is down (see below), so it is not
+    // part of this set.
+}
+
+void test_cast_lifecycle_ignored_for_other_device () {
+    // A lifecycle message for another device must not touch this cast's state.
+    assert_lifecycle_ignored_for_other_device (new CastStartedMessage ("id-2"));
+    assert_lifecycle_ignored_for_other_device (new CastBufferingMessage ("id-2"));
+    assert_lifecycle_ignored_for_other_device (new CastPausedMessage ("id-2"));
+    assert_lifecycle_ignored_for_other_device (new CastStoppedMessage ("id-2"));
+    assert_lifecycle_ignored_for_other_device (new CastFailedMessage ("id-2",
+        "failed"));
+}
+
+void assert_lifecycle_ignored_for_other_device (Gradio.Message message) {
+    var model = make_model ();
+    var commands = new CastRecordingCommands ();
+    prepare_cast_model (model);
+    model.cast_status = CastStatus.PLAYING;
+    model.cast_attached = false;
+    model.cast_reconnecting = true;
+    updateModel (message, model, commands);
+    assert (model.cast_reconnecting);
+    assert (!model.cast_attached);
+    assert (model.cast_status == CastStatus.PLAYING);
+}
+
+void assert_reconnecting_cleared (Gradio.Message message) {
+    var model = make_model ();
+    var commands = new CastRecordingCommands ();
+    prepare_cast_model (model);
+    model.cast_status = CastStatus.PLAYING;
+    model.cast_attached = true;
+    model.cast_reconnecting = true;
+    updateModel (message, model, commands);
+    assert (!model.cast_reconnecting);
+}
+
+void test_toggle_play_ignored_while_reconnecting () {
+    // The socket is gone, so neither PAUSE nor STOP can reach the device:
+    // tearing the cast down would orphan a session that is still playing.
+    var model = make_model ();
+    var commands = new CastRecordingCommands ();
+    prepare_cast_model (model);
+    model.cast_status = CastStatus.PLAYING;
+    model.cast_attached = false;
+    model.cast_reconnecting = true;
+    model.playing = true;
+    updateModel (new TogglePlayMessage (), model, commands);
+    assert (model.cast_reconnecting);
+    assert (model.playback_target == PlaybackTarget.CAST);
+    assert (model.cast_status == CastStatus.PLAYING);
+    assert (model.playing);
+    assert (commands.stop_cast_calls == 0);
+    assert (commands.pause_cast_calls == 0);
+}
+
+void test_cast_commands_ignored_while_reconnecting () {
+    // Stop, Play on this computer and Stop casting must not tear down a cast
+    // they cannot reach: the receiver would keep playing.
+    var model = make_model ();
+    var commands = new CastRecordingCommands ();
+    prepare_cast_model (model);
+    model.cast_status = CastStatus.PLAYING;
+    model.cast_attached = false;
+    model.cast_reconnecting = true;
+    model.playing = true;
+    model.current_stream_url = "https://example.test/live";
+    updateModel (new StopPlaybackMessage (), model, commands);
+    updateModel (new PlayLocalMessage (), model, commands);
+    updateModel (new StopCastMessage (), model, commands);
+    assert (model.cast_reconnecting);
+    assert (model.playback_target == PlaybackTarget.CAST);
+    assert (model.playing);
+    assert (commands.stop_cast_calls == 0);
+    assert (commands.play_calls == 0);
+    assert (commands.stop_calls == 0);
+}
+
+void test_cast_commands_work_after_reconnect () {
+    // Once the re-attach resolves the same commands must work again.
+    var model = make_model ();
+    var commands = new CastRecordingCommands ();
+    prepare_cast_model (model);
+    model.cast_status = CastStatus.CONNECTING;
+    model.cast_attached = false;
+    model.cast_reconnecting = true;
+    model.playing = true;
+    model.current_stream_url = "https://example.test/live";
+    updateModel (new CastAdoptedMessage ("id-1", "PLAYING"), model, commands);
+    assert (!model.cast_reconnecting);
+    updateModel (new StopCastMessage (), model, commands);
+    assert (model.playback_target == PlaybackTarget.LOCAL);
+    assert (commands.stop_cast_calls == 1);
+}
+
+void test_cast_reconnect_adopts_while_connecting () {
+    // The re-attach must resolve even when the status still reads CONNECTING,
+    // otherwise the flag wedges the UI on "Reconnecting…".
+    var model = make_model ();
+    var commands = new CastRecordingCommands ();
+    prepare_cast_model (model);
+    model.cast_status = CastStatus.CONNECTING;
+    model.playing = true;
+    model.cast_reconnecting = true;
+    updateModel (new CastSessionDetectedMessage ("id-1",
+        "https://example.test/live", "PLAYING", "", "Default Media Receiver"),
+        model, commands);
+    assert (commands.adopt_cast_calls == 1);
+    assert (model.cast_status == CastStatus.CONNECTING);
+}
+
+void test_cast_sender_lost_ignored_for_other_device () {
+    var model = make_model ();
+    var commands = new CastRecordingCommands ();
+    prepare_cast_model (model);
+    model.cast_status = CastStatus.PLAYING;
+    model.cast_attached = true;
+    updateModel (new CastSenderLostMessage ("id-2", 0), model, commands);
+    assert (commands.sync_cast_calls == 0);
+    assert (!model.cast_reconnecting);
+}
+
+void test_cast_volume_ignored_for_other_device () {
+    var model = make_model ();
+    var commands = new CastRecordingCommands ();
+    prepare_cast_model (model);
+    model.cast_status = CastStatus.PLAYING;
+    model.cast_attached = true;
+    model.config.volume = 0.2;
+    updateModel (new CastVolumeMessage ("id-2", 0.9), model, commands);
+    assert (model.config.volume == 0.2);
+    assert (commands.set_volume_calls == 0);
+    assert (commands.set_cast_volume_calls == 0);
 }
 
 void test_cast_sender_lost_reattaches () {
@@ -3499,12 +3874,16 @@ void test_cast_sender_lost_reattaches () {
     model.cast_status = CastStatus.PLAYING;
     model.cast_attached = true;
     model.playing = true;
-    var cmd = updateModel (new CastSenderLostMessage ("id-1"), model, commands);
+    model.cast_device_volume = 0.5;
+    var cmd = updateModel (new CastSenderLostMessage ("id-1", 0), model, commands);
     assert (cmd != null);
     assert (commands.sync_cast_calls == 1);
+    // The old poller must not keep publishing titles for the previous stream.
+    assert (commands.stop_cast_metadata_calls == 1);
     assert (model.cast_status == CastStatus.PLAYING);
     assert (!model.cast_attached);
     assert (model.cast_reconnecting);
+    assert (model.cast_device_volume == -1.0);
     assert (model.playing);
     assert (model.player_status == _("Reconnecting…"));
 }
@@ -3512,9 +3891,88 @@ void test_cast_sender_lost_reattaches () {
 void test_cast_sender_lost_ignored_while_local () {
     var model = make_model ();
     var commands = new CastRecordingCommands ();
-    updateModel (new CastSenderLostMessage ("id-1"), model, commands);
+    prepare_cast_model (model);
+    model.playback_target = PlaybackTarget.LOCAL;
+    model.cast_status = CastStatus.IDLE;
+    updateModel (new CastSenderLostMessage ("id-1", 0), model, commands);
     assert (commands.sync_cast_calls == 0);
     assert (!model.cast_reconnecting);
+}
+
+void test_cast_sender_lost_caps_reconnects () {
+    // A receiver that drops the sender again right after every attach is not
+    // recovering: retrying forever would keep every cast control inert.
+    var model = make_model ();
+    var commands = new CastRecordingCommands ();
+    prepare_cast_model (model);
+    int64 now = 1000000000;
+    for (int i = 0; i < 3; i++) {
+        // Each attempt reached a live session again before it dropped.
+        model.cast_attached = true;
+        model.cast_status = CastStatus.PLAYING;
+        updateModel (new CastSenderLostMessage ("id-1", now + i), model,
+            commands);
+    }
+    assert (commands.sync_cast_calls == 3);
+    assert (model.cast_reconnecting);
+    model.cast_attached = true;
+    model.cast_status = CastStatus.PLAYING;
+    updateModel (new CastSenderLostMessage ("id-1", now + 3), model, commands);
+    // Past the cap the cast is reported lost, so the controls work again.
+    assert (commands.sync_cast_calls == 3);
+    assert (!model.cast_reconnecting);
+    assert (model.cast_status == CastStatus.LOST);
+    assert (model.player_status == _("Device disconnected"));
+}
+
+void test_cast_sender_lost_quiet_period_resets_streak () {
+    // Drops far apart are separate incidents, not a flapping loop: a cast that
+    // survives for a while must not accumulate its way to a reported loss.
+    var model = make_model ();
+    var commands = new CastRecordingCommands ();
+    prepare_cast_model (model);
+    int64 now = 1000000000;
+    for (int i = 0; i < 3; i++) {
+        model.cast_attached = true;
+        model.cast_status = CastStatus.PLAYING;
+        updateModel (new CastSenderLostMessage ("id-1", now + i), model,
+            commands);
+    }
+    model.cast_reconnect_last_us = now - 300 * 1000000L;
+    model.cast_attached = true;
+    model.cast_status = CastStatus.PLAYING;
+    updateModel (new CastSenderLostMessage ("id-1", now + 3), model, commands);
+    assert (commands.sync_cast_calls == 4);
+    assert (model.cast_reconnecting);
+    assert (model.cast_status == CastStatus.PLAYING);
+}
+
+void test_cast_volume_not_sent_while_reconnecting () {
+    var model = make_model ();
+    var commands = new CastRecordingCommands ();
+    prepare_cast_model (model);
+    model.cast_status = CastStatus.PLAYING;
+    model.cast_attached = false;
+    model.cast_reconnecting = true;
+    model.config.volume = 0.4;
+    updateModel (new SetVolumeMessage (0.7), model, commands);
+    assert (model.config.volume == 0.7);
+    assert (commands.set_volume_calls == 1);
+    assert (commands.set_cast_volume_calls == 0);
+}
+
+void test_play_local_ignored_while_reconnecting () {
+    // Local playback would double up with a receiver that is still streaming.
+    var model = make_model ();
+    var commands = new CastRecordingCommands ();
+    prepare_cast_model (model);
+    model.cast_status = CastStatus.PLAYING;
+    model.cast_attached = true;
+    model.cast_reconnecting = true;
+    updateModel (new PlayLocalMessage (), model, commands);
+    assert (model.cast_reconnecting);
+    assert (model.cast_attached);
+    assert (model.playback_target == PlaybackTarget.CAST);
 }
 
 void test_cast_reconnect_without_session_reports_lost () {
@@ -3556,7 +4014,26 @@ void test_cast_reconnect_reattaches_live_session () {
         "https://example.test/live", "PLAYING", "Live", "Default Media Receiver"),
         model, commands);
     assert (commands.adopt_cast_calls == 1);
+    assert (commands.last_adopt_url == "https://example.test/live");
     assert (model.playback_target == PlaybackTarget.CAST);
+}
+
+void test_cast_reconnect_keeps_reconnecting_status () {
+    // Between the probe resolving and the adoption completing the socket is
+    // still down: the player must keep telling the user it is reconnecting.
+    var model = make_model ();
+    var commands = new CastRecordingCommands ();
+    prepare_cast_model (model);
+    model.cast_status = CastStatus.PLAYING;
+    model.current_stream_url = "https://example.test/live";
+    model.playing = true;
+    model.cast_reconnecting = true;
+    model.player_status = _("Reconnecting…");
+    updateModel (new CastSessionDetectedMessage ("id-1",
+        "https://example.test/live", "PLAYING", "", "Default Media Receiver"),
+        model, commands);
+    assert (commands.adopt_cast_calls == 1);
+    assert (model.player_status == _("Reconnecting…"));
 }
 
 void test_cast_reattach_keeps_title_when_probe_has_none () {
@@ -3572,7 +4049,7 @@ void test_cast_reattach_keeps_title_when_probe_has_none () {
     updateModel (new CastSessionDetectedMessage ("id-1",
         "https://example.test/live", "PLAYING", "", "Default Media Receiver"),
         model, commands);
-    // The receiver exposes no metadata, so the probe title is empty: the ICY
+    // The receiver exposes no metadata, so the probe's title is empty: the ICY
     // title already shown must survive the re-attach.
     assert (model.stream_title == "Creed - One Last Breath");
     assert (model.last_notified_title == "Creed - One Last Breath");
@@ -3591,6 +4068,7 @@ void test_cast_adopt_clears_title_for_another_stream () {
         "https://example.test/other", "PLAYING", "", "Default Media Receiver"),
         model, commands);
     assert (model.stream_title == "");
+    assert (model.last_notified_title == "");
 }
 
 void test_local_metadata_ignored_while_casting () {
@@ -3623,6 +4101,20 @@ void test_cast_adopt_keeps_metadata_with_title () {
     model.stream_title = "Creed - One Last Breath";
     updateModel (new CastAdoptedMessage ("id-1", "PLAYING"), model, commands);
     assert (commands.stop_cast_metadata_calls == 0);
+    assert (commands.start_cast_metadata_calls == 1);
+}
+
+void test_cast_adopt_after_reconnect_restarts_metadata () {
+    // The re-attach stopped the poller: with a title already shown it must
+    // still restart, otherwise the new stream never gets titles.
+    var model = make_model ();
+    var commands = new CastRecordingCommands ();
+    prepare_cast_model (model);
+    model.current_stream_url = "https://example.test/live";
+    model.stream_title = "Creed - One Last Breath";
+    model.cast_reconnecting = true;
+    updateModel (new CastAdoptedMessage ("id-1", "PLAYING"), model, commands);
+    assert (commands.stop_cast_metadata_calls == 1);
     assert (commands.start_cast_metadata_calls == 1);
 }
 
@@ -3681,7 +4173,9 @@ void test_cast_retry_after_play_local_does_not_cast () {
     assert (model.playing);
 }
 
-void test_cast_retry_after_remove_station_clears_retry () {
+void test_cast_remove_current_station_ignored_while_reconnecting () {
+    // The receiver cannot be told to stop, so removing the casted station would
+    // leave it playing a station the app no longer has.
     var model = make_model ();
     var commands = new CastRecordingCommands ();
     prepare_cast_model (model);
@@ -3691,14 +4185,55 @@ void test_cast_retry_after_remove_station_clears_retry () {
     model.playing = true;
     model.cast_retry_on_discovery = true;
     model.cast_resume_pending = true;
+    model.cast_attached = true;
+    model.cast_reconnecting = true;
     updateModel (new RemoveStationMessage ("s1"), model, commands);
+    assert (model.current_station == station);
+    assert (model.config.stations.length == 1);
+    assert (model.playback_target == PlaybackTarget.CAST);
+    assert (model.cast_reconnecting);
+    assert (model.cast_retry_on_discovery);
+    assert (model.cast_resume_pending);
+    assert (commands.stop_cast_calls == 0);
+    // A click that changes nothing must say why, not silently do nothing.
+    assert (model.status_message == _("Waiting for the cast to reconnect"));
+}
+
+void test_cast_remove_current_station_clears_retry () {
+    // Without a re-attach the casted station is removed and the cast stops.
+    var model = make_model ();
+    var commands = new CastRecordingCommands ();
+    prepare_cast_model (model);
+    var station = make_station ("s1");
+    model.config.add_station (station);
+    model.current_station = station;
+    model.playing = true;
+    model.cast_retry_on_discovery = true;
+    model.cast_resume_pending = true;
+    model.cast_attached = true;
+    updateModel (new RemoveStationMessage ("s1"), model, commands);
+    assert (model.current_station == null);
     assert (model.playback_target == PlaybackTarget.LOCAL);
     assert (!model.cast_retry_on_discovery);
     assert (!model.cast_resume_pending);
-    updateModel (new CastDevicesDiscoveredMessage (
-        new CastDevice[] { make_cast_device ("id-1", "Kitchen") }), model,
-        commands);
-    assert (commands.cast_calls == 0);
+    assert (!model.cast_attached);
+}
+
+void test_cast_remove_other_station_while_reconnecting () {
+    // A station that is not casting is removed normally.
+    var model = make_model ();
+    var commands = new CastRecordingCommands ();
+    prepare_cast_model (model);
+    var casted = make_station ("s1");
+    var other = make_station ("s2");
+    model.config.add_station (casted);
+    model.config.add_station (other);
+    model.current_station = casted;
+    model.cast_reconnecting = true;
+    updateModel (new RemoveStationMessage ("s2"), model, commands);
+    assert (model.current_station == casted);
+    assert (model.config.stations.length == 1);
+    assert (model.cast_reconnecting);
 }
 
 void test_cast_detected_while_connecting_is_ignored () {
@@ -3818,7 +4353,9 @@ void register_cast_tests () {
     Test.add_func ("/update/cast/play_station_clears_remote_label", test_play_station_clears_remote_label);
     Test.add_func ("/update/cast/set_keep_on_quit", test_set_cast_keep_on_quit);
     Test.add_func ("/update/cast/retry_after_play_local", test_cast_retry_after_play_local_does_not_cast);
-    Test.add_func ("/update/cast/retry_after_remove_station", test_cast_retry_after_remove_station_clears_retry);
+    Test.add_func ("/update/cast/remove_current_station_ignored_while_reconnecting", test_cast_remove_current_station_ignored_while_reconnecting);
+    Test.add_func ("/update/cast/remove_other_station_while_reconnecting", test_cast_remove_other_station_while_reconnecting);
+    Test.add_func ("/update/cast/remove_current_station_clears_retry", test_cast_remove_current_station_clears_retry);
     Test.add_func ("/update/cast/detected_while_connecting", test_cast_detected_while_connecting_is_ignored);
     Test.add_func ("/update/cast/discover_ignored_while_playing", test_cast_discover_ignored_while_playing);
     Test.add_func ("/update/cast/adopt_failed_releases_sleep", test_cast_adopt_failed_releases_sleep);
@@ -3839,24 +4376,50 @@ void register_cast_tests () {
     Test.add_func ("/update/cast/failed", test_cast_failed_keeps_cast_target);
     Test.add_func ("/update/cast/failed_while_local", test_cast_failed_while_local_keeps_playback);
     Test.add_func ("/update/cast/volume_while_casting", test_cast_volume_controls_receiver_while_casting);
+    Test.add_func ("/update/cast/volume_connecting_stays_local", test_cast_volume_connecting_stays_local);
+    Test.add_func ("/update/cast/volume_adopted_after_reattach", test_cast_volume_adopted_after_reattach);
+    Test.add_func ("/update/cast/volume_detached_report_not_duplicate", test_cast_volume_detached_report_not_duplicate);
+    Test.add_func ("/update/cast/volume_ignored_after_loss", test_cast_volume_ignored_after_loss);
     Test.add_func ("/update/cast/started_keeps_volume", test_cast_started_keeps_receiver_volume);
     Test.add_func ("/update/cast/adopted_keeps_volume", test_cast_adopted_keeps_receiver_volume);
+    Test.add_func ("/update/cast/adopted_clears_reconnecting", test_cast_adopted_clears_reconnecting);
+    Test.add_func ("/update/cast/to_selected_clears_reconnecting", test_cast_to_selected_clears_reconnecting);
+    Test.add_func ("/update/cast/volume_adopted_while_detached", test_cast_volume_adopted_while_detached);
     Test.add_func ("/update/cast/volume_syncs_from_device", test_cast_volume_syncs_from_device);
-    Test.add_func ("/update/cast/volume_echo_ignored", test_cast_volume_echo_ignored);
+    Test.add_func ("/update/cast/volume_repeat_report_ignored", test_cast_volume_repeat_report_ignored);
+    Test.add_func ("/update/cast/volume_one_step_remote_change_adopted", test_cast_volume_one_step_remote_change_adopted);
+    Test.add_func ("/update/cast/volume_adopts_beyond_echo_step", test_cast_volume_adopts_beyond_echo_step);
     Test.add_func ("/update/cast/volume_ignored_while_local", test_cast_volume_ignored_while_local);
+    Test.add_func ("/update/cast/volume_not_sent_while_reconnecting", test_cast_volume_not_sent_while_reconnecting);
+    Test.add_func ("/update/cast/play_local_ignored_while_reconnecting", test_play_local_ignored_while_reconnecting);
+    Test.add_func ("/update/cast/play_station_clears_reconnecting", test_play_station_clears_reconnecting);
+    Test.add_func ("/update/cast/toggle_play_restarts_cast_when_not_reconnecting", test_toggle_play_restarts_cast_when_not_reconnecting);
+    Test.add_func ("/update/cast/toggle_play_ignored_while_reconnecting", test_toggle_play_ignored_while_reconnecting);
+    Test.add_func ("/update/cast/commands_ignored_while_reconnecting", test_cast_commands_ignored_while_reconnecting);
+    Test.add_func ("/update/cast/commands_work_after_reconnect", test_cast_commands_work_after_reconnect);
+    Test.add_func ("/update/cast/reconnect_adopts_while_connecting", test_cast_reconnect_adopts_while_connecting);
+    Test.add_func ("/update/cast/reconnecting_cleared_by_lifecycle_messages", test_cast_reconnecting_cleared_by_lifecycle_messages);
+    Test.add_func ("/update/cast/lifecycle_ignored_for_other_device", test_cast_lifecycle_ignored_for_other_device);
     Test.add_func ("/update/cast/sender_lost_reattaches", test_cast_sender_lost_reattaches);
     Test.add_func ("/update/cast/sender_lost_ignored_while_local", test_cast_sender_lost_ignored_while_local);
+    Test.add_func ("/update/cast/sender_lost_caps_reconnects", test_cast_sender_lost_caps_reconnects);
+    Test.add_func ("/update/cast/sender_lost_quiet_period_resets_streak", test_cast_sender_lost_quiet_period_resets_streak);
+    Test.add_func ("/update/cast/sender_lost_ignored_for_other_device", test_cast_sender_lost_ignored_for_other_device);
+    Test.add_func ("/update/cast/volume_ignored_for_other_device", test_cast_volume_ignored_for_other_device);
     Test.add_func ("/update/cast/reconnect_without_session_reports_lost", test_cast_reconnect_without_session_reports_lost);
     Test.add_func ("/update/cast/reconnect_adopt_failure_reports_lost", test_cast_reconnect_adopt_failure_reports_lost);
     Test.add_func ("/update/cast/reconnect_reattaches_live_session", test_cast_reconnect_reattaches_live_session);
+    Test.add_func ("/update/cast/reconnect_keeps_reconnecting_status", test_cast_reconnect_keeps_reconnecting_status);
     Test.add_func ("/update/cast/reattach_keeps_title_without_probe_title", test_cast_reattach_keeps_title_when_probe_has_none);
     Test.add_func ("/update/cast/adopt_clears_title_for_another_stream", test_cast_adopt_clears_title_for_another_stream);
     Test.add_func ("/update/player_metadata_ignored_while_casting", test_local_metadata_ignored_while_casting);
     Test.add_func ("/update/cast/adopt_restarts_metadata_without_title", test_cast_adopt_restarts_metadata_without_title);
     Test.add_func ("/update/cast/adopt_keeps_metadata_with_title", test_cast_adopt_keeps_metadata_with_title);
+    Test.add_func ("/update/cast/adopt_after_reconnect_restarts_metadata", test_cast_adopt_after_reconnect_restarts_metadata);
     Test.add_func ("/update/cast/select_after_loss_keeps_lost", test_select_cast_device_after_loss_keeps_lost);
     Test.add_func ("/update/cast/failed_autoresume_discovers", test_cast_failed_autoresume_discovers);
     Test.add_func ("/update/cast/rediscovered_retries", test_cast_devices_discovered_retries_cast);
+    Test.add_func ("/update/cast/rediscovered_clears_reconnecting", test_cast_rediscovery_clears_reconnecting);
     Test.add_func ("/update/cast/rediscovered_not_found", test_cast_devices_discovered_not_found_stops);
     Test.add_func ("/update/cast/restore_in_cast_mode", test_restore_last_station_in_cast_mode_resumes_cast);
     Test.add_func ("/update/cast/stopped_returns_local", test_cast_stopped_returns_local);
@@ -3869,4 +4432,5 @@ void register_cast_tests () {
     Test.add_func ("/update/cast/play_station_sets_url", test_play_station_sets_stream_url);
     Test.add_func ("/update/cast/play_station_cast", test_play_station_cast_target_uses_cast_command);
     Test.add_func ("/update/cast/stop_playback_cast", test_stop_playback_cast_target_stops_cast);
+    Test.add_func ("/update/cast/stop_playback_ignored_while_reconnecting", test_stop_playback_ignored_while_reconnecting);
 }
