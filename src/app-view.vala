@@ -3,8 +3,7 @@
 public class Gradio.MainView : Gtk.ApplicationWindow {
     private unowned Elmish.Dispatch<Gradio.Message> dispatch;
     private Gtk.Stack stack;
-    private Gtk.Stack library_stack;
-    private Gradio.StationList list_box;
+    private Gradio.LibraryPage library_page;
     private Gtk.Button add_button;
     private Gtk.Button back_button;
     private Gtk.Label title_label;
@@ -20,8 +19,6 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
     private Gradio.PlayerBar player_bar;
     private Gtk.Box status_bar;
     private Gtk.Label status_label;
-    private Gradio.DetailsPanel details_panel;
-    private Gtk.Revealer details_revealer;
     private Gtk.SearchEntry search_entry;
     private Gtk.Stack add_stack;
     private Gradio.StationList search_list_box;
@@ -355,7 +352,9 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
             hexpand = true,
             vexpand = true
         };
-        stack.add_named (build_library_page (), "library");
+        library_page = new Gradio.LibraryPage (dispatch);
+        library_page.edit_requested.connect ((station) => open_station_editor (station));
+        stack.add_named (library_page, "library");
         stack.add_named (build_add_page (model), "add");
 
         player_bar = new Gradio.PlayerBar (dispatch);
@@ -413,64 +412,6 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
             player_bar.restore_to_bar ();
             player_area.append (player_bar);
         }
-    }
-
-    private Gtk.Widget build_library_page () {
-        library_stack = new Gtk.Stack () {
-            transition_type = Gtk.StackTransitionType.CROSSFADE,
-            hexpand = true
-        };
-
-        var empty = new Gtk.Box (Gtk.Orientation.VERTICAL, 8) {
-            halign = Gtk.Align.CENTER,
-            valign = Gtk.Align.CENTER
-        };
-        var icon = new Gtk.Image.from_icon_name ("application-rss+xml-symbolic") {
-            pixel_size = 128
-        };
-        var empty_title = new Gtk.Label (_("Your library is empty"));
-        empty_title.add_css_class ("title-2");
-        var empty_hint = new Gtk.Label (_("Press + to add a radio station"));
-        empty_hint.add_css_class ("dim-label");
-        var empty_add = new Gtk.Button.with_label (_("Add station")) {
-            halign = Gtk.Align.CENTER,
-            margin_top = 12
-        };
-        empty_add.clicked.connect (open_add_view);
-        empty.append (icon);
-        empty.append (empty_title);
-        empty.append (empty_hint);
-        empty.append (empty_add);
-        library_stack.add_named (empty, "empty");
-
-        list_box = new Gradio.StationList (dispatch, StationListMode.LIBRARY);
-        var scroll = new Gtk.ScrolledWindow () {
-            child = list_box,
-            vexpand = true,
-            hscrollbar_policy = Gtk.PolicyType.NEVER
-        };
-        library_stack.add_named (scroll, "list");
-
-        details_panel = new Gradio.DetailsPanel (dispatch);
-        details_panel.edit_requested.connect ((station) => open_station_editor (station));
-        var details_scroll = new Gtk.ScrolledWindow () {
-            child = details_panel,
-            hscrollbar_policy = Gtk.PolicyType.NEVER,
-            width_request = 320,
-            propagate_natural_width = false,
-            hexpand = false,
-            vexpand = true
-        };
-        details_revealer = new Gtk.Revealer () {
-            transition_type = Gtk.RevealerTransitionType.SLIDE_LEFT,
-            child = details_scroll
-        };
-
-        var page = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 0);
-        page.append (library_stack);
-        page.append (new Gtk.Separator (Gtk.Orientation.VERTICAL));
-        page.append (details_revealer);
-        return page;
     }
 
     private void open_station_editor (RadioStation? station) {
@@ -1035,9 +976,7 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
         sync_filter_pickers (model);
         sync_sort_controls (model);
 
-        list_box.update (model.library_order, model);
-        bool empty = model.library_order.length == 0;
-        library_stack.set_visible_child_name (empty ? "empty" : "list");
+        library_page.update (model);
 
         discover_popular_list.update (model.discover_popular, model);
         discover_new_list.update (model.discover_new, model);
@@ -1081,8 +1020,6 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
             }
         }
 
-        details_revealer.reveal_child = model.details_visible;
-        details_panel.update (model.details_station, model);
         player_bar.update (model);
 
         status_label.label = model.status_message;
