@@ -11,6 +11,8 @@ meson test -C builddir
 ./builddir/gradio
 ```
 
+Size/ship builds: `meson setup builddir --buildtype=release` then `strip`.
+
 Arch package: `./scripts/build-package.sh`
 
 ## Layout

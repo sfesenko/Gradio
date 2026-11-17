@@ -67,7 +67,7 @@ prepare() {
 
 build() {
     cd "$srcdir/$pkgname"
-    meson setup builddir --prefix=/usr --buildtype=release
+    meson setup builddir --prefix=/usr --buildtype=release -Db_lto=true
     meson compile -C builddir
 }
 
@@ -78,5 +78,5 @@ check() {
 
 package() {
     cd "$srcdir/$pkgname"
-    DESTDIR="$pkgdir" meson install -C builddir
+    DESTDIR="$pkgdir" meson install -C builddir --strip
 }

@@ -34,7 +34,10 @@ namespace Gradio {
             reorderable = mode == StationListMode.LIBRARY &&
                 model.config.library_sort == LibrarySortMode.CUSTOM;
 
-            string next = signature_for (stations, show_technical_info, icon_size);
+            // Include reorderability so toggling custom sort (which may leave the
+            // station order unchanged) still rebuilds and attaches drag handlers.
+            string next = signature_for (stations, show_technical_info, icon_size) +
+                (reorderable ? "|r" : "|n");
             if (next != signature) {
                 signature = next;
                 list.remove_all ();
