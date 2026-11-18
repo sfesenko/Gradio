@@ -3,8 +3,8 @@
 public class Gradio.MainView : Gtk.ApplicationWindow {
     private unowned Elmish.Dispatch<Gradio.Message> dispatch;
     private Gtk.Stack stack;
-    private Gtk.Stack library_stack;
-    private Gtk.ListBox list_box;
+    private Gradio.LibraryPage library_page;
+    private Gradio.AddStationPage add_page;
     private Gtk.Button add_button;
     private Gtk.Button back_button;
     private Gtk.Label title_label;
@@ -15,26 +15,9 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
     private Gtk.Box header_controls_area;
     private Gtk.Label empty_title;
     private Gtk.Box player_area;
-    private bool placement_initialized = false;
-    private bool player_in_header_active = false;
     private Gradio.PlayerBar player_bar;
     private Gtk.Box status_bar;
     private Gtk.Label status_label;
-    private Gradio.DetailsPanel details_panel;
-    private Gtk.Revealer details_revealer;
-    private Gtk.SearchEntry search_entry;
-    private Gtk.Stack add_stack;
-    private Gtk.ListBox search_list_box;
-    private Gtk.ListBox discover_popular_list;
-    private Gtk.ListBox discover_new_list;
-    private Gtk.Label discover_empty_label;
-    private Gtk.Label discover_error_label;
-    private Gtk.Spinner spinner;
-    private Gtk.Label search_error_label;
-    private Gtk.DropDown country_dropdown;
-    private Gtk.DropDown language_dropdown;
-    private Gtk.DropDown tag_dropdown;
-    private bool syncing_filters = false;
     private bool syncing_sort = false;
     private Gtk.CheckButton sort_custom_button;
     private Gtk.CheckButton sort_name_button;
@@ -43,25 +26,8 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
     private Gtk.CheckButton sort_language_button;
     private Gtk.CheckButton sort_bitrate_button;
     private Gtk.Switch sort_descending_switch;
-    private string filter_signature = "";
-    private bool last_adding = false;
-    private Gradio.AppModel app_model;
-    private string library_signature = "";
-    private string search_signature = "";
-    private string discover_signature = "";
-    private Gtk.MenuButton cast_button;
-    private Gtk.Scale cast_volume_scale;
-    private Gtk.Box cast_volume_row;
-    private Gtk.Image cast_volume_icon;
-    private Gtk.Label cast_volume_value;
-    private bool updating_cast_volume = false;
-    private Gtk.ListBox cast_device_list;
-    private Gtk.Button cast_discover_button;
-    private Gtk.Label cast_status_label;
-    private Gtk.Button cast_launch_button;
-    private Gtk.Button cast_stop_button;
-    private Gtk.Button cast_local_button;
-    private string cast_device_signature = "";
+    private Gradio.AppConfig config;
+    private Gradio.CastButton cast_button;
 
     public MainView (Gtk.Application app) {
         Object (application: app);
@@ -69,6 +35,7 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
 
     public void build_ui (Elmish.Dispatch<Gradio.Message> dispatch, Gradio.AppModel model) {
         this.dispatch = dispatch;
+        this.config = model.config;
 
         var css = new Gtk.CssProvider ();
         string rules = ".current-station { background-color: alpha(@accent_bg_color, 0.25); }\n" +
@@ -221,89 +188,14 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
                 dispatch_library_sort (LibrarySortMode.BITRATE);
         });
         sort_descending_switch.notify["active"].connect (() => {
-            if (syncing_sort || app_model == null)
+            if (syncing_sort)
                 return;
-            dispatch (new SetLibrarySortMessage (app_model.config.library_sort,
+            dispatch (new SetLibrarySortMessage (active_sort_mode (),
                 sort_descending_switch.active));
         });
         header.pack_end (sort_button);
 
-        // The button opens the cast popover, which is also where the volume
-        // lives: a speaker icon says both, and it tracks the current level.
-        cast_button = new Gtk.MenuButton () {
-            icon_name = volume_icon_name (model.config.volume),
-            tooltip_text = _("Cast to a device")
-        };
-        var cast_box = new Gtk.Box (Gtk.Orientation.VERTICAL, 6) {
-            margin_top = 8,
-            margin_bottom = 8,
-            margin_start = 8,
-            margin_end = 8
-        };
-        cast_volume_row = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 8) {
-            tooltip_text = _("Local volume")
-        };
-        cast_volume_icon = new Gtk.Image.from_icon_name (
-            "audio-volume-high-symbolic");
-        cast_volume_row.append (cast_volume_icon);
-        cast_volume_scale = new Gtk.Scale.with_range (Gtk.Orientation.HORIZONTAL,
-            0.0, 1.0, 0.01);
-        cast_volume_scale.set_draw_value (false);
-        cast_volume_scale.set_hexpand (true);
-        cast_volume_scale.set_value (model.config.volume);
-        cast_volume_scale.value_changed.connect (() => {
-            if (!updating_cast_volume)
-                dispatch (new SetVolumeMessage (cast_volume_scale.get_value ()));
-        });
-        cast_volume_row.append (cast_volume_scale);
-        // A fixed-width value keeps the slider from resizing while dragging.
-        cast_volume_value = new Gtk.Label (volume_percent_text (model.config.volume)) {
-            xalign = 1.0f,
-            width_chars = 4
-        };
-        cast_volume_value.add_css_class ("dim-label");
-        cast_volume_row.append (cast_volume_value);
-        cast_box.append (cast_volume_row);
-        cast_box.append (new Gtk.Separator (Gtk.Orientation.HORIZONTAL));
-        cast_discover_button = new Gtk.Button.with_label (_("Discover devices"));
-        cast_discover_button.clicked.connect (() => dispatch (new DiscoverCastDevicesMessage ()));
-        cast_box.append (cast_discover_button);
-        cast_device_list = new Gtk.ListBox () {
-            selection_mode = Gtk.SelectionMode.SINGLE
-        };
-        cast_device_list.row_selected.connect ((row) => {
-            if (row == null || app_model == null)
-                return;
-            var device = (Gradio.CastDevice) row.get_data<Gradio.CastDevice> ("device");
-            if (device != null)
-                dispatch (new SelectCastDeviceMessage (device.id, device.name,
-                    device.host, device.port));
-        });
-        cast_box.append (new Gtk.ScrolledWindow () {
-            child = cast_device_list,
-            min_content_height = 120,
-            hexpand = true
-        });
-        cast_status_label = new Gtk.Label ("") { xalign = 0, wrap = true };
-        cast_box.append (cast_status_label);
-        cast_launch_button = new Gtk.Button.with_label (_("Cast current stream"));
-        cast_launch_button.clicked.connect (() => dispatch (new CastToSelectedMessage ()));
-        cast_stop_button = new Gtk.Button.with_label (_("Stop casting"));
-        cast_stop_button.clicked.connect (() => dispatch (new StopCastMessage ()));
-        cast_local_button = new Gtk.Button.with_label (_("Play on this computer"));
-        cast_local_button.clicked.connect (() => dispatch (new PlayLocalMessage ()));
-        cast_box.append (cast_launch_button);
-        cast_box.append (cast_stop_button);
-        cast_box.append (cast_local_button);
-        var cast_popover = new Gtk.Popover () { child = cast_box };
-        cast_popover.notify["visible"].connect (() => {
-            if (!cast_popover.visible || app_model == null)
-                return;
-            if (app_model.cast_devices.length == 0 &&
-                    app_model.cast_status != CastStatus.DISCOVERING)
-                dispatch (new DiscoverCastDevicesMessage ());
-        });
-        cast_button.set_popover (cast_popover);
+        cast_button = new Gradio.CastButton (dispatch);
         header.pack_end (cast_button);
 
         header_controls_area = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 6) {
@@ -358,14 +250,16 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
             hexpand = true,
             vexpand = true
         };
-        stack.add_named (build_library_page (), "library");
-        stack.add_named (build_add_page (model), "add");
+        library_page = new Gradio.LibraryPage (dispatch);
+        library_page.edit_requested.connect ((station) => open_station_editor (station));
+        stack.add_named (library_page, "library");
+        add_page = new Gradio.AddStationPage (dispatch, model);
+        stack.add_named (add_page, "add");
 
         player_bar = new Gradio.PlayerBar (dispatch);
 
         player_area = new Gtk.Box (Gtk.Orientation.VERTICAL, 0);
         player_area.append (new Gtk.Separator (Gtk.Orientation.HORIZONTAL));
-        player_area.append (player_bar);
 
         status_bar = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 0) {
             margin_top = 4,
@@ -390,399 +284,46 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
         set_child (root);
 
         apply_player_placement (model.config.player_in_header);
-        update (new Gradio.SetViewMessage (model.view), model);
+        render (model);
     }
 
     private void apply_player_placement (bool header_mode) {
-        if (placement_initialized && header_mode == player_in_header_active)
-            return;
-        placement_initialized = true;
-        player_in_header_active = header_mode;
-
-        player_bar.unparent ();
         if (header_mode) {
             header.set_title_widget (empty_title);
             header_text_area.visible = true;
             header_controls_area.visible = true;
             player_area.visible = false;
-            player_bar.set_compact (true);
             player_bar.place_in_header (header_text_area, header_controls_area);
         } else {
             header.set_title_widget (title_box);
             header_text_area.visible = false;
             header_controls_area.visible = false;
             player_area.visible = true;
-            player_bar.set_compact (false);
-            player_bar.restore_to_bar ();
-            player_area.append (player_bar);
+            player_bar.place_in_bar (player_area);
         }
-    }
-
-    private Gtk.Widget build_library_page () {
-        library_stack = new Gtk.Stack () {
-            transition_type = Gtk.StackTransitionType.CROSSFADE,
-            hexpand = true
-        };
-
-        var empty = new Gtk.Box (Gtk.Orientation.VERTICAL, 8) {
-            halign = Gtk.Align.CENTER,
-            valign = Gtk.Align.CENTER
-        };
-        var icon = new Gtk.Image.from_icon_name ("application-rss+xml-symbolic") {
-            pixel_size = 128
-        };
-        var empty_title = new Gtk.Label (_("Your library is empty"));
-        empty_title.add_css_class ("title-2");
-        var empty_hint = new Gtk.Label (_("Press + to add a radio station"));
-        empty_hint.add_css_class ("dim-label");
-        var empty_add = new Gtk.Button.with_label (_("Add station")) {
-            halign = Gtk.Align.CENTER,
-            margin_top = 12
-        };
-        empty_add.clicked.connect (open_add_view);
-        empty.append (icon);
-        empty.append (empty_title);
-        empty.append (empty_hint);
-        empty.append (empty_add);
-        library_stack.add_named (empty, "empty");
-
-        list_box = new Gtk.ListBox () {
-            selection_mode = Gtk.SelectionMode.NONE,
-            show_separators = true
-        };
-        var scroll = new Gtk.ScrolledWindow () {
-            child = list_box,
-            vexpand = true,
-            hscrollbar_policy = Gtk.PolicyType.NEVER
-        };
-        library_stack.add_named (scroll, "list");
-
-        details_panel = new Gradio.DetailsPanel (dispatch);
-        details_panel.edit_requested.connect ((station) => open_station_editor (station));
-        var details_scroll = new Gtk.ScrolledWindow () {
-            child = details_panel,
-            hscrollbar_policy = Gtk.PolicyType.NEVER,
-            width_request = 320,
-            propagate_natural_width = false,
-            hexpand = false,
-            vexpand = true
-        };
-        details_revealer = new Gtk.Revealer () {
-            transition_type = Gtk.RevealerTransitionType.SLIDE_LEFT,
-            child = details_scroll
-        };
-
-        var page = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 0);
-        page.append (library_stack);
-        page.append (new Gtk.Separator (Gtk.Orientation.VERTICAL));
-        page.append (details_revealer);
-        return page;
     }
 
     private void open_station_editor (RadioStation? station) {
-        var dialog = new StationEditorDialog (this, app_model, dispatch, station);
+        var dialog = new StationEditorDialog (this, config, dispatch, station);
         dialog.present ();
     }
 
-    private Gtk.Widget build_add_page (Gradio.AppModel model) {
-        var box = new Gtk.Box (Gtk.Orientation.VERTICAL, 8);
-
-        var search_row = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 8) {
-            margin_top = 12,
-            margin_bottom = 12,
-            margin_start = 12,
-            margin_end = 12
-        };
-
-        search_entry = new Gtk.SearchEntry () {
-            placeholder_text = _("Search for radio stations"),
-            search_delay = 300,
-            hexpand = true
-        };
-        search_entry.search_started.connect (() => dispatch (new SearchRequestedMessage (search_entry.text)));
-        search_entry.activate.connect (() => dispatch (new SearchRequestedMessage (search_entry.text)));
-        search_entry.stop_search.connect (() => dispatch (new SearchRequestedMessage ("")));
-        search_row.append (search_entry);
-
-        var search_sort = new Gtk.DropDown.from_strings (
-            { _("Relevance"), _("Clicks"), _("Votes"), _("Bitrate") });
-        search_sort.tooltip_text = _("Sort search results");
-        search_sort.valign = Gtk.Align.CENTER;
-        search_sort.selected = (uint) model.config.search_sort;
-        search_sort.notify["selected"].connect (() => {
-            dispatch (new SetSearchSortModeMessage ((SearchSortMode) search_sort.selected));
-        });
-        search_row.append (search_sort);
-
-        box.append (search_row);
-
-        var filters_row = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 6) {
-            margin_start = 12,
-            margin_end = 12,
-            margin_bottom = 12,
-            homogeneous = true
-        };
-
-        country_dropdown = build_filter_dropdown (SearchFilterKind.COUNTRY,
-            _("Country"), _("Filter by country"));
-        filters_row.append (country_dropdown);
-
-        var state_entry = new Gtk.Entry () {
-            placeholder_text = _("State"),
-            hexpand = true,
-            text = model.config.search_filters.state,
-            tooltip_text = _("Filter by state")
-        };
-        state_entry.activate.connect (() => dispatch (
-            new SetSearchFilterMessage (SearchFilterKind.STATE, state_entry.text)));
-        var state_focus = new Gtk.EventControllerFocus ();
-        state_focus.leave.connect (() => dispatch (
-            new SetSearchFilterMessage (SearchFilterKind.STATE, state_entry.text)));
-        state_entry.add_controller (state_focus);
-        filters_row.append (state_entry);
-
-        language_dropdown = build_filter_dropdown (SearchFilterKind.LANGUAGE,
-            _("Language"), _("Filter by language"));
-        filters_row.append (language_dropdown);
-
-        tag_dropdown = build_filter_dropdown (SearchFilterKind.TAG,
-            _("Tag"), _("Filter by tag"));
-        filters_row.append (tag_dropdown);
-
-        box.append (filters_row);
-
-        add_stack = new Gtk.Stack () {
-            transition_type = Gtk.StackTransitionType.CROSSFADE,
-            vexpand = true
-        };
-
-        var idle = new Gtk.Label (_("Search by name, or leave it empty and use the filters below.")) {
-            halign = Gtk.Align.CENTER,
-            valign = Gtk.Align.CENTER
-        };
-        idle.add_css_class ("dim-label");
-        add_stack.add_named (idle, "idle");
-
-        spinner = new Gtk.Spinner () {
-            halign = Gtk.Align.CENTER,
-            valign = Gtk.Align.CENTER
-        };
-        add_stack.add_named (spinner, "loading");
-
-        search_list_box = new Gtk.ListBox () {
-            selection_mode = Gtk.SelectionMode.NONE,
-            show_separators = true
-        };
-        var scroll = new Gtk.ScrolledWindow () {
-            child = search_list_box,
-            vexpand = true,
-            hscrollbar_policy = Gtk.PolicyType.NEVER
-        };
-        add_stack.add_named (scroll, "results");
-
-        var discover_content = new Gtk.Box (Gtk.Orientation.VERTICAL, 6) {
-            margin_top = 6,
-            margin_bottom = 12,
-            margin_start = 12,
-            margin_end = 12
-        };
-        var popular_label = new Gtk.Label (_("Popular near you")) {
-            halign = Gtk.Align.START
-        };
-        popular_label.add_css_class ("title-4");
-        discover_content.append (popular_label);
-        discover_popular_list = new Gtk.ListBox () {
-            selection_mode = Gtk.SelectionMode.NONE,
-            show_separators = true
-        };
-        discover_content.append (discover_popular_list);
-
-        var new_label = new Gtk.Label (_("New stations")) {
-            halign = Gtk.Align.START,
-            margin_top = 12
-        };
-        new_label.add_css_class ("title-4");
-        discover_content.append (new_label);
-        discover_new_list = new Gtk.ListBox () {
-            selection_mode = Gtk.SelectionMode.NONE,
-            show_separators = true
-        };
-        discover_content.append (discover_new_list);
-
-        discover_empty_label = new Gtk.Label (_("No stations found.")) {
-            halign = Gtk.Align.CENTER,
-            margin_top = 12
-        };
-        discover_empty_label.add_css_class ("dim-label");
-        discover_content.append (discover_empty_label);
-
-        discover_error_label = new Gtk.Label ("") {
-            halign = Gtk.Align.CENTER,
-            wrap = true,
-            margin_top = 12
-        };
-        discover_error_label.add_css_class ("dim-label");
-        discover_content.append (discover_error_label);
-
-        var discover_scroll = new Gtk.ScrolledWindow () {
-            child = discover_content,
-            vexpand = true,
-            hscrollbar_policy = Gtk.PolicyType.NEVER
-        };
-        add_stack.add_named (discover_scroll, "discover");
-
-        var empty = new Gtk.Label (_("No stations found.")) {
-            halign = Gtk.Align.CENTER,
-            valign = Gtk.Align.CENTER
-        };
-        empty.add_css_class ("dim-label");
-        add_stack.add_named (empty, "empty");
-
-        search_error_label = new Gtk.Label ("") {
-            halign = Gtk.Align.CENTER,
-            valign = Gtk.Align.CENTER,
-            wrap = true,
-            margin_start = 24,
-            margin_end = 24
-        };
-        search_error_label.add_css_class ("dim-label");
-        add_stack.add_named (search_error_label, "error");
-
-        box.append (add_stack);
-        sync_filter_pickers (model);
-        return box;
-    }
-
-    private static Gtk.ListItemFactory plain_value_factory () {
-        var factory = new Gtk.SignalListItemFactory ();
-        factory.setup.connect ((obj) => {
-            var item = obj as Gtk.ListItem;
-            item.child = new Gtk.Label ("") {
-                halign = Gtk.Align.START
-            };
-        });
-        factory.bind.connect ((obj) => {
-            var item = obj as Gtk.ListItem;
-            var label = item.child as Gtk.Label;
-            if (label == null)
-                return;
-            var string_object = item.item as Gtk.StringObject;
-            label.label = string_object != null ? string_object.string : "";
-        });
-        return factory;
-    }
-
-    // The selected value is shown as inlay caption text when nothing is
-    // filtered, mirroring the placeholder of a Gtk.Entry.
-    private static Gtk.ListItemFactory inlay_caption_factory (string caption) {
-        var factory = new Gtk.SignalListItemFactory ();
-        factory.setup.connect ((obj) => {
-            var item = obj as Gtk.ListItem;
-            var label = new Gtk.Label (caption) {
-                halign = Gtk.Align.START
-            };
-            label.add_css_class ("dim-label");
-            item.child = label;
-        });
-        factory.bind.connect ((obj) => {
-            var item = obj as Gtk.ListItem;
-            var label = item.child as Gtk.Label;
-            if (label == null)
-                return;
-            var string_object = item.item as Gtk.StringObject;
-            string value = string_object != null ? string_object.string : "";
-            if (value == "" || value == _("Any")) {
-                label.label = caption;
-                label.add_css_class ("dim-label");
-            } else {
-                label.label = value;
-                label.remove_css_class ("dim-label");
-            }
-        });
-        return factory;
-    }
-
-    private Gtk.DropDown build_filter_dropdown (SearchFilterKind field,
-            string caption, string tooltip) {
-        var dropdown = new Gtk.DropDown.from_strings ({ _("Any") }) {
-            hexpand = true,
-            tooltip_text = tooltip
-        };
-        dropdown.factory = inlay_caption_factory (caption);
-        dropdown.list_factory = plain_value_factory ();
-        dropdown.enable_search = true;
-        dropdown.notify["selected"].connect (() => {
-            if (syncing_filters)
-                return;
-            var list = dropdown.model;
-            if (list == null)
-                return;
-            uint index = dropdown.selected;
-            if (index >= list.get_n_items ())
-                return;
-            var item = list.get_item (index) as Gtk.StringObject;
-            string value = item != null ? item.string : "";
-            dispatch (new SetSearchFilterMessage (field, index == 0 ? "" : value));
-        });
-        return dropdown;
-    }
-
-    private static void append_option_signature (GLib.StringBuilder builder, string[] options) {
-        for (uint i = 0; i < options.length; i++)
-            builder.append_printf ("\x1e%s", options[i]);
-        builder.append ("\x1f");
-    }
-
-    private string filter_picker_signature (Gradio.AppModel model) {
-        var builder = new GLib.StringBuilder ();
-        builder.append_printf ("%s\x1f%s\x1f%s\x1f%s\x1f",
-            model.config.search_filters.country, model.config.search_filters.state,
-            model.config.search_filters.language, model.config.search_filters.tag);
-        append_option_signature (builder, model.filter_countries);
-        append_option_signature (builder, model.filter_languages);
-        append_option_signature (builder, model.filter_tags);
-        return builder.str;
-    }
-
-    private static void set_filter_options (Gtk.DropDown dropdown, string current,
-            string[] options) {
-        var list = new Gtk.StringList (null);
-        list.append (_("Any"));
-        bool present = current == "";
-        uint selected = 0;
-        for (uint i = 0; i < options.length; i++) {
-            list.append (options[i]);
-            if (options[i] == current) {
-                present = true;
-                selected = i + 1;
-            }
-        }
-        if (!present) {
-            list.append (current);
-            selected = options.length + 1;
-        }
-        dropdown.model = list;
-        dropdown.selected = selected;
-    }
-
-    private void sync_filter_pickers (Gradio.AppModel model) {
-        string sig = filter_picker_signature (model);
-        if (sig == filter_signature)
-            return;
-        filter_signature = sig;
-
-        syncing_filters = true;
-        set_filter_options (country_dropdown, model.config.search_filters.country,
-            model.filter_countries);
-        set_filter_options (language_dropdown, model.config.search_filters.language,
-            model.filter_languages);
-        set_filter_options (tag_dropdown, model.config.search_filters.tag,
-            model.filter_tags);
-        syncing_filters = false;
+    private LibrarySortMode active_sort_mode () {
+        if (sort_name_button.active)
+            return LibrarySortMode.NAME;
+        if (sort_country_button.active)
+            return LibrarySortMode.COUNTRY;
+        if (sort_state_button.active)
+            return LibrarySortMode.STATE;
+        if (sort_language_button.active)
+            return LibrarySortMode.LANGUAGE;
+        if (sort_bitrate_button.active)
+            return LibrarySortMode.BITRATE;
+        return LibrarySortMode.CUSTOM;
     }
 
     private void dispatch_library_sort (LibrarySortMode mode) {
-        if (syncing_sort || app_model == null)
+        if (syncing_sort)
             return;
         dispatch (new SetLibrarySortMessage (mode, sort_descending_switch.active));
     }
@@ -800,90 +341,14 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
         syncing_sort = false;
     }
 
-    private static string rows_signature (GLib.GenericArray<Gradio.RadioStation> stations,
-            bool show_technical_info, int icon_size) {
-        var builder = new GLib.StringBuilder ();
-        for (uint i = 0; i < stations.length; i++) {
-            var station = stations.get (i);
-            builder.append_printf ("%s|%s|%s|%s|%d|%s\n", station.id, station.name, station.country,
-                station.codec, station.bitrate, station.url);
-        }
-        builder.append_printf ("%s|%d", show_technical_info ? "tech" : "plain", icon_size);
-        return builder.str;
-    }
-
-    private void attach_library_drag (Gradio.StationRow row) {
-        string station_id = row.station.id;
-        var handle = row.drag_handle;
-        if (handle == null)
-            return;
-
-        var source = new Gtk.DragSource () {
-            actions = Gdk.DragAction.MOVE
-        };
-        source.prepare.connect ((x, y) => {
-            var value = GLib.Value (typeof (string));
-            value.set_string (station_id);
-            return new Gdk.ContentProvider.for_value (value);
-        });
-        source.drag_begin.connect ((drag) => {
-            row.add_css_class ("dragging");
-        });
-        source.drag_end.connect ((drag, delete_data) => {
-            row.remove_css_class ("dragging");
-            clear_drop_marks ();
-        });
-        handle.add_controller (source);
-
-        var target = new Gtk.DropTarget (typeof (string), Gdk.DragAction.MOVE);
-        target.enter.connect ((x, y) => {
-            set_drop_mark (row, y >= row.get_height () / 2.0);
-            return Gdk.DragAction.MOVE;
-        });
-        target.motion.connect ((x, y) => {
-            set_drop_mark (row, y >= row.get_height () / 2.0);
-            return Gdk.DragAction.MOVE;
-        });
-        target.leave.connect (() => {
-            row.remove_css_class ("drop-before");
-            row.remove_css_class ("drop-after");
-        });
-        target.drop.connect ((value, x, y) => {
-            string source_id = (string) value;
-            bool after = y >= row.get_height () / 2.0;
-            clear_drop_marks ();
-            if (source_id != "" && source_id != station_id)
-                dispatch (new MoveStationMessage (source_id, station_id, after));
-            return true;
-        });
-        row.add_controller (target);
-    }
-
-    private void set_drop_mark (Gtk.Widget row, bool after) {
-        clear_drop_marks ();
-        row.add_css_class (after ? "drop-after" : "drop-before");
-    }
-
-    private void clear_drop_marks () {
-        for (int i = 0; ; i++) {
-            var row = list_box.get_row_at_index (i);
-            if (row == null)
-                break;
-            row.remove_css_class ("drop-before");
-            row.remove_css_class ("drop-after");
-        }
-    }
-
     private void open_add_view () {
         dispatch (new SetViewMessage (ViewMode.ADD_STATION));
-        GLib.Idle.add (() => {
-            search_entry.grab_focus ();
-            return false;
-        });
+        if (add_page != null)
+            add_page.focus_search ();
     }
 
     private void open_preferences () {
-        var dialog = new Gradio.SettingsDialog (this, app_model, dispatch);
+        var dialog = new Gradio.SettingsDialog (this, config, dispatch);
         dialog.present ();
     }
 
@@ -966,141 +431,15 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
         });
     }
 
-    private static string volume_icon_name (double volume) {
-        if (volume <= 0.0)
-            return "audio-volume-muted-symbolic";
-        if (volume < 0.33)
-            return "audio-volume-low-symbolic";
-        if (volume < 0.66)
-            return "audio-volume-medium-symbolic";
-        return "audio-volume-high-symbolic";
-    }
-
-    private static string volume_percent_text (double volume) {
-        // No libm dependency. The config clamps the level, so this only guards
-        // a hand-set value from printing "140%".
-        double clamped = volume.clamp (0.0, 1.0);
-        return "%d%%".printf ((int) (clamped * 100 + 0.5));
-    }
-
-    private void update_cast_ui (Gradio.AppModel model) {
-        if (cast_device_list == null)
-            return;
-        var selected_id = model.cast_device_id;
-        // rebuild rows only when the device list changed
-        var signature = "%u:%s".printf (model.cast_devices.length, selected_id ?? "");
-        if (signature != cast_device_signature) {
-            cast_device_signature = signature;
-            while (cast_device_list.get_first_child () != null)
-                cast_device_list.remove (cast_device_list.get_first_child ());
-            foreach (var device in model.cast_devices) {
-                var row = new Gtk.ListBoxRow () { selectable = true };
-                row.set_data ("device", device);
-                row.child = new Gtk.Label (device.name) {
-                    xalign = 0,
-                    margin_top = 4,
-                    margin_bottom = 4,
-                    margin_start = 6
-                };
-                cast_device_list.append (row);
-            }
-        }
-        switch (model.cast_status) {
-            case CastStatus.IDLE:
-                cast_status_label.label = _("Not casting");
-                break;
-            case CastStatus.DISCOVERING:
-                cast_status_label.label = _("Discovering…");
-                break;
-            case CastStatus.READY:
-                cast_status_label.label = model.cast_device_name != null
-                    ? _("Ready to cast to %s").printf (model.cast_device_name)
-                    : _("Ready to cast");
-                break;
-            case CastStatus.CONNECTING:
-                cast_status_label.label = _("Connecting…");
-                break;
-            case CastStatus.PLAYING:
-                cast_status_label.label = model.cast_device_name != null
-                    ? _("Casting to %s").printf (model.cast_device_name)
-                    : _("Casting");
-                break;
-            case CastStatus.BUFFERING:
-                cast_status_label.label = _("Buffering…");
-                break;
-            case CastStatus.PAUSED:
-                cast_status_label.label = _("Paused on cast device");
-                break;
-            case CastStatus.STOPPED:
-                cast_status_label.label = _("Stopped");
-                break;
-            case CastStatus.FAILED:
-                cast_status_label.label = model.cast_error;
-                break;
-            case CastStatus.LOST:
-                cast_status_label.label = model.cast_error != ""
-                    ? model.cast_error : _("Cast connection lost");
-                break;
-        }
-        if (model.cast_reconnecting)
-            cast_status_label.label = _("Reconnecting…");
-        if (model.cast_remote_label != "" && !model.cast_is_active () &&
-                !model.cast_reconnecting)
-            cast_status_label.label = model.cast_remote_label;
-        string cast_tooltip = _("Cast to a device");
-        if (model.cast_reconnecting)
-            cast_tooltip = _("Reconnecting…");
-        else if (model.cast_status == CastStatus.PLAYING && model.cast_device_name != null)
-            cast_tooltip = _("Casting to %s").printf (model.cast_device_name);
-        else if (model.cast_status == CastStatus.BUFFERING && model.cast_device_name != null)
-            cast_tooltip = _("Buffering on %s").printf (model.cast_device_name);
-        else if (model.cast_status == CastStatus.PAUSED && model.cast_device_name != null)
-            cast_tooltip = _("Paused on %s").printf (model.cast_device_name);
-        else if (model.cast_status == CastStatus.LOST)
-            cast_tooltip = _("Cast connection lost");
-        cast_button.tooltip_text = cast_tooltip;
-        if (model.cast_is_active ())
-            cast_button.add_css_class ("cast-active");
-        else
-            cast_button.remove_css_class ("cast-active");
-        bool can_change_device = !(model.cast_is_active () || model.cast_attached);
-        cast_discover_button.sensitive = can_change_device;
-        cast_device_list.sensitive = can_change_device;
-        cast_discover_button.tooltip_text = can_change_device
-            ? _("Discover cast devices")
-            : model.cast_reconnecting
-                ? _("Reconnecting…")
-                : _("Stop casting to change device");
-        cast_button.icon_name = volume_icon_name (model.config.volume);
-        cast_volume_icon.icon_name = volume_icon_name (model.config.volume);
-        cast_volume_value.label = volume_percent_text (model.config.volume);
-        bool casting = model.playback_target == PlaybackTarget.CAST &&
-            model.cast_attached && !model.cast_reconnecting;
-        updating_cast_volume = true;
-        if (cast_volume_scale.get_value () != model.config.volume)
-            cast_volume_scale.set_value (model.config.volume);
-        updating_cast_volume = false;
-        cast_volume_row.tooltip_text = casting
-            ? _("Volume (local and cast)") : _("Local volume");
-        // Starting a new cast must stay possible after a loss even though the
-        // output is still CAST: only a live session disables it.
-        cast_launch_button.sensitive = !model.cast_is_active () &&
-            model.cast_device_id != null && model.current_stream_url != "";
-        cast_stop_button.sensitive = model.playback_target == PlaybackTarget.CAST &&
-            !model.cast_reconnecting;
-        cast_local_button.sensitive = model.playback_target == PlaybackTarget.CAST &&
-            !model.cast_reconnecting;
-    }
-
-    public void update (Gradio.Message msg, Gradio.AppModel model) {
-        app_model = model;
+    private void render (Gradio.AppModel model) {
+        config = model.config;
 
         bool adding = model.view == ViewMode.ADD_STATION;
         stack.set_visible_child_name (adding ? "add" : "library");
         add_button.visible = !adding;
         back_button.visible = adding;
         apply_player_placement (model.config.player_in_header);
-        update_cast_ui (model);
+        cast_button.update (model);
         if (adding) {
             title_label.label = _("Add station");
             subtitle_label.visible = false;
@@ -1113,149 +452,19 @@ public class Gradio.MainView : Gtk.ApplicationWindow {
             subtitle_label.visible = false;
         }
 
-        if (adding && !last_adding) {
-            search_entry.text = "";
-            GLib.Idle.add (() => {
-                search_entry.grab_focus ();
-                return false;
-            });
-        }
-        last_adding = adding;
-        sync_filter_pickers (model);
         sync_sort_controls (model);
 
-        var library = model.library_order;
-        string lib_sig = rows_signature (library, model.config.show_technical_info,
-            model.config.icon_size) + "|sort:" +
-            StationSort.library_sort_to_string (model.config.library_sort) +
-            (model.config.library_sort_descending ? ":desc" : ":asc");
-        if (lib_sig != library_signature) {
-            library_signature = lib_sig;
-            list_box.remove_all ();
-            for (uint i = 0; i < library.length; i++) {
-                var station = library.get (i);
-                var row = new Gradio.StationRow (station, true, model.config.show_technical_info,
-                    false, false, false, model.favicon_for (station), model.config.icon_size, dispatch);
-                list_box.append (row);
-                if (model.config.library_sort == LibrarySortMode.CUSTOM)
-                    attach_library_drag (row);
-                row.set_drag_enabled (model.config.library_sort == LibrarySortMode.CUSTOM);
-            }
-        }
-        for (uint i = 0; i < library.length; i++) {
-            var station = library.get (i);
-            var row = list_box.get_row_at_index ((int) i) as Gradio.StationRow;
-            if (row == null)
-                continue;
-            bool is_current = model.current_station != null && model.current_station.id == station.id;
-            row.set_favicon (model.favicon_for (station));
-            row.set_state (is_current, model.playing, false, model.stream_title);
-        }
+        library_page.update (model);
 
-        bool empty = library.length == 0;
-        library_stack.set_visible_child_name (empty ? "empty" : "list");
+        add_page.update (model);
 
-        string discover_sig = "P|" + rows_signature (model.discover_popular,
-            model.config.show_technical_info, model.config.icon_size) + "N|" +
-            rows_signature (model.discover_new, model.config.show_technical_info,
-                model.config.icon_size);
-        if (discover_sig != discover_signature) {
-            discover_signature = discover_sig;
-            discover_popular_list.remove_all ();
-            for (uint i = 0; i < model.discover_popular.length; i++) {
-                var station = model.discover_popular.get (i);
-                discover_popular_list.append (new Gradio.StationRow (station, false,
-                    model.config.show_technical_info, false, false, false,
-                    model.favicon_for (station), model.config.icon_size, dispatch));
-            }
-            discover_new_list.remove_all ();
-            for (uint i = 0; i < model.discover_new.length; i++) {
-                var station = model.discover_new.get (i);
-                discover_new_list.append (new Gradio.StationRow (station, false,
-                    model.config.show_technical_info, false, false, false,
-                    model.favicon_for (station), model.config.icon_size, dispatch));
-            }
-        }
-        for (uint i = 0; i < model.discover_popular.length; i++) {
-            var station = model.discover_popular.get (i);
-            var row = discover_popular_list.get_row_at_index ((int) i) as Gradio.StationRow;
-            if (row == null)
-                continue;
-            row.set_favicon (model.favicon_for (station));
-            row.set_state (false, false, model.config.contains_station (station.id));
-        }
-        for (uint i = 0; i < model.discover_new.length; i++) {
-            var station = model.discover_new.get (i);
-            var row = discover_new_list.get_row_at_index ((int) i) as Gradio.StationRow;
-            if (row == null)
-                continue;
-            row.set_favicon (model.favicon_for (station));
-            row.set_state (false, false, model.config.contains_station (station.id));
-        }
-
-        var results = StationSort.sort_search (model.search_results, model.config.search_sort);
-        string result_sig = rows_signature (results, model.config.show_technical_info,
-            model.config.icon_size);
-        if (result_sig != search_signature) {
-            search_signature = result_sig;
-            search_list_box.remove_all ();
-            for (uint i = 0; i < results.length; i++) {
-                var station = results.get (i);
-                var row = new Gradio.StationRow (station, false, model.config.show_technical_info,
-                    false, false, false, model.favicon_for (station), model.config.icon_size, dispatch);
-                search_list_box.append (row);
-            }
-        }
-        for (uint i = 0; i < results.length; i++) {
-            var station = results.get (i);
-            var row = search_list_box.get_row_at_index ((int) i) as Gradio.StationRow;
-            if (row == null)
-                continue;
-            row.set_favicon (model.favicon_for (station));
-            row.set_state (false, false, model.config.contains_station (station.id));
-        }
-
-        bool discover_mode = adding && model.search_query == "" &&
-            !model.search_active && model.config.search_filters.is_empty ();
-        if (discover_mode) {
-            if (model.discover_loading) {
-                spinner.spinning = true;
-                add_stack.set_visible_child_name ("loading");
-            } else {
-                spinner.spinning = false;
-                if (model.discover_should_show_error ()) {
-                    search_error_label.label = model.discover_error;
-                    add_stack.set_visible_child_name ("error");
-                } else {
-                    discover_empty_label.visible =
-                        model.discover_popular.length == 0 && model.discover_new.length == 0;
-                    discover_error_label.label = model.discover_error ?? "";
-                    discover_error_label.visible = model.discover_error != null;
-                    add_stack.set_visible_child_name ("discover");
-                }
-            }
-        } else if (model.searching) {
-            spinner.spinning = true;
-            add_stack.set_visible_child_name ("loading");
-        } else {
-            spinner.spinning = false;
-            if (model.search_error != null) {
-                search_error_label.label = model.search_error;
-                add_stack.set_visible_child_name ("error");
-            } else if (!model.search_active) {
-                add_stack.set_visible_child_name ("idle");
-            } else if (model.search_results.length == 0) {
-                add_stack.set_visible_child_name ("empty");
-            } else {
-                add_stack.set_visible_child_name ("results");
-            }
-        }
-
-        details_revealer.reveal_child = model.details_visible;
-        details_panel.update (model.details_station, model);
         player_bar.update (model);
 
         status_label.label = model.status_message;
         status_bar.visible = model.config.show_status_bar && model.status_message != "";
+    }
+
+    public void update (Gradio.Message msg, Gradio.AppModel model) {
+        render (model);
     }
 }

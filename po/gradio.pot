@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: gradio\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-15 16:19+0200\n"
+"POT-Creation-Date: 2026-11-15 17:09+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -19,7 +19,7 @@ msgstr ""
 
 #: data/io.github.sfesenko.gradio.desktop.in:2
 #: data/io.github.sfesenko.gradio.appdata.xml.in:4 src/main.vala:106
-#: src/app-view.vala:83 src/app-view.vala:125 src/app-view.vala:1112
+#: src/app-view.vala:50 src/app-view.vala:92 src/app-view.vala:451
 msgid "Gradio"
 msgstr ""
 
@@ -96,270 +96,102 @@ msgstr ""
 msgid "Listen to internet radio stations."
 msgstr ""
 
-#: src/app-view.vala:98 src/app-view.vala:438 src/app-view.vala:1105
+#: src/app-view.vala:65 src/app-view.vala:444 src/view/library-page.vala:35
 msgid "Add station"
 msgstr ""
 
-#: src/app-view.vala:105
+#: src/app-view.vala:72
 msgid "Back to library"
 msgstr ""
 
-#: src/app-view.vala:143
+#: src/app-view.vala:110
 msgid "Menu"
 msgstr ""
 
-#: src/app-view.vala:146
+#: src/app-view.vala:113
 msgid "Add local station…"
 msgstr ""
 
-#: src/app-view.vala:147
+#: src/app-view.vala:114
 msgid "Import stations…"
 msgstr ""
 
-#: src/app-view.vala:148
+#: src/app-view.vala:115
 msgid "Export stations…"
 msgstr ""
 
-#: src/app-view.vala:149
+#: src/app-view.vala:116
 msgid "Export playlist…"
 msgstr ""
 
-#: src/app-view.vala:150 src/view/settings-dialog.vala:7
+#: src/app-view.vala:117 src/view/settings-dialog.vala:7
 msgid "Preferences"
 msgstr ""
 
-#: src/app-view.vala:151
+#: src/app-view.vala:118
 msgid "About"
 msgstr ""
 
-#: src/app-view.vala:152
+#: src/app-view.vala:119
 msgid "Quit"
 msgstr ""
 
-#: src/app-view.vala:158
+#: src/app-view.vala:125
 msgid "Sort library"
 msgstr ""
 
-#: src/app-view.vala:166
+#: src/app-view.vala:133
 msgid "Custom order"
 msgstr ""
 
-#: src/app-view.vala:167 src/view/station-editor-dialog.vala:70
+#: src/app-view.vala:134 src/view/station-editor-dialog.vala:70
 msgid "Name"
 msgstr ""
 
-#: src/app-view.vala:168 src/app-view.vala:527
+#: src/app-view.vala:135 src/view/add-station-page.vala:70
 #: src/view/station-editor-dialog.vala:73
 msgid "Country"
 msgstr ""
 
-#: src/app-view.vala:169 src/app-view.vala:531
+#: src/app-view.vala:136 src/view/add-station-page.vala:74
 #: src/view/station-editor-dialog.vala:74
 msgid "State"
 msgstr ""
 
-#: src/app-view.vala:170 src/app-view.vala:545
+#: src/app-view.vala:137 src/view/add-station-page.vala:88
 #: src/view/station-editor-dialog.vala:75
 msgid "Language"
 msgstr ""
 
-#: src/app-view.vala:171 src/app-view.vala:508
+#: src/app-view.vala:138 src/view/add-station-page.vala:51
 msgid "Bitrate"
 msgstr ""
 
-#: src/app-view.vala:185
+#: src/app-view.vala:152
 msgid "Descending"
 msgstr ""
 
-#: src/app-view.vala:235 src/app-view.vala:1050
-msgid "Cast to a device"
-msgstr ""
-
-#: src/app-view.vala:244 src/app-view.vala:1084
-msgid "Local volume"
-msgstr ""
-
-#: src/app-view.vala:268
-msgid "Discover devices"
-msgstr ""
-
-#: src/app-view.vala:289
-msgid "Cast current stream"
-msgstr ""
-
-#: src/app-view.vala:291
-msgid "Stop casting"
-msgstr ""
-
-#: src/app-view.vala:293 src/view/settings-dialog.vala:105
-msgid "Play on this computer"
-msgstr ""
-
-#: src/app-view.vala:434
-msgid "Your library is empty"
-msgstr ""
-
-#: src/app-view.vala:436
-msgid "Press + to add a radio station"
-msgstr ""
-
-#: src/app-view.vala:498
-msgid "Search for radio stations"
-msgstr ""
-
-#: src/app-view.vala:508
-msgid "Relevance"
-msgstr ""
-
-#: src/app-view.vala:508
-msgid "Clicks"
-msgstr ""
-
-#: src/app-view.vala:508
-msgid "Votes"
-msgstr ""
-
-#: src/app-view.vala:509
-msgid "Sort search results"
-msgstr ""
-
-#: src/app-view.vala:527
-msgid "Filter by country"
-msgstr ""
-
-#: src/app-view.vala:534
-msgid "Filter by state"
-msgstr ""
-
-#: src/app-view.vala:545
-msgid "Filter by language"
-msgstr ""
-
-#: src/app-view.vala:549
-msgid "Tag"
-msgstr ""
-
-#: src/app-view.vala:549
-msgid "Filter by tag"
-msgstr ""
-
-#: src/app-view.vala:559
-msgid "Search by name, or leave it empty and use the filters below."
-msgstr ""
-
-#: src/app-view.vala:589
-msgid "Popular near you"
-msgstr ""
-
-#: src/app-view.vala:600
-msgid "New stations"
-msgstr ""
-
-#: src/app-view.vala:612 src/app-view.vala:634
-msgid "No stations found."
-msgstr ""
-
-#: src/app-view.vala:694 src/app-view.vala:707 src/app-view.vala:750
-msgid "Any"
-msgstr ""
-
-#: src/app-view.vala:892
+#: src/app-view.vala:357
 msgid "JSON files"
 msgstr ""
 
-#: src/app-view.vala:906
+#: src/app-view.vala:371
 msgid "Import stations"
 msgstr ""
 
-#: src/app-view.vala:926
+#: src/app-view.vala:391
 msgid "Export stations"
 msgstr ""
 
-#: src/app-view.vala:947
+#: src/app-view.vala:412
 msgid "Export playlist"
 msgstr ""
 
-#: src/app-view.vala:952
+#: src/app-view.vala:417
 msgid "M3U playlists"
 msgstr ""
 
-#: src/app-view.vala:1010
-msgid "Not casting"
-msgstr ""
-
-#: src/app-view.vala:1013
-msgid "Discovering…"
-msgstr ""
-
-#: src/app-view.vala:1017
-#, c-format
-msgid "Ready to cast to %s"
-msgstr ""
-
-#: src/app-view.vala:1018
-msgid "Ready to cast"
-msgstr ""
-
-#: src/app-view.vala:1021 src/app-update.vala:880 src/app-update.vala:953
-#: src/app-update.vala:963 src/app-update.vala:978 src/app-update.vala:1600
-#: src/app-update.vala:1698 src/app-update.vala:1817 src/app-update.vala:1997
-msgid "Connecting…"
-msgstr ""
-
-#: src/app-view.vala:1025 src/app-view.vala:1054
-#, c-format
-msgid "Casting to %s"
-msgstr ""
-
-#: src/app-view.vala:1026
-msgid "Casting"
-msgstr ""
-
-#: src/app-view.vala:1029 src/app-update.vala:1916
-msgid "Buffering…"
-msgstr ""
-
-#: src/app-view.vala:1032 src/app-update.vala:1329 src/app-update.vala:1901
-msgid "Paused on cast device"
-msgstr ""
-
-#: src/app-view.vala:1035
-msgid "Stopped"
-msgstr ""
-
-#: src/app-view.vala:1042 src/app-view.vala:1060 src/cast/cast-service.vala:835
-#: src/cast/cast-service.vala:912 src/app-update.vala:1353
-msgid "Cast connection lost"
-msgstr ""
-
-#: src/app-view.vala:1046 src/app-view.vala:1052 src/app-view.vala:1072
-#: src/backend/player.vala:217 src/app-update.vala:1862
-msgid "Reconnecting…"
-msgstr ""
-
-#: src/app-view.vala:1056
-#, c-format
-msgid "Buffering on %s"
-msgstr ""
-
-#: src/app-view.vala:1058
-#, c-format
-msgid "Paused on %s"
-msgstr ""
-
-#: src/app-view.vala:1070
-msgid "Discover cast devices"
-msgstr ""
-
-#: src/app-view.vala:1073
-msgid "Stop casting to change device"
-msgstr ""
-
-#: src/app-view.vala:1084
-msgid "Volume (local and cast)"
-msgstr ""
-
-#: src/app-view.vala:1108
+#: src/app-view.vala:447
 #, c-format
 msgid "Gradio: %s"
 msgstr ""
@@ -396,16 +228,16 @@ msgstr ""
 msgid "Voting…"
 msgstr ""
 
-#: src/view/player-bar.vala:28 src/view/player-bar.vala:124
-#: src/view/station-row.vala:149 src/view/station-row.vala:170
+#: src/view/player-bar.vala:30 src/view/player-bar.vala:139
+#: src/view/station-row.vala:158 src/view/station-row.vala:200
 msgid "Play"
 msgstr ""
 
-#: src/view/player-bar.vala:59
+#: src/view/player-bar.vala:61
 msgid "Track history"
 msgstr ""
 
-#: src/view/player-bar.vala:124 src/view/station-row.vala:149
+#: src/view/player-bar.vala:139 src/view/station-row.vala:158
 msgid "Stop"
 msgstr ""
 
@@ -446,6 +278,10 @@ msgstr ""
 msgid "Stop playback"
 msgstr ""
 
+#: src/view/settings-dialog.vala:105 src/view/cast-button.vala:90
+msgid "Play on this computer"
+msgstr ""
+
 #: src/view/settings-dialog.vala:114
 msgid "When a cast is lost"
 msgstr ""
@@ -470,45 +306,214 @@ msgstr ""
 msgid "Favicon cache"
 msgstr ""
 
-#: src/view/station-row.vala:48
+#: src/view/station-row.vala:58
 msgid "Drag to reorder"
 msgstr ""
 
-#: src/view/station-row.vala:79 src/view/station-row.vala:152
+#: src/view/station-row.vala:88 src/view/station-row.vala:161
 msgid "Added"
 msgstr ""
 
-#: src/view/station-row.vala:79 src/view/station-row.vala:152
+#: src/view/station-row.vala:88 src/view/station-row.vala:161
 msgid "Add"
 msgstr ""
 
-#: src/view/station-row.vala:107
+#: src/view/station-row.vala:116
 msgid "Unavailable"
 msgstr ""
 
-#: src/view/station-row.vala:182
+#: src/view/station-row.vala:212
 msgid "Details"
 msgstr ""
 
-#: src/view/station-row.vala:189
+#: src/view/station-row.vala:219
 msgid "Remove from library"
 msgstr ""
 
-#: src/view/station-row.vala:205
+#: src/view/station-row.vala:235
 #, c-format
 msgid "Remove %s?"
 msgstr ""
 
-#: src/view/station-row.vala:206
+#: src/view/station-row.vala:236
 msgid "This locally created station cannot be restored."
 msgstr ""
 
-#: src/view/station-row.vala:207 src/view/station-editor-dialog.vala:28
+#: src/view/station-row.vala:237 src/view/station-editor-dialog.vala:28
 msgid "Cancel"
 msgstr ""
 
-#: src/view/station-row.vala:207
+#: src/view/station-row.vala:237
 msgid "Remove"
+msgstr ""
+
+#: src/view/library-page.vala:31
+msgid "Your library is empty"
+msgstr ""
+
+#: src/view/library-page.vala:33
+msgid "Press + to add a radio station"
+msgstr ""
+
+#: src/view/add-station-page.vala:38
+msgid "Search for radio stations"
+msgstr ""
+
+#: src/view/add-station-page.vala:51
+msgid "Relevance"
+msgstr ""
+
+#: src/view/add-station-page.vala:51
+msgid "Clicks"
+msgstr ""
+
+#: src/view/add-station-page.vala:51
+msgid "Votes"
+msgstr ""
+
+#: src/view/add-station-page.vala:52
+msgid "Sort search results"
+msgstr ""
+
+#: src/view/add-station-page.vala:70
+msgid "Filter by country"
+msgstr ""
+
+#: src/view/add-station-page.vala:77
+msgid "Filter by state"
+msgstr ""
+
+#: src/view/add-station-page.vala:88
+msgid "Filter by language"
+msgstr ""
+
+#: src/view/add-station-page.vala:92
+msgid "Tag"
+msgstr ""
+
+#: src/view/add-station-page.vala:92
+msgid "Filter by tag"
+msgstr ""
+
+#: src/view/add-station-page.vala:102
+msgid "Search by name, or leave it empty and use the filters below."
+msgstr ""
+
+#: src/view/add-station-page.vala:129
+msgid "Popular near you"
+msgstr ""
+
+#: src/view/add-station-page.vala:137
+msgid "New stations"
+msgstr ""
+
+#: src/view/add-station-page.vala:146 src/view/add-station-page.vala:168
+msgid "No stations found."
+msgstr ""
+
+#: src/view/add-station-page.vala:288 src/view/add-station-page.vala:301
+#: src/view/add-station-page.vala:345
+msgid "Any"
+msgstr ""
+
+#: src/view/cast-button.vala:30 src/view/cast-button.vala:171
+msgid "Cast to a device"
+msgstr ""
+
+#: src/view/cast-button.vala:42 src/view/cast-button.vala:205
+msgid "Local volume"
+msgstr ""
+
+#: src/view/cast-button.vala:64
+msgid "Discover devices"
+msgstr ""
+
+#: src/view/cast-button.vala:86
+msgid "Cast current stream"
+msgstr ""
+
+#: src/view/cast-button.vala:88
+msgid "Stop casting"
+msgstr ""
+
+#: src/view/cast-button.vala:131
+msgid "Not casting"
+msgstr ""
+
+#: src/view/cast-button.vala:134
+msgid "Discovering…"
+msgstr ""
+
+#: src/view/cast-button.vala:138
+#, c-format
+msgid "Ready to cast to %s"
+msgstr ""
+
+#: src/view/cast-button.vala:139
+msgid "Ready to cast"
+msgstr ""
+
+#: src/view/cast-button.vala:142 src/app-update.vala:880
+#: src/app-update.vala:953 src/app-update.vala:963 src/app-update.vala:978
+#: src/app-update.vala:1600 src/app-update.vala:1698 src/app-update.vala:1817
+#: src/app-update.vala:1997
+msgid "Connecting…"
+msgstr ""
+
+#: src/view/cast-button.vala:146 src/view/cast-button.vala:175
+#, c-format
+msgid "Casting to %s"
+msgstr ""
+
+#: src/view/cast-button.vala:147
+msgid "Casting"
+msgstr ""
+
+#: src/view/cast-button.vala:150 src/app-update.vala:1916
+msgid "Buffering…"
+msgstr ""
+
+#: src/view/cast-button.vala:153 src/app-update.vala:1329
+#: src/app-update.vala:1901
+msgid "Paused on cast device"
+msgstr ""
+
+#: src/view/cast-button.vala:156
+msgid "Stopped"
+msgstr ""
+
+#: src/view/cast-button.vala:163 src/view/cast-button.vala:181
+#: src/cast/cast-service.vala:835 src/cast/cast-service.vala:912
+#: src/app-update.vala:1353
+msgid "Cast connection lost"
+msgstr ""
+
+#: src/view/cast-button.vala:167 src/view/cast-button.vala:173
+#: src/view/cast-button.vala:193 src/backend/player.vala:217
+#: src/app-update.vala:1862
+msgid "Reconnecting…"
+msgstr ""
+
+#: src/view/cast-button.vala:177
+#, c-format
+msgid "Buffering on %s"
+msgstr ""
+
+#: src/view/cast-button.vala:179
+#, c-format
+msgid "Paused on %s"
+msgstr ""
+
+#: src/view/cast-button.vala:191
+msgid "Discover cast devices"
+msgstr ""
+
+#: src/view/cast-button.vala:194
+msgid "Stop casting to change device"
+msgstr ""
+
+#: src/view/cast-button.vala:205
+msgid "Volume (local and cast)"
 msgstr ""
 
 #: src/view/station-editor-dialog.vala:21
